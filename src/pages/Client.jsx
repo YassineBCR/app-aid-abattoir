@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useDarkMode } from "../contexts/DarkModeContext";
+import { 
+  FiCalendar, FiClock, FiUser, FiMail, FiPhone, FiMapPin, 
+  FiCheck, FiCreditCard, FiLoader 
+} from "react-icons/fi";
 
-const ACOMPTE_CENTS = 10000; // 100 €
+const ACOMPTE_CENTS = 5000; // Acompte fixé à 50€ (exemple, tu peux remettre 100€)
 const RESERVE_TIMEOUT_MIN = 15;
 
 export default function Client() {
+  const { darkMode } = useDarkMode();
   const [user, setUser] = useState(null);
   const [creneaux, setCreneaux] = useState([]);
+  const [tarifs, setTarifs] = useState([]); // Pour stocker les catégories
+  
   const [selectedCreneau, setSelectedCreneau] = useState(null);
+  const [selectedTarif, setSelectedTarif] = useState(null); // La catégorie choisie (objet complet)
+  
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
 
@@ -20,6 +30,7 @@ export default function Client() {
     sacrifice_name: "",
   });
 
+  // 1. Charger Utilisateur + Créneaux + Tarifs
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUser(data?.user ?? null);
@@ -27,27 +38,35 @@ export default function Client() {
         setForm((f) => ({ ...f, email: data.user.email }));
       }
     });
+
+    fetchCreneaux();
+    fetchTarifs();
   }, []);
 
   async function fetchCreneaux() {
     setLoading(true);
     const { data, error } = await supabase.rpc("get_creneaux_dispo");
+    if (error) console.error(error);
+    else setCreneaux(data ?? []);
     setLoading(false);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setCreneaux(data ?? []);
   }
 
-  useEffect(() => {
-    fetchCreneaux();
-  }, []);
+  async function fetchTarifs() {
+    const { data, error } = await supabase
+      .from("tarifs")
+      .select("*")
+      .order("prix_cents", { ascending: true });
+    
+    if (error) console.error("Erreur tarifs:", error);
+    else setTarifs(data ?? []);
+  }
 
+  // Vérification formulaire complet
   const canSubmit = useMemo(() => {
     return (
       user &&
       selectedCreneau &&
+      selectedTarif && // Il faut avoir choisi une catégorie
       Number(selectedCreneau.places_restantes) > 0 &&
       form.first_name &&
       form.last_name &&
@@ -56,7 +75,7 @@ export default function Client() {
       form.sacrifice_name &&
       !paying
     );
-  }, [user, selectedCreneau, form, paying]);
+  }, [user, selectedCreneau, selectedTarif, form, paying]);
 
   async function reserverEtPayer() {
     if (!user) return alert("Connecte-toi pour réserver.");
@@ -65,7 +84,7 @@ export default function Client() {
     let commandeId = null;
 
     try {
-      // 1️⃣ Réserver ticket (commande créée + ticket attribué)
+      // 1️⃣ Réserver ticket via RPC mise à jour
       const { data, error } = await supabase.rpc("reserve_ticket", {
         p_creneau_id: selectedCreneau.id,
         p_client_id: user.id,
@@ -76,6 +95,7 @@ export default function Client() {
         p_address: form.address,
         p_sacrifice_name: form.sacrifice_name,
         p_acompte_cents: ACOMPTE_CENTS,
+        p_categorie: selectedTarif.categorie // On envoie "A", "B", ou "C"
       });
 
       if (error) throw error;
@@ -84,37 +104,15 @@ export default function Client() {
       commandeId = row?.commande_id;
       const ticketNum = row?.ticket_num;
 
-      if (!commandeId || !ticketNum) {
-        throw new Error("Réservation invalide (ticket manquant).");
-      }
+      if (!commandeId) throw new Error("Erreur réservation.");
 
-      console.log("✅ Ticket réservé :", { commandeId, ticketNum });
-
-      // 2️⃣ Paiement MOCK (SumUp désactivé)
-      // On redirige vers une page interne qui simule :
-      // - paiement réussi
-      // - paiement échoué (annule + libère ticket)
-      // - paiement en attente
+      // 2️⃣ Redirection Paiement MOCK
       window.location.assign(
-        `/mock-pay?commande_id=${encodeURIComponent(commandeId)}&ticket_num=${encodeURIComponent(
-          ticketNum
-        )}`
+        `/mock-pay?commande_id=${encodeURIComponent(commandeId)}&ticket_num=${encodeURIComponent(ticketNum)}`
       );
     } catch (e) {
       console.error(e);
-
-      // 🔄 rollback ticket si la réservation a été faite mais qu'on n'arrive pas à continuer
-      if (commandeId) {
-        try {
-          await supabase.rpc("cancel_commande", {
-            p_commande_id: commandeId,
-          });
-        } catch (rb) {
-          console.error("Rollback cancel_commande failed:", rb);
-        }
-      }
-
-      alert(e.message);
+      alert("Erreur : " + e.message);
       fetchCreneaux();
     } finally {
       setPaying(false);
@@ -122,160 +120,249 @@ export default function Client() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        {/* En-tête avec animation */}
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl sm:text-5xl font-extrabold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-            Réserver un créneau
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 py-6 sm:py-8 px-4 sm:px-6 lg:px-8 transition-colors duration-200">
+      <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
+        
+        {/* En-tête */}
+        <div className="text-center space-y-2 sm:space-y-3">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-green-700 dark:text-green-400 flex items-center justify-center gap-3">
+            <FiUser className="text-2xl sm:text-3xl" />
+            Réserver mon Agneau
           </h1>
-          <p className="text-slate-600 text-sm sm:text-base">
-            Sélectionnez votre créneau et complétez vos informations
+          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
+            Choisissez votre créneau, le type d'agneau et réglez l'acompte.
           </p>
         </div>
 
-        {/* Section Créneaux */}
-        <div className="bg-white/90 rounded-2xl shadow-lg border border-slate-200 p-6 sm:p-8 transition-shadow duration-200 hover:shadow-xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">
-              📅
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800">Créneaux disponibles</h2>
-          </div>
+        {/* ÉTAPE 1 : CRÉNEAUX */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <FiCalendar className="text-green-600 dark:text-green-400" />
+            1. Choisissez un créneau de retrait
+          </h2>
 
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-indigo-600 font-semibold">Chargement...</span>
-                </div>
-              </div>
-            </div>
-          ) : creneaux.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              <p className="text-lg">Aucun créneau disponible pour le moment</p>
+            <div className="flex items-center justify-center py-8">
+              <FiLoader className="animate-spin text-green-600 dark:text-green-400 text-2xl" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {creneaux.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => setSelectedCreneau(c)}
-                  className={`relative rounded-xl p-5 text-left border-2 transition-all duration-200 ${
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${
                     selectedCreneau?.id === c.id
-                      ? "border-indigo-500 bg-gradient-to-br from-indigo-50 to-purple-50 shadow-md ring-2 ring-indigo-200"
-                      : "border-slate-200 bg-white hover:border-indigo-300 hover:shadow-sm"
+                      ? "border-green-600 dark:border-green-500 bg-green-50 dark:bg-green-900/20 ring-2 ring-green-200 dark:ring-green-800"
+                      : "border-slate-200 dark:border-slate-700 hover:border-green-400 dark:hover:border-green-600 bg-white dark:bg-slate-700"
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">🗓️</span>
-                      <span className="font-bold text-slate-800">Jour {c.jour}</span>
-                    </div>
-                    {selectedCreneau?.id === c.id && (
-                      <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center">
-                        <span className="text-white text-xs">✓</span>
-                      </div>
-                    )}
+                  <div className="font-bold text-base sm:text-lg text-slate-800 dark:text-slate-100">Jour {c.jour}</div>
+                  <div className="text-green-700 dark:text-green-400 font-semibold text-sm sm:text-base flex items-center gap-2 mt-1">
+                    <FiClock className="text-xs" />
+                    {c.heure_debut} - {c.heure_fin}
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-slate-600">
-                      <span className="text-lg">🕐</span>
-                      <span className="font-semibold">
-                        {c.heure_debut} → {c.heure_fin}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                        Number(c.places_restantes) > 5
-                          ? "bg-green-100 text-green-700"
-                          : Number(c.places_restantes) > 0
-                          ? "bg-orange-100 text-orange-700"
-                          : "bg-red-100 text-red-700"
-                      }`}>
-                        {c.places_restantes} {c.places_restantes === 1 ? "place" : "places"}
-                      </span>
-                    </div>
+                  <div className={`text-xs sm:text-sm mt-2 flex items-center gap-1 ${
+                    c.places_restantes > 0 
+                      ? "text-green-600 dark:text-green-400" 
+                      : "text-red-500 dark:text-red-400"
+                  }`}>
+                    {c.places_restantes} {c.places_restantes === 1 ? "place" : "places"} dispo
                   </div>
+                  {selectedCreneau?.id === c.id && (
+                    <div className="mt-2 flex items-center gap-1 text-green-600 dark:text-green-400 text-sm">
+                      <FiCheck className="text-base" />
+                      <span>Sélectionné</span>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Section Formulaire */}
-        <div className="bg-white/90 rounded-2xl shadow-lg border border-slate-200 p-6 sm:p-8 transition-shadow duration-200 hover:shadow-xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white text-xl font-bold shadow-md">
-              ✏️
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800">Informations client</h2>
-          </div>
+        {/* ÉTAPE 2 : CHOIX AGNEAU */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <FiUser className="text-green-600 dark:text-green-400" />
+            2. Choisissez votre catégorie
+          </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[
-              ["Prénom", "first_name", "👤"],
-              ["Nom", "last_name", "👤"],
-              ["Téléphone", "phone", "📱"],
-              ["Email", "email", "📧"],
-              ["Adresse", "address", "📍"],
-              ["Nom du sacrifice", "sacrifice_name", "🐑"],
-            ].map(([label, key, icon]) => (
-              <div
-                key={key}
-                className={key === "address" || key === "sacrifice_name" ? "sm:col-span-2" : ""}
-              >
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <span className="mr-2">{icon}</span>
-                  {label}
-                </label>
-                <input
-                  className="w-full border-2 border-slate-200 rounded-xl p-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors duration-150 bg-white hover:border-slate-300"
-                  placeholder={label}
-                  value={form[key]}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                />
-              </div>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {tarifs.length === 0 ? (
+              <p className="text-slate-500 dark:text-slate-400 italic col-span-full text-center py-4">
+                Aucun tarif configuré.
+              </p>
+            ) : (
+              tarifs.map((t) => (
+                <button
+                  key={t.categorie}
+                  onClick={() => setSelectedTarif(t)}
+                  className={`relative p-4 sm:p-5 rounded-xl border-2 transition-all flex flex-col justify-between min-h-[140px] ${
+                    selectedTarif?.categorie === t.categorie
+                      ? "border-green-600 dark:border-green-500 bg-green-50 dark:bg-green-900/20 ring-2 ring-green-200 dark:ring-green-800 shadow-md"
+                      : "border-slate-200 dark:border-slate-700 hover:border-green-400 dark:hover:border-green-600 hover:shadow-sm bg-white dark:bg-slate-700"
+                  }`}
+                >
+                  <div>
+                    <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">
+                      Catégorie {t.categorie}
+                    </div>
+                    <div className="font-bold text-lg sm:text-xl text-slate-800 dark:text-slate-100 mb-2">
+                      {t.nom}
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-4 line-clamp-2">
+                      {t.description}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl sm:text-2xl font-black text-green-700 dark:text-green-400">
+                      {(t.prix_cents / 100).toFixed(0)} €
+                    </span>
+                  </div>
+                  {selectedTarif?.categorie === t.categorie && (
+                    <div className="absolute top-3 right-3 text-green-600 dark:text-green-400">
+                      <FiCheck className="text-xl" />
+                    </div>
+                  )}
+                </button>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Bouton de réservation */}
-        <div className="space-y-4">
+        {/* ÉTAPE 3 : FORMULAIRE */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <FiUser className="text-green-600 dark:text-green-400" />
+            3. Vos coordonnées
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <div className="relative">
+              <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              <input 
+                className="input-field pl-10" 
+                placeholder="Prénom" 
+                value={form.first_name} 
+                onChange={e => setForm({...form, first_name: e.target.value})} 
+              />
+            </div>
+            <div className="relative">
+              <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              <input 
+                className="input-field pl-10" 
+                placeholder="Nom" 
+                value={form.last_name} 
+                onChange={e => setForm({...form, last_name: e.target.value})} 
+              />
+            </div>
+            <div className="relative">
+              <FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              <input 
+                className="input-field pl-10" 
+                placeholder="Téléphone" 
+                value={form.phone} 
+                onChange={e => setForm({...form, phone: e.target.value})} 
+              />
+            </div>
+            <div className="relative">
+              <FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              <input 
+                className="input-field pl-10" 
+                placeholder="Email" 
+                value={form.email} 
+                onChange={e => setForm({...form, email: e.target.value})} 
+              />
+            </div>
+            <div className="sm:col-span-2 relative">
+              <FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              <input 
+                className="input-field w-full pl-10" 
+                placeholder="Nom pour le sacrifice (ex: Famille X...)" 
+                value={form.sacrifice_name} 
+                onChange={e => setForm({...form, sacrifice_name: e.target.value})} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* RÉCAPITULATIF FINANCIER & BOUTON */}
+        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 sm:p-6 border border-slate-200 dark:border-slate-700 space-y-3 sm:space-y-4">
+          <div className="flex justify-between items-center text-sm text-slate-600 dark:text-slate-400">
+            <span>Prix Total de la bête :</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200">
+              {selectedTarif ? (selectedTarif.prix_cents / 100) + " €" : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-base sm:text-lg font-bold text-green-700 dark:text-green-400 border-t pt-2 border-slate-200 dark:border-slate-700">
+            <span>Acompte à régler maintenant :</span>
+            <span>{(ACOMPTE_CENTS / 100).toFixed(2)} €</span>
+          </div>
+          <div className="text-xs text-right text-slate-500 dark:text-slate-400">
+            Reste à payer le jour J : {selectedTarif ? ((selectedTarif.prix_cents - ACOMPTE_CENTS) / 100) + " €" : "—"}
+          </div>
+
           <button
             disabled={!canSubmit}
             onClick={reserverEtPayer}
-            className={`w-full group relative overflow-hidden rounded-xl p-4 font-bold text-lg text-white transition-all duration-200 ${
-              canSubmit
-                ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 hover:shadow-lg active:opacity-90"
-                : "bg-slate-300 cursor-not-allowed"
+            className={`w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
+              canSubmit 
+                ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 active:opacity-90" 
+                : "bg-gray-300 dark:bg-gray-600 cursor-not-allowed text-gray-500 dark:text-gray-400"
             }`}
           >
             {paying ? (
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span>Redirection paiement…</span>
-              </div>
+              <>
+                <FiLoader className="animate-spin text-xl" />
+                <span>Traitement...</span>
+              </>
             ) : (
-              <div className="flex items-center justify-center gap-3">
-                <span>💳</span>
-                <span>Payer l'acompte & réserver (MOCK)</span>
-                <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
-              </div>
+              <>
+                <FiCreditCard className="text-xl" />
+                <span>Payer l'acompte ({(ACOMPTE_CENTS/100)} €)</span>
+              </>
             )}
           </button>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex items-start gap-3">
-            <span className="text-xl">⏱️</span>
-            <p>
-              <strong>Note importante :</strong> Le ticket est "réservé" pendant {RESERVE_TIMEOUT_MIN} minutes. 
-              Si le paiement ne démarre pas, la réservation sera automatiquement annulée.
-            </p>
-          </div>
+          
+          <p className="text-xs text-center text-slate-500 dark:text-slate-400">
+            Votre réservation est maintenue {RESERVE_TIMEOUT_MIN} min le temps du paiement.
+          </p>
         </div>
+
       </div>
 
+      {/* Style utilitaire pour les inputs */}
+      <style>{`
+        .input-field {
+            border: 2px solid #e2e8f0;
+            padding: 12px;
+            border-radius: 10px;
+            width: 100%;
+            outline: none;
+            transition: all 0.2s;
+            background-color: white;
+            color: #1e293b;
+        }
+        .dark .input-field {
+            border-color: #475569;
+            background-color: #1e293b;
+            color: #f1f5f9;
+        }
+        .input-field:focus {
+            border-color: #22c55e;
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+        }
+        .dark .input-field:focus {
+            border-color: #4ade80;
+            box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2);
+        }
+        .input-field::placeholder {
+            color: #94a3b8;
+        }
+        .dark .input-field::placeholder {
+            color: #64748b;
+        }
+      `}</style>
     </div>
   );
 }

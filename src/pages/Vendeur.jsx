@@ -2,231 +2,294 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Scanner } from "@yudiel/react-qr-scanner";
 
-// --- CONFIGURATION ---
-const PRIX_TOTAL_CENTS = 25000; // Exemple: 250.00 € prix total de la bête
-// Tu pourras rendre ça dynamique plus tard selon le type de sacrifice
-
 export default function Vendeur() {
-  const [showScanner, setShowScanner] = useState(false);
-  const [scannedData, setScannedData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  // État Caisse
+  const [caisse, setCaisse] = useState(null); // Si null = caisse fermée
+  const [loadingCaisse, setLoadingCaisse] = useState(true);
   
-  // Liste classique (pour recherche manuelle)
+  // État Scan & Commande
+  const [showScanner, setShowScanner] = useState(false);
+  const [commande, setCommande] = useState(null);
+  const [loadingCmd, setLoadingCmd] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
-  const [searchResult, setSearchResult] = useState(null);
 
-  // --- 1. GESTION DU SCAN ---
-  const handleScan = async (result) => {
-    if (result) {
-      // Le QR code contient souvent du texte brut, on essaie de parser le JSON
-      try {
-        const rawValue = result[0]?.rawValue; // Dépend de la lib, parfois result?.text
-        if (!rawValue) return;
+  // État Clôture
+  const [showCloture, setShowCloture] = useState(false);
+  const [reelEspeces, setReelEspeces] = useState("");
+  const [reelCB, setReelCB] = useState("");
 
-        console.log("QR Lu :", rawValue);
-        const data = JSON.parse(rawValue);
+  useEffect(() => {
+    checkCaisse();
+  }, []);
 
-        // On coupe la caméra et on charge la commande
-        setShowScanner(false);
-        await chargerCommande(data.id);
-      } catch (e) {
-        console.error("Erreur lecture QR", e);
-        alert("QR Code invalide ou illisible.");
-        setShowScanner(false);
-      }
-    }
-  };
-
-  // --- 2. CHARGEMENT COMMANDE (Scan ou Recherche) ---
-  async function chargerCommande(commandeId) {
-    setLoading(true);
-    setScannedData(null);
-    setMessage("");
-
-    const { data, error } = await supabase
-      .from("commandes")
-      .select(`
-        *,
-        creneaux_horaires (heure_debut, heure_fin)
-      `)
-      .eq("id", commandeId)
-      .single();
-
-    setLoading(false);
-
-    if (error || !data) {
-      alert("Commande introuvable dans la base !");
-      return;
-    }
-
-    setScannedData(data);
-  }
-
-  // --- 3. VALIDATION DU RETRAIT ---
-  async function validerRetrait() {
-    if (!scannedData) return;
-    const confirm = window.confirm("Confirmer que le client a payé le solde et récupéré son dû ?");
-    if (!confirm) return;
-
-    setLoading(true);
-    const { error } = await supabase
-      .from("commandes")
-      .update({ statut: "livree" }) // On passe en statut final
-      .eq("id", scannedData.id);
-
-    setLoading(false);
-
-    if (error) {
-      alert("Erreur mise à jour : " + error.message);
-    } else {
-      alert("✅ Retrait validé avec succès !");
-      setScannedData(null); // On reset pour le suivant
-    }
-  }
-
-  // --- 4. RECHERCHE MANUELLE (Fallback) ---
-  async function handleManualSearch(e) {
-    e.preventDefault();
-    // On cherche par N° Ticket (plus simple pour l'humain)
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("commandes")
-      .select("id")
-      .eq("ticket_num", manualSearch)
-      .single();
+  // 1. VÉRIFIER SI J'AI UNE CAISSE OUVERTE
+  async function checkCaisse() {
+    setLoadingCaisse(true);
+    const { data, error } = await supabase.rpc("get_ma_caisse_ouverte");
+    if (error) console.error(error);
     
-    setLoading(false);
-
-    if (data) {
-      chargerCommande(data.id);
+    if (data && data.length > 0) {
+      setCaisse(data[0]);
     } else {
-      alert("Aucune commande trouvée avec ce numéro de ticket.");
+      setCaisse(null);
+    }
+    setLoadingCaisse(false);
+  }
+
+  // 2. OUVRIR MA CAISSE
+  async function ouvrirCaisse() {
+    const fond = prompt("Fond de caisse initial (en €) ?", "0");
+    if (fond === null) return;
+    
+    const fondCents = parseFloat(fond) * 100;
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const { error } = await supabase.from("caisses_vendeurs").insert({
+      vendeur_id: user.id,
+      fond_caisse_initial: fondCents,
+      statut: 'ouverte'
+    });
+
+    if (error) alert("Erreur ouverture: " + error.message);
+    else checkCaisse();
+  }
+
+  // 3. CHARGER UNE COMMANDE (Scan ou Recherche)
+  async function loadCommande(idOrTicket) {
+    setLoadingCmd(true);
+    let query = supabase.from("commandes").select("*, creneaux_horaires(*)");
+
+    // Si ça ressemble à un UUID (scan QR), on cherche par ID, sinon par ticket_num
+    if (idOrTicket.length > 20) query = query.eq("id", idOrTicket);
+    else query = query.eq("ticket_num", idOrTicket);
+
+    const { data, error } = await query.single();
+    setLoadingCmd(false);
+
+    if (error || !data) alert("Commande introuvable !");
+    else {
+      setCommande(data);
+      setShowScanner(false);
     }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-2xl mx-auto space-y-6">
-        
-        {/* EN-TÊTE */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm">
-          <h1 className="text-2xl font-bold text-gray-800">Espace Vendeur / Contrôle</h1>
-          <p className="text-gray-500 text-sm">Scanner les tickets à l'entrée ou à la caisse.</p>
-        </div>
+  // 4. ENCAISSER & VALIDER (Le cœur du métier)
+  async function encaisser(mode) {
+    if (!caisse) return alert("Erreur: Caisse fermée !");
+    if (!commande) return;
 
-        {/* BOUTONS D'ACTION */}
-        {!showScanner && !scannedData && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => setShowScanner(true)}
-              className="bg-indigo-600 text-white p-8 rounded-2xl shadow-lg flex flex-col items-center gap-4 hover:bg-indigo-700 transition-all"
+    // Calcul du reste à payer
+    const total = commande.montant_total_cents; // Prix stocké (ex: 25000)
+    const dejaPaye = commande.acompte_cents;   // Acompte (ex: 5000)
+    const reste = total - dejaPaye;
+
+    if (reste > 0) {
+        if (!confirm(`Confirmer encaissement de ${(reste/100).toFixed(2)} € en ${mode.toUpperCase()} ?`)) return;
+        
+        // A. Enregistrer l'encaissement
+        const { error: errEnc } = await supabase.from("encaissements").insert({
+            caisse_id: caisse.id,
+            commande_id: commande.id,
+            montant_cents: reste,
+            mode_paiement: mode
+        });
+        if (errEnc) return alert("Erreur encaissement: " + errEnc.message);
+    }
+
+    // B. Mettre à jour la commande (Livrée + Solde payé)
+    // On met 'total_paye' au max pour dire que tout est réglé
+    const { error: errCmd } = await supabase.from("commandes").update({
+        statut: 'livree',
+        // On pourrait mettre à jour total_paye ici si tu as une colonne pour ça
+    }).eq("id", commande.id);
+
+    if (errCmd) alert("Erreur validation commande: " + errCmd.message);
+    else {
+        alert("✅ Commande soldée et livrée !");
+        setCommande(null); // Retour à l'accueil vendeur
+    }
+  }
+
+  // 5. CLÔTURER LA CAISSE (Fin de journée)
+  async function cloturer() {
+    if (!confirm("Êtes-vous sûr de vouloir fermer la caisse pour aujourd'hui ?")) return;
+    
+    const { error } = await supabase.rpc("cloturer_caisse", {
+        p_caisse_id: caisse.id,
+        p_total_reel_especes: parseFloat(reelEspeces || 0) * 100,
+        p_total_reel_cb: parseFloat(reelCB || 0) * 100,
+        p_justification: "Clôture normale"
+    });
+
+    if (error) alert("Erreur clôture: " + error.message);
+    else {
+        alert("Caisse fermée ! Bon repos 😴");
+        checkCaisse();
+        setShowCloture(false);
+    }
+  }
+
+  // --- RENDU VISUEL ---
+
+  if (loadingCaisse) return <div className="p-10 text-center">Chargement caisse...</div>;
+
+  // CAS 1 : Caisse Fermée -> On force l'ouverture
+  if (!caisse) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-2xl font-bold mb-2">Caisse Fermée</h1>
+          <p className="text-gray-500 mb-6">Vous devez ouvrir votre caisse pour commencer à vendre.</p>
+          <button 
+            onClick={ouvrirCaisse}
+            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition"
+          >
+            🔓 Ouvrir ma Caisse
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // CAS 2 : Caisse Ouverte -> Interface Vendeur
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 pb-20">
+      
+      {/* HEADER CAISSE */}
+      <div className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center mb-6">
+        <div>
+            <div className="text-xs text-gray-400 font-bold uppercase">Ma Caisse</div>
+            <div className="text-green-600 font-bold">● Ouverte</div>
+            <div className="text-xs text-gray-500">Fond: {(caisse.fond_caisse_initial / 100).toFixed(2)} €</div>
+        </div>
+        <button 
+            onClick={() => setShowCloture(true)}
+            className="bg-red-50 text-red-600 px-3 py-1 rounded-lg text-sm font-bold border border-red-100"
+        >
+            Fermer Caisse
+        </button>
+      </div>
+
+      {/* CLOTURE MODAL */}
+      {showCloture && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white p-6 rounded-2xl w-full max-w-sm space-y-4">
+                  <h2 className="text-xl font-bold">Clôture de Caisse</h2>
+                  <div>
+                      <label className="text-xs font-bold text-gray-500">Total Espèces (Billets + Pièces)</label>
+                      <input type="number" className="border w-full p-2 rounded" placeholder="0.00" value={reelEspeces} onChange={e=>setReelEspeces(e.target.value)} />
+                  </div>
+                  <div>
+                      <label className="text-xs font-bold text-gray-500">Total Tickets CB (TPE)</label>
+                      <input type="number" className="border w-full p-2 rounded" placeholder="0.00" value={reelCB} onChange={e=>setReelCB(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                      <button onClick={cloturer} className="flex-1 bg-red-600 text-white font-bold py-2 rounded">Valider Clôture</button>
+                      <button onClick={() => setShowCloture(false)} className="flex-1 bg-gray-200 font-bold py-2 rounded">Annuler</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* SCANNER / RECHERCHE */}
+      {!commande && (
+        <div className="space-y-4">
+            <button 
+                onClick={() => setShowScanner(true)}
+                className="w-full bg-indigo-600 text-white p-8 rounded-2xl shadow-lg flex flex-col items-center gap-2 hover:bg-indigo-700"
             >
-              <span className="text-4xl">📸</span>
-              <span className="text-xl font-bold">Scanner un QR Code</span>
+                <span className="text-4xl">📸</span>
+                <span className="font-bold text-lg">Scanner Client</span>
             </button>
 
-            <form onSubmit={handleManualSearch} className="bg-white p-6 rounded-2xl shadow-lg flex flex-col justify-center gap-4">
-              <label className="font-semibold text-gray-700">Recherche manuelle</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="N° Ticket (ex: 42)"
-                  className="border rounded-xl p-3 w-full"
-                  value={manualSearch}
-                  onChange={(e) => setManualSearch(e.target.value)}
+            <form onSubmit={(e) => {e.preventDefault(); loadCommande(manualSearch)}} className="flex gap-2">
+                <input 
+                    type="text" 
+                    placeholder="N° Ticket (ex: 105)" 
+                    className="flex-1 border p-3 rounded-xl"
+                    value={manualSearch}
+                    onChange={e => setManualSearch(e.target.value)}
                 />
-                <button type="submit" className="bg-gray-800 text-white px-4 rounded-xl">🔍</button>
-              </div>
+                <button type="submit" className="bg-gray-800 text-white px-4 rounded-xl">🔎</button>
             </form>
-          </div>
-        )}
+        </div>
+      )}
 
-        {/* ZONE CAMERA */}
-        {showScanner && (
-          <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-2xl overflow-hidden relative">
-              <button 
-                onClick={() => setShowScanner(false)}
-                className="absolute top-4 right-4 z-10 bg-white/80 p-2 rounded-full font-bold"
-              >
-                ✖ Fermer
-              </button>
-              <h3 className="text-center py-4 font-bold">Visez le QR Code</h3>
-              <div className="aspect-square">
-                <Scanner 
-                    onScan={handleScan} 
-                    components={{ audio: false }} // Désactive le bip si besoin
-                />
-              </div>
+      {/* SCANNER CAMERA */}
+      {showScanner && (
+        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+            <button onClick={() => setShowScanner(false)} className="absolute top-4 right-4 text-white text-xl p-4 z-10">❌ Fermer</button>
+            <div className="flex-1 flex items-center justify-center">
+                <Scanner onScan={(res) => {
+                    if(res && res[0]) {
+                        try {
+                            const json = JSON.parse(res[0].rawValue);
+                            loadCommande(json.id);
+                        } catch {
+                            // Si pas JSON, on tente le rawValue direct (si c'est juste un ID)
+                            loadCommande(res[0].rawValue); 
+                        }
+                    }
+                }} />
             </div>
-          </div>
-        )}
+        </div>
+      )}
 
-        {/* FICHE COMMANDE (Après Scan) */}
-        {scannedData && (
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-indigo-100 animate-fade-in">
-            {/* Header Statut */}
-            <div className={`p-4 text-center font-bold text-white ${
-                scannedData.statut === 'livree' ? 'bg-gray-500' :
-                scannedData.statut === 'paiement_recu' ? 'bg-green-600' :
-                'bg-orange-500'
-            }`}>
-              STATUT : {scannedData.statut.toUpperCase().replace('_', ' ')}
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Infos Client */}
-              <div className="text-center">
-                <div className="text-6xl font-black text-gray-800 mb-2">{scannedData.ticket_num}</div>
-                <h2 className="text-2xl font-bold">{scannedData.contact_first_name} {scannedData.contact_last_name}</h2>
-                <p className="text-gray-500">{scannedData.sacrifice_name}</p>
+      {/* FICHE COMMANDE (ENCAISSEMENT) */}
+      {commande && (
+          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200 mt-4 animate-fade-in">
+              <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
+                  <span className="font-bold">Ticket #{commande.ticket_num}</span>
+                  <button onClick={() => setCommande(null)} className="text-sm underline">Annuler</button>
               </div>
+              
+              <div className="p-6 space-y-4">
+                  <div className="text-center">
+                      <h2 className="text-2xl font-bold">{commande.contact_first_name} {commande.contact_last_name}</h2>
+                      <p className="text-gray-500">{commande.sacrifice_name}</p>
+                      <div className="mt-2 inline-block px-3 py-1 bg-gray-100 rounded-full text-sm font-semibold">
+                          Agneau Catégorie {commande.choix_categorie || "?"}
+                      </div>
+                  </div>
 
-              <hr />
+                  <hr />
 
-              {/* Infos Financières */}
-              <div className="bg-gray-50 p-4 rounded-xl space-y-2">
-                <div className="flex justify-between text-gray-600">
-                  <span>Prix Total (Estimé)</span>
-                  <span>{(PRIX_TOTAL_CENTS / 100).toFixed(2)} €</span>
-                </div>
-                <div className="flex justify-between text-green-600 font-semibold">
-                  <span>Acompte Versé</span>
-                  <span>- {(scannedData.acompte_cents / 100).toFixed(2)} €</span>
-                </div>
-                <div className="border-t pt-2 mt-2 flex justify-between text-xl font-bold text-red-600">
-                  <span>Reste à Payer</span>
-                  <span>{((PRIX_TOTAL_CENTS - scannedData.acompte_cents) / 100).toFixed(2)} €</span>
-                </div>
+                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 space-y-2">
+                      <div className="flex justify-between text-gray-600">
+                          <span>Total</span>
+                          <span>{(commande.montant_total_cents / 100).toFixed(2)} €</span>
+                      </div>
+                      <div className="flex justify-between text-green-600">
+                          <span>Déjà payé (Acompte)</span>
+                          <span>- {(commande.acompte_cents / 100).toFixed(2)} €</span>
+                      </div>
+                      <div className="border-t border-yellow-200 pt-2 flex justify-between font-bold text-xl text-red-600">
+                          <span>Reste à Payer</span>
+                          <span>{((commande.montant_total_cents - commande.acompte_cents) / 100).toFixed(2)} €</span>
+                      </div>
+                  </div>
+
+                  {/* Actions de paiement */}
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                      <button 
+                        onClick={() => encaisser('especes')}
+                        className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold flex flex-col items-center"
+                      >
+                          <span>💶 Espèces</span>
+                          <span className="text-xs opacity-80">Cash</span>
+                      </button>
+                      <button 
+                        onClick={() => encaisser('cb')}
+                        className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold flex flex-col items-center"
+                      >
+                          <span>💳 Carte Bancaire</span>
+                          <span className="text-xs opacity-80">TPE</span>
+                      </button>
+                  </div>
               </div>
-
-              {/* Actions */}
-              {scannedData.statut === "livree" ? (
-                <div className="text-center p-4 bg-gray-100 rounded-xl text-gray-500 font-bold">
-                  ✅ Cette commande a déjà été livrée.
-                </div>
-              ) : (
-                <button
-                  onClick={validerRetrait}
-                  disabled={loading}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl text-lg shadow-lg transform active:scale-95 transition-all"
-                >
-                  💰 Encaisser Solde & Valider Sortie
-                </button>
-              )}
-
-              <button
-                onClick={() => setScannedData(null)}
-                className="w-full text-gray-500 py-2 hover:underline"
-              >
-                Annuler / Retour
-              </button>
-            </div>
           </div>
-        )}
-
-      </div>
+      )}
     </div>
   );
 }

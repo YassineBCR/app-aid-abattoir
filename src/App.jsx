@@ -72,7 +72,14 @@ function AppRoutes() {
   }, [navigate, location.pathname]);
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Chargement…</div>;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-green-200 dark:border-green-800 border-t-green-600 dark:border-t-green-400 rounded-full animate-spin mx-auto"></div>
+          <p className="text-green-600 dark:text-green-400 font-semibold">Chargement…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
