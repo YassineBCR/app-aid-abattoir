@@ -27,7 +27,7 @@ export default function PaiementAnnule() {
   }, [params]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="min-h-screen flex items-center justify-center p-6 safe-y safe-x">
       <div className="border rounded-2xl p-6 max-w-lg w-full space-y-3">
         <h1 className="text-xl font-bold">Paiement</h1>
         <p>{msg}</p>

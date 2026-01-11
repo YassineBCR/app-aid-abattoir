@@ -154,7 +154,7 @@ export default function Vendeur() {
 
   // CAS 2 : Caisse Ouverte -> Interface Vendeur
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-4 pb-20">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-4 safe-x pb-safe-20">
       
       {/* HEADER CAISSE */}
       <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm flex justify-between items-center mb-6">
@@ -173,7 +173,7 @@ export default function Vendeur() {
 
       {/* CLOTURE MODAL */}
       {showCloture && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 safe-x safe-y">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-sm space-y-4">
                   <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Clôture de Caisse</h2>
                   <div>
@@ -218,8 +218,8 @@ export default function Vendeur() {
 
       {/* SCANNER CAMERA */}
       {showScanner && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
-            <button onClick={() => setShowScanner(false)} className="absolute top-4 right-4 text-white text-xl p-4 z-10">❌ Fermer</button>
+        <div className="fixed inset-0 bg-black z-50 flex flex-col safe-x safe-y">
+            <button onClick={() => setShowScanner(false)} className="absolute absolute-safe-top-right text-white text-xl p-4 z-10">❌ Fermer</button>
             <div className="flex-1 flex items-center justify-center">
                 <Scanner onScan={(res) => {
                     if(res && res[0]) {

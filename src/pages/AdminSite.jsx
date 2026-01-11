@@ -117,7 +117,7 @@ export default function AdminSite() {
   }
 
   return (
-    <div className="min-h-screen p-6 flex justify-center bg-gray-50 dark:bg-slate-900">
+    <div className="min-h-screen p-6 flex justify-center bg-gray-50 dark:bg-slate-900 safe-y safe-x">
       <div className="w-full max-w-4xl space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Admin — Créneaux</h1>

@@ -52,7 +52,7 @@ export default function AdminGlobal() {
   }
 
   return (
-    <div className="min-h-screen p-6 flex justify-center">
+    <div className="min-h-screen p-6 flex justify-center safe-y safe-x">
       <div className="w-full max-w-4xl space-y-8">
         <div>
           <h1 className="text-2xl font-bold">Dashboard Admin Global</h1>

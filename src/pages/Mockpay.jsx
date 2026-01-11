@@ -60,7 +60,7 @@ export default function MockPay() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900">
+    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900 safe-y safe-x">
       <div className="border dark:border-slate-700 rounded-2xl p-6 w-full max-w-md space-y-4 bg-white dark:bg-slate-800 shadow-lg">
         <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100">Paiement (Simulation)</h1>
 

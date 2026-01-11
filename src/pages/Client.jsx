@@ -120,7 +120,7 @@ export default function Client() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 py-6 sm:py-8 px-4 sm:px-6 lg:px-8 transition-colors duration-200">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 py-6 sm:py-8 px-4 sm:px-6 lg:px-8 safe-y safe-x transition-colors duration-200">
       <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
         
         {/* En-tête */}

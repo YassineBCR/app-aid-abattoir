@@ -5,8 +5,8 @@ export default function Home({ onLogin }) {
   const { darkMode, toggleDarkMode } = useDarkMode();
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-6 transition-colors duration-200">
-      <div className="absolute top-4 right-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-6 safe-y safe-x transition-colors duration-200">
+      <div className="absolute absolute-safe-top-right">
         <button
           onClick={toggleDarkMode}
           className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-3 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition-all duration-200"

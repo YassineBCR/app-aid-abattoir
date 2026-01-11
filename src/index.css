@@ -34,4 +34,72 @@
     transition-duration: 150ms, 200ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  /* Safe areas pour iOS (Dynamic Island et encoche) */
+  /* Note: On n'applique pas directement sur body pour plus de contrôle */
+
+  /* Classes utilitaires pour les safe areas */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .safe-y {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Pour les éléments fixes en haut (headers) */
+  .fixed-safe-top {
+    top: env(safe-area-inset-top);
+  }
+
+  /* Pour les éléments fixes en bas (navigation) */
+  .fixed-safe-bottom {
+    bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Pour les éléments absolus en haut à droite avec safe areas */
+  .absolute-safe-top-right {
+    top: max(1rem, env(safe-area-inset-top));
+    right: max(1rem, env(safe-area-inset-right));
+  }
+
+  /* Padding bottom avec safe area (pour éviter que le contenu soit masqué par la barre de navigation iOS) */
+  .pb-safe-20 {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  /* Margin safe areas */
+  .mt-safe {
+    margin-top: env(safe-area-inset-top);
+  }
+
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+
+  .ml-safe {
+    margin-left: env(safe-area-inset-left);
+  }
+
+  .mr-safe {
+    margin-right: env(safe-area-inset-right);
+  }
 }
