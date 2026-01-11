@@ -245,32 +245,32 @@ export default function Stock() {
   return (
     <div className="space-y-4">
       <div>
-        <div className="text-xl font-bold">Stock tickets</div>
-        <div className="text-sm opacity-70">
+        <div className="text-xl font-bold text-slate-800 dark:text-slate-100">Stock tickets</div>
+        <div className="text-sm opacity-70 text-slate-600 dark:text-slate-400">
           Les tickets déjà attribués à un créneau sont grisées et non sélectionnables.
         </div>
       </div>
 
       {/* Message */}
       {info ? (
-        <div className="border rounded-2xl p-3 shadow text-sm">
+        <div className="border dark:border-slate-700 rounded-2xl p-3 shadow text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200">
           {info}
         </div>
       ) : null}
 
       {/* Controls */}
-      <div className="border rounded-2xl p-4 shadow space-y-3">
+      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
         <div className="grid md:grid-cols-2 gap-3">
           <div className="flex items-end gap-2">
             <button
-              className="border rounded-xl px-4 py-3 text-sm w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
               onClick={initStock}
               disabled={busy}
             >
               Init {TOTAL_DEFAULT} tickets
             </button>
             <button
-              className="border rounded-xl px-4 py-3 text-sm w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
               onClick={() => {
                 setSelected(new Set());
                 loadTickets();
@@ -282,8 +282,8 @@ export default function Stock() {
           </div>
 
           <div>
-            <div className="text-sm font-semibold mb-1">Sélection</div>
-            <div className="text-sm opacity-70">
+            <div className="text-sm font-semibold mb-1 text-slate-800 dark:text-slate-200">Sélection</div>
+            <div className="text-sm opacity-70 text-slate-600 dark:text-slate-400">
               <b>{selectedCount}</b> ticket(s) sélectionné(s)
             </div>
           </div>
@@ -291,24 +291,24 @@ export default function Stock() {
       </div>
 
       {/* Create creneau + assign */}
-      <div className="border rounded-2xl p-4 shadow space-y-3">
-        <div className="text-sm font-semibold">Créer un créneau</div>
+      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
+        <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">Créer un créneau</div>
 
         <div className="grid md:grid-cols-4 gap-3">
           <div>
-            <div className="text-xs opacity-70 mb-1">Date</div>
+            <div className="text-xs opacity-70 mb-1 text-slate-600 dark:text-slate-400">Date</div>
             <input
               type="date"
-              className="border rounded-xl p-3 w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
           </div>
 
           <div>
-            <div className="text-xs opacity-70 mb-1">Jour</div>
+            <div className="text-xs opacity-70 mb-1 text-slate-600 dark:text-slate-400">Jour</div>
             <select
-              className="border rounded-xl p-3 w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
               value={jour}
               onChange={(e) => setJour(Number(e.target.value))}
             >
@@ -319,9 +319,9 @@ export default function Stock() {
           </div>
 
           <div>
-            <div className="text-xs opacity-70 mb-1">Horaire</div>
+            <div className="text-xs opacity-70 mb-1 text-slate-600 dark:text-slate-400">Horaire</div>
             <select
-              className="border rounded-xl p-3 w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
               value={hourIndex}
               onChange={(e) => setHourIndex(Number(e.target.value))}
             >
@@ -335,7 +335,7 @@ export default function Stock() {
 
           <div className="flex items-end">
             <button
-              className="border rounded-xl px-4 py-3 text-sm w-full"
+              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
               onClick={createCreneau}
               disabled={busy}
             >
@@ -344,10 +344,10 @@ export default function Stock() {
           </div>
         </div>
 
-        <div className="text-sm font-semibold mt-3">Attribuer au créneau</div>
+        <div className="text-sm font-semibold mt-3 text-slate-800 dark:text-slate-200">Attribuer au créneau</div>
         <div className="grid md:grid-cols-2 gap-3">
           <select
-            className="border rounded-xl p-3 w-full"
+            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
             value={assignCreneauId}
             onChange={(e) => setAssignCreneauId(e.target.value)}
           >
@@ -361,7 +361,7 @@ export default function Stock() {
           </select>
 
           <button
-            className="border rounded-xl px-4 py-3 text-sm font-semibold"
+            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-600"
             onClick={assignSelected}
             disabled={busy || !assignCreneauId || selectedCount === 0}
           >
@@ -372,19 +372,19 @@ export default function Stock() {
         {/* Quick range selection */}
         <div className="flex flex-wrap gap-2 pt-2">
           <button
-            className="border rounded-xl px-3 py-2 text-xs"
+            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
             onClick={() => selectRange(1, 70)}
           >
             Select 1–70
           </button>
           <button
-            className="border rounded-xl px-3 py-2 text-xs"
+            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
             onClick={() => selectRange(71, 140)}
           >
             Select 71–140
           </button>
           <button
-            className="border rounded-xl px-3 py-2 text-xs"
+            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
             onClick={() => setSelected(new Set())}
           >
             Clear
@@ -393,10 +393,10 @@ export default function Stock() {
       </div>
 
       {/* Tickets grid */}
-      <div className="border rounded-2xl p-4 shadow space-y-3">
+      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
         <div className="flex items-center justify-between">
-          <div className="font-semibold">Tickets ({totalTickets})</div>
-          <div className="text-xs opacity-60">
+          <div className="font-semibold text-slate-800 dark:text-slate-200">Tickets ({totalTickets})</div>
+          <div className="text-xs opacity-60 text-slate-600 dark:text-slate-400">
             Gris = déjà attribué à un créneau (non sélectionnable)
           </div>
         </div>
@@ -415,9 +415,9 @@ export default function Stock() {
                 onClick={() => toggleTicket(n)}
                 disabled={assigned}
                 className={[
-                  "border rounded-lg py-2 text-xs",
-                  isSel ? "font-semibold" : "",
-                  assigned ? "opacity-40 cursor-not-allowed" : "",
+                  "border dark:border-slate-600 rounded-lg py-2 text-xs",
+                  isSel ? "font-semibold bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400" : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200",
+                  assigned ? "opacity-40 cursor-not-allowed bg-gray-100 dark:bg-slate-600" : "hover:bg-gray-50 dark:hover:bg-slate-600",
                 ].join(" ")}
                 title={
                   assigned

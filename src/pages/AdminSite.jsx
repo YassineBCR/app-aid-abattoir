@@ -117,34 +117,34 @@ export default function AdminSite() {
   }
 
   return (
-    <div className="min-h-screen p-6 flex justify-center">
+    <div className="min-h-screen p-6 flex justify-center bg-gray-50 dark:bg-slate-900">
       <div className="w-full max-w-4xl space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Admin — Créneaux</h1>
-          <p className="text-sm opacity-70">
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Admin — Créneaux</h1>
+          <p className="text-sm opacity-70 text-slate-600 dark:text-slate-400">
             Créer, modifier et supprimer des créneaux (date + jour + horaires).
           </p>
         </div>
 
         {/* Création */}
-        <form onSubmit={addCreneau} className="border rounded-2xl p-4 shadow space-y-4">
-          <div className="font-semibold">Créer un créneau</div>
+        <form onSubmit={addCreneau} className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-4 bg-white dark:bg-slate-800">
+          <div className="font-semibold text-slate-800 dark:text-slate-200">Créer un créneau</div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="space-y-1">
-              <div className="text-xs opacity-70">Date</div>
+              <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Date</div>
               <input
                 type="date"
-                className="border rounded-xl p-3 w-full"
+                className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs opacity-70">Jour</div>
+              <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Jour</div>
               <select
-                className="border rounded-xl p-3 w-full"
+                className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                 value={jour}
                 onChange={(e) => setJour(Number(e.target.value))}
               >
@@ -155,37 +155,37 @@ export default function AdminSite() {
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs opacity-70">Heure début</div>
+              <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Heure début</div>
               <input
                 type="time"
-                className="border rounded-xl p-3 w-full"
+                className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                 value={heureDebut}
                 onChange={(e) => setHeureDebut(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs opacity-70">Heure fin</div>
+              <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Heure fin</div>
               <input
                 type="time"
-                className="border rounded-xl p-3 w-full"
+                className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                 value={heureFin}
                 onChange={(e) => setHeureFin(e.target.value)}
               />
             </div>
           </div>
 
-          <button disabled={saving} className="border rounded-xl px-4 py-3" type="submit">
+          <button disabled={saving} className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-600" type="submit">
             {saving ? "Création…" : "Ajouter le créneau"}
           </button>
         </form>
 
         {/* Édition */}
         {editing ? (
-          <div className="border rounded-2xl p-4 shadow space-y-3">
+          <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
             <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold">Modifier le créneau</div>
-              <button onClick={cancelEdit} className="border rounded-xl px-3 py-2 text-sm">
+              <div className="font-semibold text-slate-800 dark:text-slate-200">Modifier le créneau</div>
+              <button onClick={cancelEdit} className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-600">
                 Fermer
               </button>
             </div>
@@ -193,19 +193,19 @@ export default function AdminSite() {
             <form onSubmit={saveEdit} className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="space-y-1">
-                  <div className="text-xs opacity-70">Date</div>
+                  <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Date</div>
                   <input
                     type="date"
-                    className="border rounded-xl p-3 w-full"
+                    className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                     value={editDate}
                     onChange={(e) => setEditDate(e.target.value)}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <div className="text-xs opacity-70">Jour</div>
+                  <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Jour</div>
                   <select
-                    className="border rounded-xl p-3 w-full"
+                    className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                     value={editJour}
                     onChange={(e) => setEditJour(Number(e.target.value))}
                   >
@@ -216,20 +216,20 @@ export default function AdminSite() {
                 </div>
 
                 <div className="space-y-1">
-                  <div className="text-xs opacity-70">Heure début</div>
+                  <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Heure début</div>
                   <input
                     type="time"
-                    className="border rounded-xl p-3 w-full"
+                    className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                     value={editHeureDebut}
                     onChange={(e) => setEditHeureDebut(e.target.value)}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <div className="text-xs opacity-70">Heure fin</div>
+                  <div className="text-xs opacity-70 text-slate-600 dark:text-slate-400">Heure fin</div>
                   <input
                     type="time"
-                    className="border rounded-xl p-3 w-full"
+                    className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
                     value={editHeureFin}
                     onChange={(e) => setEditHeureFin(e.target.value)}
                   />
@@ -237,10 +237,10 @@ export default function AdminSite() {
               </div>
 
               <div className="flex gap-2">
-                <button disabled={updating} className="border rounded-xl px-4 py-3" type="submit">
+                <button disabled={updating} className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-600" type="submit">
                   {updating ? "Sauvegarde…" : "Enregistrer"}
                 </button>
-                <button type="button" onClick={cancelEdit} className="border rounded-xl px-4 py-3">
+                <button type="button" onClick={cancelEdit} className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-600">
                   Annuler
                 </button>
               </div>
@@ -249,35 +249,35 @@ export default function AdminSite() {
         ) : null}
 
         {/* Liste */}
-        <div className="border rounded-2xl p-4 shadow space-y-3">
+        <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
           <div className="flex items-center justify-between gap-3">
-            <div className="font-semibold">Créneaux</div>
-            <button onClick={fetchCreneaux} className="border rounded-xl px-4 py-2 text-sm">
+            <div className="font-semibold text-slate-800 dark:text-slate-200">Créneaux</div>
+            <button onClick={fetchCreneaux} className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-600">
               Rafraîchir
             </button>
           </div>
 
           {loading ? (
-            <p className="text-sm opacity-70">Chargement créneaux…</p>
+            <p className="text-sm opacity-70 text-slate-600 dark:text-slate-400">Chargement créneaux…</p>
           ) : creneaux.length === 0 ? (
-            <p className="text-sm opacity-70">Aucun créneau pour l’instant.</p>
+            <p className="text-sm opacity-70 text-slate-600 dark:text-slate-400">Aucun créneau pour l'instant.</p>
           ) : (
             <div className="space-y-2">
               {creneaux.map((c) => (
-                <div key={c.id} className="border rounded-xl p-3 flex items-start justify-between gap-3">
+                <div key={c.id} className="border dark:border-slate-700 rounded-xl p-3 flex items-start justify-between gap-3 bg-gray-50 dark:bg-slate-700">
                   <div>
-                    <div className="font-semibold">
+                    <div className="font-semibold text-slate-800 dark:text-slate-200">
                       Jour {c.jour ?? "?"} — {c.date} — {String(c.heure_debut).slice(0, 5)} →{" "}
                       {String(c.heure_fin).slice(0, 5)}
                     </div>
-                    <div className="text-xs opacity-60">ID: {String(c.id).slice(0, 8)}…</div>
+                    <div className="text-xs opacity-60 text-slate-600 dark:text-slate-400">ID: {String(c.id).slice(0, 8)}…</div>
                   </div>
 
                   <div className="flex gap-2">
-                    <button onClick={() => startEdit(c)} className="border rounded-xl px-3 py-2 text-sm">
+                    <button onClick={() => startEdit(c)} className="border dark:border-slate-600 dark:bg-slate-600 dark:text-slate-100 rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-500">
                       Modifier
                     </button>
-                    <button onClick={() => deleteCreneau(c.id)} className="border rounded-xl px-3 py-2 text-sm">
+                    <button onClick={() => deleteCreneau(c.id)} className="border dark:border-slate-600 dark:bg-slate-600 dark:text-slate-100 rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-500">
                       Supprimer
                     </button>
                   </div>
@@ -287,8 +287,8 @@ export default function AdminSite() {
           )}
         </div>
 
-        <div className="text-xs opacity-60">
-          La capacité réelle d’un créneau = nombre de tickets assignés dans l’onglet Stock.
+        <div className="text-xs opacity-60 text-slate-600 dark:text-slate-400">
+          La capacité réelle d'un créneau = nombre de tickets assignés dans l'onglet Stock.
         </div>
       </div>
     </div>

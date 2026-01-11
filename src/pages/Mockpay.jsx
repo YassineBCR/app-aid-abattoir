@@ -60,11 +60,11 @@ export default function MockPay() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div className="border rounded-2xl p-6 w-full max-w-md space-y-4 bg-white shadow-lg">
-        <h1 className="text-xl font-bold text-gray-800">Paiement (Simulation)</h1>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900">
+      <div className="border dark:border-slate-700 rounded-2xl p-6 w-full max-w-md space-y-4 bg-white dark:bg-slate-800 shadow-lg">
+        <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100">Paiement (Simulation)</h1>
 
-        <div className="text-sm bg-blue-50 p-3 rounded-lg text-blue-800 border border-blue-200">
+        <div className="text-sm bg-green-50 dark:bg-green-900/20 p-3 rounded-lg text-green-800 dark:text-green-400 border border-green-200 dark:border-green-700">
           <div>Commande : <b>{String(commandeId).slice(0, 8)}...</b></div>
           <div>Ticket prévu : <b>{ticketNum ?? "—"}</b></div>
         </div>
@@ -89,7 +89,7 @@ export default function MockPay() {
 
         <button
           disabled={busy}
-          className="w-full border border-gray-200 text-gray-600 rounded-xl p-3 text-sm hover:bg-gray-50 transition-colors"
+          className="w-full border dark:border-slate-600 border-gray-200 text-gray-600 dark:text-gray-400 rounded-xl p-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
           onClick={() => nav("/dashboard", { replace: true })}
         >
           Annuler et retourner au menu

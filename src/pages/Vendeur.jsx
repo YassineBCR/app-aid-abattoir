@@ -136,14 +136,14 @@ export default function Vendeur() {
   // CAS 1 : Caisse Fermée -> On force l'ouverture
   if (!caisse) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-900 p-4">
+        <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl text-center max-w-md w-full">
           <div className="text-6xl mb-4">🔒</div>
-          <h1 className="text-2xl font-bold mb-2">Caisse Fermée</h1>
-          <p className="text-gray-500 mb-6">Vous devez ouvrir votre caisse pour commencer à vendre.</p>
+          <h1 className="text-2xl font-bold mb-2 text-slate-800 dark:text-slate-100">Caisse Fermée</h1>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">Vous devez ouvrir votre caisse pour commencer à vendre.</p>
           <button 
             onClick={ouvrirCaisse}
-            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition"
+            className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 transition"
           >
             🔓 Ouvrir ma Caisse
           </button>
@@ -154,10 +154,10 @@ export default function Vendeur() {
 
   // CAS 2 : Caisse Ouverte -> Interface Vendeur
   return (
-    <div className="min-h-screen bg-gray-50 p-4 pb-20">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-4 pb-20">
       
       {/* HEADER CAISSE */}
-      <div className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center mb-6">
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm flex justify-between items-center mb-6">
         <div>
             <div className="text-xs text-gray-400 font-bold uppercase">Ma Caisse</div>
             <div className="text-green-600 font-bold">● Ouverte</div>
@@ -174,19 +174,19 @@ export default function Vendeur() {
       {/* CLOTURE MODAL */}
       {showCloture && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <div className="bg-white p-6 rounded-2xl w-full max-w-sm space-y-4">
-                  <h2 className="text-xl font-bold">Clôture de Caisse</h2>
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-sm space-y-4">
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Clôture de Caisse</h2>
                   <div>
-                      <label className="text-xs font-bold text-gray-500">Total Espèces (Billets + Pièces)</label>
-                      <input type="number" className="border w-full p-2 rounded" placeholder="0.00" value={reelEspeces} onChange={e=>setReelEspeces(e.target.value)} />
+                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400">Total Espèces (Billets + Pièces)</label>
+                      <input type="number" className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 w-full p-2 rounded" placeholder="0.00" value={reelEspeces} onChange={e=>setReelEspeces(e.target.value)} />
                   </div>
                   <div>
-                      <label className="text-xs font-bold text-gray-500">Total Tickets CB (TPE)</label>
-                      <input type="number" className="border w-full p-2 rounded" placeholder="0.00" value={reelCB} onChange={e=>setReelCB(e.target.value)} />
+                      <label className="text-xs font-bold text-gray-500 dark:text-gray-400">Total Tickets CB (TPE)</label>
+                      <input type="number" className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 w-full p-2 rounded" placeholder="0.00" value={reelCB} onChange={e=>setReelCB(e.target.value)} />
                   </div>
                   <div className="flex gap-2 pt-2">
                       <button onClick={cloturer} className="flex-1 bg-red-600 text-white font-bold py-2 rounded">Valider Clôture</button>
-                      <button onClick={() => setShowCloture(false)} className="flex-1 bg-gray-200 font-bold py-2 rounded">Annuler</button>
+                      <button onClick={() => setShowCloture(false)} className="flex-1 bg-gray-200 dark:bg-slate-600 dark:text-slate-100 font-bold py-2 rounded">Annuler</button>
                   </div>
               </div>
           </div>
@@ -197,7 +197,7 @@ export default function Vendeur() {
         <div className="space-y-4">
             <button 
                 onClick={() => setShowScanner(true)}
-                className="w-full bg-indigo-600 text-white p-8 rounded-2xl shadow-lg flex flex-col items-center gap-2 hover:bg-indigo-700"
+                className="w-full bg-green-600 text-white p-8 rounded-2xl shadow-lg flex flex-col items-center gap-2 hover:bg-green-700"
             >
                 <span className="text-4xl">📸</span>
                 <span className="font-bold text-lg">Scanner Client</span>
@@ -207,11 +207,11 @@ export default function Vendeur() {
                 <input 
                     type="text" 
                     placeholder="N° Ticket (ex: 105)" 
-                    className="flex-1 border p-3 rounded-xl"
+                    className="flex-1 border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 p-3 rounded-xl"
                     value={manualSearch}
                     onChange={e => setManualSearch(e.target.value)}
                 />
-                <button type="submit" className="bg-gray-800 text-white px-4 rounded-xl">🔎</button>
+                <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 rounded-xl">🔎</button>
             </form>
         </div>
       )}
@@ -238,33 +238,33 @@ export default function Vendeur() {
 
       {/* FICHE COMMANDE (ENCAISSEMENT) */}
       {commande && (
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200 mt-4 animate-fade-in">
-              <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-slate-700 mt-4 animate-fade-in">
+              <div className="bg-gray-800 dark:bg-slate-900 text-white p-4 flex justify-between items-center">
                   <span className="font-bold">Ticket #{commande.ticket_num}</span>
                   <button onClick={() => setCommande(null)} className="text-sm underline">Annuler</button>
               </div>
               
               <div className="p-6 space-y-4">
                   <div className="text-center">
-                      <h2 className="text-2xl font-bold">{commande.contact_first_name} {commande.contact_last_name}</h2>
-                      <p className="text-gray-500">{commande.sacrifice_name}</p>
-                      <div className="mt-2 inline-block px-3 py-1 bg-gray-100 rounded-full text-sm font-semibold">
+                      <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{commande.contact_first_name} {commande.contact_last_name}</h2>
+                      <p className="text-gray-500 dark:text-gray-400">{commande.sacrifice_name}</p>
+                      <div className="mt-2 inline-block px-3 py-1 bg-gray-100 dark:bg-slate-700 rounded-full text-sm font-semibold text-slate-800 dark:text-slate-200">
                           Agneau Catégorie {commande.choix_categorie || "?"}
                       </div>
                   </div>
 
-                  <hr />
+                  <hr className="border-gray-200 dark:border-slate-700" />
 
-                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 space-y-2">
-                      <div className="flex justify-between text-gray-600">
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-xl border border-yellow-100 dark:border-yellow-800 space-y-2">
+                      <div className="flex justify-between text-gray-600 dark:text-gray-300">
                           <span>Total</span>
                           <span>{(commande.montant_total_cents / 100).toFixed(2)} €</span>
                       </div>
-                      <div className="flex justify-between text-green-600">
+                      <div className="flex justify-between text-green-600 dark:text-green-400">
                           <span>Déjà payé (Acompte)</span>
                           <span>- {(commande.acompte_cents / 100).toFixed(2)} €</span>
                       </div>
-                      <div className="border-t border-yellow-200 pt-2 flex justify-between font-bold text-xl text-red-600">
+                      <div className="border-t border-yellow-200 dark:border-yellow-700 pt-2 flex justify-between font-bold text-xl text-red-600 dark:text-red-400">
                           <span>Reste à Payer</span>
                           <span>{((commande.montant_total_cents - commande.acompte_cents) / 100).toFixed(2)} €</span>
                       </div>
@@ -281,7 +281,7 @@ export default function Vendeur() {
                       </button>
                       <button 
                         onClick={() => encaisser('cb')}
-                        className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold flex flex-col items-center"
+                        className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold flex flex-col items-center"
                       >
                           <span>💳 Carte Bancaire</span>
                           <span className="text-xs opacity-80">TPE</span>
