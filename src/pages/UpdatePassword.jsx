@@ -10,11 +10,11 @@ export default function UpdatePassword() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
-  // Vérification de sécurité : l'utilisateur doit avoir une session (le lien email connecte automatiquement l'user)
+  // Vérification de sécurité
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
-        navigate("/auth"); // Si pas de session, le lien est invalide
+        navigate("/auth");
       }
     });
   }, [navigate]);
@@ -24,7 +24,6 @@ export default function UpdatePassword() {
     setLoading(true);
     setError(null);
 
-    // Mise à jour du mot de passe dans Supabase
     const { error } = await supabase.auth.updateUser({
       password: password
     });
@@ -35,7 +34,6 @@ export default function UpdatePassword() {
     } else {
       setSuccess(true);
       setLoading(false);
-      // Redirection après 2 secondes vers le dashboard
       setTimeout(() => {
         navigate("/dashboard");
       }, 2000);

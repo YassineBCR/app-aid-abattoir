@@ -8,10 +8,9 @@ import Dashboard from "./pages/Dashboard";
 import PaiementOk from "./pages/PaiementOk"; 
 import PaiementAnnule from "./pages/PaiementAnnule";
 import MockPay from "./pages/Mockpay"; 
-import UpdatePassword from "./pages/UpdatePassword"; // <-- NOUVEL IMPORT
+import UpdatePassword from "./pages/UpdatePassword"; 
 
-// Décommente si tu as créé la Navbar
-// import Navbar from "./components/Navbar";
+// import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
 
 function AppRoutes() {
   const [loading, setLoading] = useState(true);
@@ -22,11 +21,11 @@ function AppRoutes() {
   useEffect(() => {
     let mounted = true;
 
-    // Pages publiques qui ne déclenchent pas de redirection
+    // Pages accessibles sans vérification stricte
     const isPublicPage = 
       location.pathname.startsWith("/paiement") || 
       location.pathname.startsWith("/mock-pay") ||
-      location.pathname === "/update-password"; // <-- AJOUT IMPORTANT
+      location.pathname === "/update-password";
 
     async function init() {
       const { data } = await supabase.auth.getSession();
@@ -34,14 +33,11 @@ function AppRoutes() {
 
       if (data.session) {
         setSession(data.session);
-        // Redirection dashboard désactivée temporairement comme demandé
-        /* if (!isPublicPage && (location.pathname === "/" || location.pathname === "/auth")) {
-           navigate("/dashboard", { replace: true });
-        }
-        */
+        // NOTE: On NE redirige PAS automatiquement vers dashboard ici
+        // pour laisser l'utilisateur sur la page d'accueil s'il le souhaite.
       } else {
         setSession(null);
-        // Protection Dashboard
+        // Sécurité : Si on essaie d'aller sur dashboard sans être connecté, on renvoie à l'accueil
         if (!isPublicPage && location.pathname.startsWith("/dashboard")) {
           navigate("/", { replace: true });
         }
@@ -60,6 +56,7 @@ function AppRoutes() {
         location.pathname === "/update-password";
 
       if (!isPublicNow) {
+        // Si on se déconnecte alors qu'on était sur le dashboard -> Hop accueil
         if (!newSession && location.pathname.startsWith("/dashboard")) {
           navigate("/", { replace: true });
         }
@@ -86,7 +83,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/auth" element={<Auth />} />
-        <Route path="/update-password" element={<UpdatePassword />} /> {/* <-- NOUVELLE ROUTE */}
+        <Route path="/update-password" element={<UpdatePassword />} />
         <Route path="/dashboard/*" element={<Dashboard />} />
         <Route path="/paiement-ok" element={<PaiementOk />} />
         <Route path="/paiement-annule" element={<PaiementAnnule />} />

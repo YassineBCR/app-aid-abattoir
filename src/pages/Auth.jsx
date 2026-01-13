@@ -38,8 +38,11 @@ export default function Auth() {
     if (error) {
       setError("Email ou mot de passe incorrect.");
       setLoading(false);
-    } 
-    // La redirection est gérée automatiquement par App.jsx
+    } else {
+      // --- CORRECTION IMPORTANTE ---
+      // On force la redirection vers le dashboard une fois connecté
+      navigate("/dashboard");
+    }
   };
 
   // --- 2. INSCRIPTION ---
@@ -72,8 +75,7 @@ export default function Auth() {
     setMessage(null);
 
     try {
-      // IMPORTANT : On redirige l'utilisateur vers cette page après le clic dans l'email
-      // Assurez-vous d'avoir ajouté "http://localhost:5173/update-password" dans Supabase > Auth > URL Configuration
+      // L'URL vers laquelle l'utilisateur sera redirigé depuis l'email
       const redirectUrl = `${window.location.origin}/update-password`;
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -90,16 +92,20 @@ export default function Auth() {
     }
   };
 
-  // --- RENDU ---
+  // --- RENDU VISUEL ---
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-slate-900 dark:via-green-950 dark:to-emerald-950 transition-colors duration-500">
       
-      <div className="w-full max-w-md bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden relative">
+      <div className="w-full max-w-md bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden relative transition-all duration-300">
+        
+        {/* Barre décorative en haut */}
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 to-emerald-600"></div>
 
         <div className="p-8 sm:p-10">
+          
+          {/* En-tête dynamique */}
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white">
+            <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
               {view === "login" && "Connexion"}
               {view === "register" && "Inscription"}
               {view === "forgot" && "Récupération"}
@@ -111,31 +117,31 @@ export default function Auth() {
             </p>
           </div>
 
-          {/* Messages */}
+          {/* Messages d'erreur ou de succès */}
           {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 text-red-600 border border-red-100 flex gap-3 animate-fade-in">
+            <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 border border-red-100 dark:border-red-800 flex gap-3 animate-fade-in">
               <FiAlertCircle className="mt-1 flex-shrink-0" /> <p className="text-sm">{error}</p>
             </div>
           )}
           {message && (
-            <div className="mb-6 p-4 rounded-xl bg-green-50 text-green-600 border border-green-100 flex gap-3 animate-fade-in">
+            <div className="mb-6 p-4 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-300 border border-green-100 dark:border-green-800 flex gap-3 animate-fade-in">
               <FiCheck className="mt-1 flex-shrink-0" /> <p className="text-sm">{message}</p>
             </div>
           )}
 
-          {/* Formulaire unique dynamique */}
+          {/* Formulaire Unique */}
           <form onSubmit={view === "login" ? handleLogin : view === "register" ? handleRegister : handleResetPassword} className="space-y-5">
             
             {/* Champ Nom (Inscription uniquement) */}
             {view === "register" && (
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400"><FiUser /></div>
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiUser /></div>
                 <input
                   type="text"
                   placeholder="Nom complet"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500 outline-none dark:text-white"
+                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all dark:text-white"
                   required
                 />
               </div>
@@ -143,13 +149,13 @@ export default function Auth() {
 
             {/* Champ Email (Toujours visible) */}
             <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400"><FiMail /></div>
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiMail /></div>
               <input
                 type="email"
                 placeholder="Adresse email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500 outline-none dark:text-white"
+                className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all dark:text-white"
                 required
               />
             </div>
@@ -157,31 +163,32 @@ export default function Auth() {
             {/* Champ Mot de passe (Caché si mot de passe oublié) */}
             {view !== "forgot" && (
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400"><FiLock /></div>
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiLock /></div>
                 <input
                   type="password"
                   placeholder="Mot de passe"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500 outline-none dark:text-white"
+                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all dark:text-white"
                   required
                 />
               </div>
             )}
 
-            {/* Lien oubli (Login uniquement) */}
+            {/* Lien Mot de passe oublié (Login uniquement) */}
             {view === "login" && (
               <div className="flex justify-end">
-                <button type="button" onClick={() => setView("forgot")} className="text-sm font-medium text-green-600 hover:text-green-700 dark:text-green-400">
+                <button type="button" onClick={() => setView("forgot")} className="text-sm font-medium text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 transition-colors">
                   Mot de passe oublié ?
                 </button>
               </div>
             )}
 
+            {/* Bouton d'action */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-transform hover:scale-[1.02] disabled:opacity-70 flex justify-center items-center gap-2"
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-500/30 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -201,7 +208,7 @@ export default function Auth() {
           {/* Navigation bas de page */}
           <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 text-center">
             {view === "forgot" ? (
-              <button onClick={() => setView("login")} className="flex items-center justify-center gap-2 mx-auto font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400">
+              <button onClick={() => setView("login")} className="flex items-center justify-center gap-2 mx-auto font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
                 <FiChevronLeft /> Retour à la connexion
               </button>
             ) : (
@@ -209,7 +216,7 @@ export default function Auth() {
                 {view === "login" ? "Pas encore de compte ?" : "Déjà un compte ?"}
                 <button
                   onClick={() => setView(view === "login" ? "register" : "login")}
-                  className="font-bold text-green-600 hover:text-green-700 dark:text-green-400 ml-1"
+                  className="font-bold text-green-600 hover:text-green-700 dark:text-green-400 transition-colors ml-1"
                 >
                   {view === "login" ? "S'inscrire" : "Se connecter"}
                 </button>
