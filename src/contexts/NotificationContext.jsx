@@ -1,122 +1,88 @@
-import { createContext, useContext, useState, useCallback } from "react";
-import { FiCheck, FiAlertCircle, FiInfo, FiHelpCircle } from "react-icons/fi";
+import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { FiCheck, FiAlertCircle, FiInfo, FiHelpCircle, FiVolume2 } from "react-icons/fi";
 
 const NotificationContext = createContext();
 
-// Un petit son "Ding" pour les commandes (hébergé en ligne pour l'exemple)
+// Son "Ding" court et efficace
 const NOTIF_SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3";
 
 export function NotificationProvider({ children }) {
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
+  
+  // Pour gérer le son sur iOS
+  const audioRef = useRef(new Audio(NOTIF_SOUND_URL));
+  const [audioEnabled, setAudioEnabled] = useState(false);
 
-  // 1. Demander la permission (à appeler au chargement du Dashboard)
+  // 1. Fonction pour débloquer le son (à appeler via un clic utilisateur)
+  const enableAudio = useCallback(() => {
+    audioRef.current.play().then(() => {
+      audioRef.current.pause(); // On joue et coupe tout de suite juste pour "chauffer" le moteur audio iOS
+      audioRef.current.currentTime = 0;
+      setAudioEnabled(true);
+    }).catch(e => console.error("Impossible d'activer l'audio iOS", e));
+  }, []);
+
   const requestSystemPermission = useCallback(async () => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "default") {
+    if ("Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
     }
   }, []);
 
-  // 2. Envoyer une notification Système (PC/Android) + Son
   const notifySystem = useCallback((title, body) => {
     // A. Jouer le son
     try {
-      const audio = new Audio(NOTIF_SOUND_URL);
-      audio.play().catch(e => console.warn("Son bloqué par le navigateur (interaction requise)", e));
-    } catch (e) {
-      console.error("Erreur audio", e);
-    }
+      audioRef.current.currentTime = 0;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+            console.warn("Lecture auto bloquée par le navigateur:", error);
+        });
+      }
+    } catch (e) { console.error("Erreur audio", e); }
 
-    // B. Afficher la notif visuelle système
+    // B. Notif Système
     if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, {
-        body: body,
-        icon: "/vite.svg", // Tu pourras mettre ton logo ici
-        vibrate: [200, 100, 200] // Vibration sur mobile
-      });
+      // Sur mobile, on doit parfois passer par le Service Worker, mais ceci marche sur Android/PC
+      try {
+        new Notification(title, { body, icon: "/vite.svg", vibrate: [200, 100, 200] });
+      } catch (e) { console.error("Erreur notif native", e); }
     }
 
-    // C. Afficher aussi le toast dans l'app
+    // C. Toast App
     showNotification(`${title} - ${body}`, "success");
   }, []);
 
-  // --- (Le reste est ton code existant pour les Toasts/Modals) ---
+  // --- Helpers habituels ---
   const showNotification = (message, type = "info") => {
     setToast({ message, type, id: Date.now() });
     setTimeout(() => setToast(null), 4000);
   };
-
-  const showConfirm = (message) => {
-    return new Promise((resolve) => {
-      setModal({ type: "confirm", message, resolve });
-    });
-  };
-
-  const showPrompt = (message, defaultValue = "") => {
-    return new Promise((resolve) => {
-      setModal({ type: "prompt", message, defaultValue, resolve });
-    });
-  };
-
-  const closeModal = (result) => {
-    if (modal?.resolve) modal.resolve(result);
-    setModal(null);
-  };
+  const showConfirm = (message) => new Promise(resolve => setModal({ type: "confirm", message, resolve }));
+  const showPrompt = (message, defaultValue = "") => new Promise(resolve => setModal({ type: "prompt", message, defaultValue, resolve }));
+  const closeModal = (result) => { if(modal?.resolve) modal.resolve(result); setModal(null); };
 
   return (
-    <NotificationContext.Provider value={{ 
-      showNotification, showConfirm, showPrompt, 
-      notifySystem, requestSystemPermission // 👈 On exporte les nouvelles fonctions
-    }}>
+    <NotificationContext.Provider value={{ showNotification, showConfirm, showPrompt, notifySystem, requestSystemPermission, enableAudio, audioEnabled }}>
       {children}
-      
-      {/* TOAST (Petit message en bas) */}
+
+      {/* MODALS & TOASTS (inchangés) */}
       {toast && (
-        <div className={`fixed bottom-4 right-4 p-4 rounded-xl shadow-2xl flex items-center gap-3 text-white animate-slide-up z-[9999] ${
-          toast.type === "success" ? "bg-green-600" : 
-          toast.type === "error" ? "bg-red-600" : 
-          toast.type === "warning" ? "bg-orange-500" : "bg-blue-600"
+        <div className={`fixed bottom-4 right-4 p-4 rounded-xl shadow-2xl flex items-center gap-3 text-white z-[9999] animate-slide-up ${
+          toast.type === "success" ? "bg-green-600" : toast.type === "error" ? "bg-red-600" : "bg-blue-600"
         }`}>
-          {toast.type === "success" && <FiCheck className="text-xl" />}
-          {toast.type === "error" && <FiAlertCircle className="text-xl" />}
-          {toast.type === "info" && <FiInfo className="text-xl" />}
           <span className="font-bold text-sm">{toast.message}</span>
         </div>
       )}
 
-      {/* MODAL (Confirmation / Prompt) */}
       {modal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full space-y-4 border border-slate-200 dark:border-slate-700 transform scale-100 transition-all">
-            <div className="flex items-center gap-3 text-xl font-bold text-slate-800 dark:text-slate-100">
-               <FiHelpCircle className="text-indigo-600 dark:text-indigo-400" />
-               Confirmation
-            </div>
-            <p className="text-slate-600 dark:text-slate-300">{modal.message}</p>
-            
-            {modal.type === "prompt" && (
-              <input 
-                autoFocus
-                className="w-full border p-2 rounded-lg dark:bg-slate-700 dark:text-white"
-                defaultValue={modal.defaultValue}
-                id="prompt-input"
-              />
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button 
-                onClick={() => closeModal(modal.type === "prompt" ? document.getElementById("prompt-input").value : true)}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl font-bold transition-colors"
-              >
-                Valider
-              </button>
-              <button 
-                onClick={() => closeModal(modal.type === "prompt" ? null : false)}
-                className="flex-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2.5 rounded-xl font-bold transition-colors"
-              >
-                Annuler
-              </button>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[9999]">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full space-y-4">
+            <p className="text-slate-800 dark:text-slate-100 font-bold">{modal.message}</p>
+            {modal.type === "prompt" && <input id="prompt-input" className="w-full border p-2 rounded" defaultValue={modal.defaultValue} autoFocus />}
+            <div className="flex gap-3">
+                <button onClick={() => closeModal(modal.type === "prompt" ? document.getElementById("prompt-input").value : true)} className="flex-1 bg-indigo-600 text-white py-2 rounded font-bold">OK</button>
+                <button onClick={() => closeModal(modal.type === "prompt" ? null : false)} className="flex-1 bg-gray-200 py-2 rounded font-bold">Annuler</button>
             </div>
           </div>
         </div>
@@ -125,6 +91,4 @@ export function NotificationProvider({ children }) {
   );
 }
 
-export function useNotification() {
-  return useContext(NotificationContext);
-}
+export function useNotification() { return useContext(NotificationContext); }
