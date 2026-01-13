@@ -8,9 +8,10 @@ import Dashboard from "./pages/Dashboard";
 import PaiementOk from "./pages/PaiementOk"; 
 import PaiementAnnule from "./pages/PaiementAnnule";
 import MockPay from "./pages/Mockpay"; 
+import UpdatePassword from "./pages/UpdatePassword"; // <-- NOUVEL IMPORT
 
-// Import de la Navbar (étape suivante) - Décommente la ligne ci-dessous quand tu as créé le fichier Navbar
-import Navbar from "./components/Navbar";
+// Décommente si tu as créé la Navbar
+// import Navbar from "./components/Navbar";
 
 function AppRoutes() {
   const [loading, setLoading] = useState(true);
@@ -21,8 +22,11 @@ function AppRoutes() {
   useEffect(() => {
     let mounted = true;
 
-    const isPaiementLike =
-      location.pathname.startsWith("/paiement") || location.pathname.startsWith("/mock-pay");
+    // Pages publiques qui ne déclenchent pas de redirection
+    const isPublicPage = 
+      location.pathname.startsWith("/paiement") || 
+      location.pathname.startsWith("/mock-pay") ||
+      location.pathname === "/update-password"; // <-- AJOUT IMPORTANT
 
     async function init() {
       const { data } = await supabase.auth.getSession();
@@ -30,22 +34,16 @@ function AppRoutes() {
 
       if (data.session) {
         setSession(data.session);
-        // --- MODIFICATION ICI : On empêche la redirection automatique vers le Dashboard ---
-        // Si tu veux réactiver la redirection plus tard, décommente ce bloc :
-        /*
-        if (!isPaiementLike) {
-          if (location.pathname === "/" || location.pathname === "/auth") {
-            navigate("/dashboard", { replace: true });
-          }
+        // Redirection dashboard désactivée temporairement comme demandé
+        /* if (!isPublicPage && (location.pathname === "/" || location.pathname === "/auth")) {
+           navigate("/dashboard", { replace: true });
         }
         */
       } else {
         setSession(null);
-        // Sécurité : Si PAS connecté et sur Dashboard -> Go Accueil
-        if (!isPaiementLike) {
-          if (location.pathname.startsWith("/dashboard")) {
-            navigate("/", { replace: true });
-          }
+        // Protection Dashboard
+        if (!isPublicPage && location.pathname.startsWith("/dashboard")) {
+          navigate("/", { replace: true });
         }
       }
       setLoading(false);
@@ -56,16 +54,12 @@ function AppRoutes() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession ?? null);
       
-      const isPaiementLikeNow =
-        location.pathname.startsWith("/paiement") || location.pathname.startsWith("/mock-pay");
+      const isPublicNow = 
+        location.pathname.startsWith("/paiement") || 
+        location.pathname.startsWith("/mock-pay") ||
+        location.pathname === "/update-password";
 
-      if (!isPaiementLikeNow) {
-        // --- MODIFICATION ICI AUSSI : On commente la redirection automatique ---
-        /*
-        if (newSession && (location.pathname === "/" || location.pathname === "/auth")) {
-          navigate("/dashboard", { replace: true });
-        } else 
-        */
+      if (!isPublicNow) {
         if (!newSession && location.pathname.startsWith("/dashboard")) {
           navigate("/", { replace: true });
         }
@@ -81,22 +75,18 @@ function AppRoutes() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mx-auto"></div>
-          <p className="text-green-600 font-semibold">Chargement…</p>
-        </div>
+        <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
     <>
-      {/* C'est ici que tu placeras ta barre d'onglets plus tard */}
       {/* <Navbar session={session} /> */}
-
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/auth" element={<Auth />} />
+        <Route path="/update-password" element={<UpdatePassword />} /> {/* <-- NOUVELLE ROUTE */}
         <Route path="/dashboard/*" element={<Dashboard />} />
         <Route path="/paiement-ok" element={<PaiementOk />} />
         <Route path="/paiement-annule" element={<PaiementAnnule />} />
