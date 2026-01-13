@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import Ticket from "../components/Ticket"; // Ton composant Ticket visuel
-import emailjs from "@emailjs/browser";    // 👈 INDISPENSABLE pour le mail
-import QRCode from "qrcode";               // 👈 INDISPENSABLE pour générer l'image QR du mail
+import Ticket from "../components/Ticket";
+import emailjs from "@emailjs/browser";
+import QRCode from "qrcode";
+import { FiCheckCircle, FiMail, FiArrowLeft } from "react-icons/fi";
 
 // 👇 REMETS TES CLÉS ICI 👇
 const SERVICE_ID = "service_qmeq26s";
@@ -109,17 +110,27 @@ export default function PaiementOk() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-50">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-slate-900 safe-y safe-x animate-fade-in">
       <div className="w-full max-w-lg space-y-6">
-        
         {/* Carte de statut */}
-        <div className="bg-white border rounded-2xl p-6 shadow-sm text-center space-y-4">
-          <h1 className="text-2xl font-bold text-green-700">Paiement Confirmé</h1>
-          <p className="text-gray-600">{msg}</p>
-          {emailSent && <p className="text-xs text-green-600 font-semibold">📧 Email de confirmation envoyé !</p>}
-          
-          <Link className="inline-block text-sm text-blue-600 hover:underline" to="/dashboard">
-            ← Retour au tableau de bord
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-8 text-center space-y-4">
+          <div className="w-20 h-20 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+            <FiCheckCircle className="text-4xl text-green-600 dark:text-green-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Paiement Confirmé</h1>
+          <p className="text-slate-600 dark:text-slate-400">{msg}</p>
+          {emailSent && (
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 font-semibold">
+              <FiMail className="text-base" />
+              <span>Email de confirmation envoyé !</span>
+            </div>
+          )}
+          <Link 
+            className="inline-flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold transition-colors" 
+            to="/dashboard"
+          >
+            <FiArrowLeft className="text-base" />
+            <span>Retour au tableau de bord</span>
           </Link>
         </div>
 
@@ -129,7 +140,10 @@ export default function PaiementOk() {
             <Ticket commande={commande} />
           </div>
         ) : (
-          <div className="text-center opacity-50 text-sm">Chargement de votre ticket...</div>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-8 text-center">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
+            <p className="mt-4 text-slate-600 dark:text-slate-400 text-sm">Chargement de votre ticket...</p>
+          </div>
         )}
 
       </div>

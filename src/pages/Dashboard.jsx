@@ -4,7 +4,7 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiPackage, FiClock, FiBarChart2, FiFileText, 
-  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon 
+  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera 
 } from "react-icons/fi";
 import { HiOutlineInbox } from "react-icons/hi";
 
@@ -15,19 +15,25 @@ import Tableau from "./Tableau";
 import Stock from "./Stock";
 import AdminAgneaux from "./Adminagneaux";
 import AdminSMS from "./AdminSMS";
+import PriseEnCharge from "./PriseEnCharge"; // <--- NOUVEL IMPORT
 
 // ---- RBAC: permissions par rôle ----
 const PERMS = {
   client: { sections: ["reserver"] },
-  vendeur: { sections: ["commandes", "tableau"] },
+  // AJOUT de "prise_en_charge" pour le vendeur
+  vendeur: { sections: ["commandes", "prise_en_charge", "tableau"] },
   admin_site: { sections: ["commandes", "creneaux", "tableau", "stock"] },
-  admin_global: { sections: ["commandes", "creneaux", "tableau", "stock","agneaux","sms"] },
+  // AJOUT de "prise_en_charge" pour l'admin global
+  admin_global: { sections: ["commandes", "prise_en_charge", "creneaux", "tableau", "stock", "agneaux", "sms"] },
 };
 
 // ---- Libellés + composants avec icônes ----
 const SECTIONS = {
   reserver: { label: "Réserver", component: Client, Icon: FiCalendar, color: "from-green-500 to-emerald-600" },
   commandes: { label: "Commandes", component: Vendeur, Icon: FiPackage, color: "from-green-600 to-teal-600" },
+  // NOUVELLE SECTION ICI
+  prise_en_charge: { label: "Prise en Charge", component: PriseEnCharge, Icon: FiCamera, color: "from-indigo-500 to-purple-600" },
+  
   creneaux: { label: "Créneaux", component: AdminSite, Icon: FiClock, color: "from-emerald-500 to-green-600" },
   tableau: { label: "Tableau", component: Tableau, Icon: FiBarChart2, color: "from-teal-500 to-cyan-600" },
   stock: { label: "Stock", component: Stock, Icon: FiFileText, color: "from-green-400 to-emerald-500" },

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { sendSms } from "../lib/smsService";
 import { useNotification } from "../contexts/NotificationContext";
+import { FiMail, FiSend, FiRefreshCw, FiMessageSquare } from "react-icons/fi";
 
 export default function AdminSMS() {
   const { showAlert, showConfirm, showNotification } = useNotification();
@@ -71,13 +72,22 @@ export default function AdminSMS() {
 
   return (
     <div className="space-y-6 animate-fade-in p-6">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-slate-100">Communication SMS 💬</h1>
+      {/* En-tête */}
+      <div className="flex items-center gap-3">
+        <FiMail className="text-3xl text-indigo-600 dark:text-indigo-400" />
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Communication SMS</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400">Gérer les campagnes SMS</p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
         {/* 1. LANCER UNE CAMPAGNE */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border dark:border-slate-700 shadow-sm space-y-4">
-            <h2 className="font-bold text-lg text-green-700 dark:text-green-400 border-b dark:border-slate-700 pb-2">Nouvelle Campagne</h2>
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 space-y-5">
+          <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-3">
+            <FiSend className="text-indigo-600 dark:text-indigo-400" />
+            Nouvelle Campagne
+          </h2>
             
             <div>
                 <label className="text-sm font-bold text-gray-500 dark:text-gray-400">Destinataires</label>
@@ -108,45 +118,67 @@ export default function AdminSMS() {
                 ℹ️ <b>Mode Simulation :</b> Les SMS seront enregistrés dans la base de données mais pas envoyés réellement sur les téléphones.
             </div>
 
-            <button 
-                onClick={handleSendCampaign}
-                disabled={sending || clients.length === 0}
-                className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 disabled:opacity-50 flex justify-center items-center gap-2"
-            >
-                {sending ? "Envoi en cours..." : "🚀 Envoyer la Campagne"}
-            </button>
+          <button 
+            onClick={handleSendCampaign}
+            disabled={sending || clients.length === 0}
+            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+          >
+            <FiSend className="text-lg" />
+            <span>{sending ? "Envoi en cours..." : "Envoyer la Campagne"}</span>
+          </button>
         </div>
 
         {/* 2. HISTORIQUE DES ENVOIS */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border dark:border-slate-700 shadow-sm flex flex-col h-full">
-            <div className="flex justify-between items-center mb-4 border-b dark:border-slate-700 pb-2">
-                <h2 className="font-bold text-lg text-gray-700 dark:text-slate-200">Historique Récent</h2>
-                <button onClick={fetchData} className="text-sm text-green-600 dark:text-green-400 hover:underline">Actualiser</button>
-            </div>
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 flex flex-col h-full">
+          <div className="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
+            <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <FiMessageSquare className="text-indigo-600 dark:text-indigo-400" />
+              Historique Récent
+            </h2>
+            <button 
+              onClick={fetchData}
+              disabled={loading}
+              className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold flex items-center gap-1 disabled:opacity-50"
+            >
+              <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
+              <span>Actualiser</span>
+            </button>
+          </div>
 
-            <div className="flex-1 overflow-y-auto max-h-[400px] space-y-3 pr-2">
-                {loading ? <p className="text-slate-600 dark:text-slate-400">Chargement...</p> : logs.length === 0 ? (
-                    <p className="text-gray-400 dark:text-gray-500 italic text-center py-10">Aucun SMS envoyé.</p>
-                ) : (
-                    logs.map(log => (
-                        <div key={log.id} className="p-3 border dark:border-slate-700 rounded-lg bg-gray-50 dark:bg-slate-700 text-sm">
-                            <div className="flex justify-between font-bold text-gray-700 dark:text-slate-200 mb-1">
-                                <span>📱 {log.destinataire}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                    log.statut === 'envoye' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                                }`}>
-                                    {log.statut.toUpperCase()}
-                                </span>
-                            </div>
-                            <p className="text-gray-600 dark:text-gray-300 mb-1 italic">"{log.message}"</p>
-                            <div className="text-xs text-gray-400 dark:text-gray-500 flex justify-between">
-                                <span>Type: {log.type}</span>
-                                <span>{new Date(log.created_at).toLocaleString()}</span>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
+          <div className="flex-1 overflow-y-auto max-h-[400px] space-y-3 pr-2">
+            {loading ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
+                <p className="mt-3 text-slate-600 dark:text-slate-400 text-sm">Chargement...</p>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-10 text-slate-500 dark:text-slate-400">
+                <FiMessageSquare className="text-3xl mx-auto mb-3 opacity-50" />
+                <p className="text-sm">Aucun SMS envoyé.</p>
+              </div>
+            ) : (
+              logs.map(log => (
+                <div key={log.id} className="p-4 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-sm hover:shadow-md transition-all">
+                  <div className="flex justify-between items-center font-bold text-slate-800 dark:text-slate-200 mb-2">
+                    <span className="flex items-center gap-2">
+                      <FiMail className="text-xs" />
+                      {log.destinataire}
+                    </span>
+                    <span className={`text-xs px-3 py-1 rounded-full font-bold ${
+                      log.statut === 'envoye' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    }`}>
+                      {log.statut.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-slate-700 dark:text-slate-300 mb-2 italic">"{log.message}"</p>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 flex justify-between">
+                    <span>Type: {log.type}</span>
+                    <span>{new Date(log.created_at).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
       </div>

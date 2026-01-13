@@ -2,6 +2,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useState } from "react";
 import { useNotification } from "../contexts/NotificationContext";
+import { FiCreditCard, FiCheckCircle, FiXCircle, FiArrowLeft } from "react-icons/fi";
 
 export default function MockPay() {
   const { showAlert, showConfirm, showNotification } = useNotification();
@@ -62,40 +63,50 @@ export default function MockPay() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900 safe-y safe-x">
-      <div className="border dark:border-slate-700 rounded-2xl p-6 w-full max-w-md space-y-4 bg-white dark:bg-slate-800 shadow-lg">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100">Paiement (Simulation)</h1>
-
-        <div className="text-sm bg-green-50 dark:bg-green-900/20 p-3 rounded-lg text-green-800 dark:text-green-400 border border-green-200 dark:border-green-700">
-          <div>Commande : <b>{String(commandeId).slice(0, 8)}...</b></div>
-          <div>Ticket prévu : <b>{ticketNum ?? "—"}</b></div>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900 safe-y safe-x animate-fade-in">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-md space-y-5">
+        <div className="flex items-center gap-3">
+          <FiCreditCard className="text-2xl text-indigo-600 dark:text-indigo-400" />
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Paiement (Simulation)</h1>
         </div>
 
-        <button
-          disabled={busy}
-          className="w-full border border-green-200 bg-green-50 text-green-800 rounded-xl p-4 font-bold hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
-          onClick={onSuccess}
-        >
-          <span>✅</span>
-          <span>Valider le paiement (Succès)</span>
-        </button>
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border-2 border-indigo-200 dark:border-indigo-800 space-y-2">
+          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">
+            Commande : <span className="font-mono">{String(commandeId).slice(0, 8)}...</span>
+          </div>
+          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">
+            Ticket prévu : <span className="font-bold">{ticketNum ?? "—"}</span>
+          </div>
+        </div>
 
-        <button
-          disabled={busy}
-          className="w-full border border-red-200 bg-red-50 text-red-800 rounded-xl p-4 font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-          onClick={onFail}
-        >
-          <span>❌</span>
-          <span>Refuser le paiement (Échec)</span>
-        </button>
+        <div className="space-y-3">
+          <button
+            disabled={busy}
+            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl p-4 font-bold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={onSuccess}
+          >
+            <FiCheckCircle className="text-xl" />
+            <span>Valider le paiement (Succès)</span>
+          </button>
 
-        <button
-          disabled={busy}
-          className="w-full border dark:border-slate-600 border-gray-200 text-gray-600 dark:text-gray-400 rounded-xl p-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-          onClick={() => nav("/dashboard", { replace: true })}
-        >
-          Annuler et retourner au menu
-        </button>
+          <button
+            disabled={busy}
+            className="w-full bg-white dark:bg-slate-700 border-2 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-xl p-4 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={onFail}
+          >
+            <FiXCircle className="text-xl" />
+            <span>Refuser le paiement (Échec)</span>
+          </button>
+
+          <button
+            disabled={busy}
+            className="w-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-2 border-slate-200 dark:border-slate-600 rounded-xl p-3 text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
+            onClick={() => nav("/dashboard", { replace: true })}
+          >
+            <FiArrowLeft className="text-base" />
+            <span>Retour au menu</span>
+          </button>
+        </div>
       </div>
     </div>
   );

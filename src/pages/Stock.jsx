@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
+import { FiFileText, FiRefreshCw, FiPlus, FiCheckCircle } from "react-icons/fi";
 
 const TOTAL_DEFAULT = 2000;
 
@@ -245,56 +246,64 @@ export default function Stock() {
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <div className="text-xl font-bold text-slate-800 dark:text-slate-100">Stock tickets</div>
-        <div className="text-sm opacity-70 text-slate-600 dark:text-slate-400">
-          Les tickets déjà attribués à un créneau sont grisées et non sélectionnables.
+    <div className="space-y-6 animate-fade-in">
+      {/* En-tête */}
+      <div className="flex items-center gap-3">
+        <FiFileText className="text-3xl text-indigo-600 dark:text-indigo-400" />
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Stock Tickets</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Gérer les tickets et les attribuer aux créneaux
+          </p>
         </div>
       </div>
 
       {/* Message */}
-      {info ? (
-        <div className="border dark:border-slate-700 rounded-2xl p-3 shadow text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+      {info && (
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border-2 border-indigo-200 dark:border-indigo-800 rounded-xl p-4 text-sm font-semibold text-indigo-700 dark:text-indigo-400">
           {info}
         </div>
-      ) : null}
+      )}
 
       {/* Controls */}
-      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
-        <div className="grid md:grid-cols-2 gap-3">
-          <div className="flex items-end gap-2">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">Actions rapides</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              <b className="text-indigo-600 dark:text-indigo-400">{selectedCount}</b> ticket(s) sélectionné(s)
+            </div>
+          </div>
+          <div className="flex gap-2">
             <button
-              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
+              className="bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-200 dark:border-indigo-800 px-4 py-2 rounded-xl font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all duration-200 disabled:opacity-50 flex items-center gap-2"
               onClick={initStock}
               disabled={busy}
             >
-              Init {TOTAL_DEFAULT} tickets
+              <FiPlus className="text-sm" />
+              <span>Init {TOTAL_DEFAULT}</span>
             </button>
             <button
-              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
+              className="bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-200 dark:border-indigo-800 px-4 py-2 rounded-xl font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all duration-200 disabled:opacity-50 flex items-center gap-2"
               onClick={() => {
                 setSelected(new Set());
                 loadTickets();
               }}
               disabled={busy}
             >
-              Rafraîchir
+              <FiRefreshCw className={`text-sm ${busy ? 'animate-spin' : ''}`} />
+              <span>Rafraîchir</span>
             </button>
-          </div>
-
-          <div>
-            <div className="text-sm font-semibold mb-1 text-slate-800 dark:text-slate-200">Sélection</div>
-            <div className="text-sm opacity-70 text-slate-600 dark:text-slate-400">
-              <b>{selectedCount}</b> ticket(s) sélectionné(s)
-            </div>
           </div>
         </div>
       </div>
 
       {/* Create creneau + assign */}
-      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
-        <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">Créer un créneau</div>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <FiPlus className="text-indigo-600 dark:text-indigo-400" />
+          Créer et attribuer un créneau
+        </h2>
 
         <div className="grid md:grid-cols-4 gap-3">
           <div>
@@ -337,56 +346,59 @@ export default function Stock() {
 
           <div className="flex items-end">
             <button
-              className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm w-full hover:bg-gray-50 dark:hover:bg-slate-600"
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 disabled:opacity-50 w-full flex items-center justify-center gap-2"
               onClick={createCreneau}
               disabled={busy}
             >
-              Créer
+              <FiPlus className="text-sm" />
+              <span>Créer</span>
             </button>
           </div>
         </div>
 
-        <div className="text-sm font-semibold mt-3 text-slate-800 dark:text-slate-200">Attribuer au créneau</div>
-        <div className="grid md:grid-cols-2 gap-3">
-          <select
-            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl p-3 w-full"
-            value={assignCreneauId}
-            onChange={(e) => setAssignCreneauId(e.target.value)}
-          >
-            <option value="">— Choisir un créneau —</option>
-            {creneaux.map((c) => (
-              <option key={c.id} value={c.id}>
-                Jour {c.jour ?? "?"} — {c.date} —{" "}
-                {String(c.heure_debut).slice(0, 5)}→{String(c.heure_fin).slice(0, 5)}
-              </option>
-            ))}
-          </select>
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <div className="text-sm font-semibold mb-3 text-slate-800 dark:text-slate-100">Attribuer au créneau</div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <select
+              className="px-4 py-3 border-2 border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 transition-colors"
+              value={assignCreneauId}
+              onChange={(e) => setAssignCreneauId(e.target.value)}
+            >
+              <option value="">— Choisir un créneau —</option>
+              {creneaux.map((c) => (
+                <option key={c.id} value={c.id}>
+                  Jour {c.jour ?? "?"} — {c.date} — {String(c.heure_debut).slice(0, 5)}→{String(c.heure_fin).slice(0, 5)}
+                </option>
+              ))}
+            </select>
 
-          <button
-            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-slate-600"
-            onClick={assignSelected}
-            disabled={busy || !assignCreneauId || selectedCount === 0}
-          >
-            Attribuer {selectedCount} ticket(s)
-          </button>
+            <button
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              onClick={assignSelected}
+              disabled={busy || !assignCreneauId || selectedCount === 0}
+            >
+              <FiCheckCircle className="text-sm" />
+              <span>Attribuer {selectedCount} ticket(s)</span>
+            </button>
+          </div>
         </div>
 
         {/* Quick range selection */}
-        <div className="flex flex-wrap gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
           <button
-            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
+            className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             onClick={() => selectRange(1, 70)}
           >
             Select 1–70
           </button>
           <button
-            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
+            className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             onClick={() => selectRange(71, 140)}
           >
             Select 71–140
           </button>
           <button
-            className="border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-slate-600"
+            className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             onClick={() => setSelected(new Set())}
           >
             Clear
@@ -395,21 +407,20 @@ export default function Stock() {
       </div>
 
       {/* Tickets grid */}
-      <div className="border dark:border-slate-700 rounded-2xl p-4 shadow space-y-3 bg-white dark:bg-slate-800">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <div className="font-semibold text-slate-800 dark:text-slate-200">Tickets ({totalTickets})</div>
-          <div className="text-xs opacity-60 text-slate-600 dark:text-slate-400">
-            Gris = déjà attribué à un créneau (non sélectionnable)
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Tickets ({totalTickets})</h2>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Gris = déjà attribué (non sélectionnable)
           </div>
         </div>
 
         <div className="grid grid-cols-10 md:grid-cols-20 gap-2">
           {Array.from({ length: totalTickets }).map((_, i) => {
             const n = i + 1;
-
             const assigned = assignedSet.has(n);
             const isSel = selected.has(n);
-            const assignedTo = ticketMap.get(n); // UUID ou null
+            const assignedTo = ticketMap.get(n);
 
             return (
               <button
@@ -417,14 +428,17 @@ export default function Stock() {
                 onClick={() => toggleTicket(n)}
                 disabled={assigned}
                 className={[
-                  "border dark:border-slate-600 rounded-lg py-2 text-xs",
-                  isSel ? "font-semibold bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400" : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200",
-                  assigned ? "opacity-40 cursor-not-allowed bg-gray-100 dark:bg-slate-600" : "hover:bg-gray-50 dark:hover:bg-slate-600",
+                  "border-2 rounded-lg py-2 text-xs font-medium transition-all",
+                  isSel 
+                    ? "bg-indigo-100 dark:bg-indigo-900/30 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-400 font-bold" 
+                    : assigned
+                    ? "bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 opacity-60 cursor-not-allowed"
+                    : "bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20",
                 ].join(" ")}
                 title={
                   assigned
                     ? `Ticket déjà attribué (créneau: ${String(assignedTo).slice(0, 8)}…)`
-                    : "Libre"
+                    : "Libre - Cliquer pour sélectionner"
                 }
               >
                 {n}
