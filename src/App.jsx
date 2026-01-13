@@ -5,10 +5,12 @@ import { supabase } from "./lib/supabase";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-// 👇 CORRECTION DES NOMS (Respect des majuscules/minuscules)
 import PaiementOk from "./pages/PaiementOk"; 
 import PaiementAnnule from "./pages/PaiementAnnule";
 import MockPay from "./pages/Mockpay"; 
+
+// Import de la Navbar (étape suivante) - Décommente la ligne ci-dessous quand tu as créé le fichier Navbar
+import Navbar from "./components/Navbar";
 
 function AppRoutes() {
   const [loading, setLoading] = useState(true);
@@ -19,7 +21,6 @@ function AppRoutes() {
   useEffect(() => {
     let mounted = true;
 
-    // On liste les pages qui ne nécessitent pas de redirection de sécurité
     const isPaiementLike =
       location.pathname.startsWith("/paiement") || location.pathname.startsWith("/mock-pay");
 
@@ -29,15 +30,18 @@ function AppRoutes() {
 
       if (data.session) {
         setSession(data.session);
-        // Si connecté et sur Accueil/Auth -> Go Dashboard (Sauf si on est en paiement)
+        // --- MODIFICATION ICI : On empêche la redirection automatique vers le Dashboard ---
+        // Si tu veux réactiver la redirection plus tard, décommente ce bloc :
+        /*
         if (!isPaiementLike) {
           if (location.pathname === "/" || location.pathname === "/auth") {
             navigate("/dashboard", { replace: true });
           }
         }
+        */
       } else {
         setSession(null);
-        // Si PAS connecté et sur Dashboard -> Go Accueil
+        // Sécurité : Si PAS connecté et sur Dashboard -> Go Accueil
         if (!isPaiementLike) {
           if (location.pathname.startsWith("/dashboard")) {
             navigate("/", { replace: true });
@@ -52,14 +56,17 @@ function AppRoutes() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession ?? null);
       
-      // On revérifie la sécurité au changement de session
       const isPaiementLikeNow =
         location.pathname.startsWith("/paiement") || location.pathname.startsWith("/mock-pay");
 
       if (!isPaiementLikeNow) {
+        // --- MODIFICATION ICI AUSSI : On commente la redirection automatique ---
+        /*
         if (newSession && (location.pathname === "/" || location.pathname === "/auth")) {
           navigate("/dashboard", { replace: true });
-        } else if (!newSession && location.pathname.startsWith("/dashboard")) {
+        } else 
+        */
+        if (!newSession && location.pathname.startsWith("/dashboard")) {
           navigate("/", { replace: true });
         }
       }
@@ -73,24 +80,29 @@ function AppRoutes() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-green-200 dark:border-green-800 border-t-green-600 dark:border-t-green-400 rounded-full animate-spin mx-auto"></div>
-          <p className="text-green-600 dark:text-green-400 font-semibold">Chargement…</p>
+          <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mx-auto"></div>
+          <p className="text-green-600 font-semibold">Chargement…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/auth" element={<Auth />} />
-      <Route path="/dashboard/*" element={<Dashboard />} />
-      <Route path="/paiement-ok" element={<PaiementOk />} />
-      <Route path="/paiement-annule" element={<PaiementAnnule />} />
-      <Route path="/mock-pay" element={<MockPay />} />
-    </Routes>
+    <>
+      {/* C'est ici que tu placeras ta barre d'onglets plus tard */}
+      {/* <Navbar session={session} /> */}
+
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/dashboard/*" element={<Dashboard />} />
+        <Route path="/paiement-ok" element={<PaiementOk />} />
+        <Route path="/paiement-annule" element={<PaiementAnnule />} />
+        <Route path="/mock-pay" element={<MockPay />} />
+      </Routes>
+    </>
   );
 }
 
