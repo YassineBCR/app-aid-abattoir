@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useDarkMode } from "../contexts/DarkModeContext";
-import { useNotification } from "../contexts/NotificationContext"; // ✅ Importé ici
+import { useNotification } from "../contexts/NotificationContext"; //
 import { 
   FiCalendar, FiClock, FiUser, FiMail, FiPhone, FiMapPin, 
   FiCheck, FiCreditCard, FiLoader 
@@ -11,7 +11,7 @@ const ACOMPTE_CENTS = 5000; // 50.00€
 const RESERVE_TIMEOUT_MIN = 15;
 
 export default function Client() {
-  // 👇 AJOUT DE CETTE LIGNE CRUCIALE 👇
+  // 👇 C'EST LA LIGNE QUI MANQUAIT 👇
   const { showNotification } = useNotification(); 
   
   const { darkMode } = useDarkMode();
@@ -115,9 +115,9 @@ export default function Client() {
       );
     } catch (e) {
       console.error(e);
-      // C'est ici que ça plantait avant. Maintenant ça affichera la vraie erreur (ex: "Créneau complet")
+      // Maintenant que showNotification est défini, l'erreur s'affichera correctement à l'écran
       showNotification("Erreur : " + e.message, "error");
-      fetchCreneaux(); // On rafraichit les dispos au cas où
+      fetchCreneaux(); // On rafraîchit les dispos
     } finally {
       setPaying(false);
     }
