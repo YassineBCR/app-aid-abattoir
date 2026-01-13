@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useDarkMode } from "../contexts/DarkModeContext";
-import { useNotification } from "../contexts/NotificationContext";
+import { useNotification } from "../contexts/NotificationContext"; // ✅ Importé ici
 import { 
   FiCalendar, FiClock, FiUser, FiMail, FiPhone, FiMapPin, 
   FiCheck, FiCreditCard, FiLoader 
 } from "react-icons/fi";
 
-const ACOMPTE_CENTS = 5000; // Acompte fixé à 50€ (exemple, tu peux remettre 100€)
+const ACOMPTE_CENTS = 5000; // 50.00€
 const RESERVE_TIMEOUT_MIN = 15;
 
 export default function Client() {
+  // 👇 AJOUT DE CETTE LIGNE CRUCIALE 👇
+  const { showNotification } = useNotification(); 
+  
   const { darkMode } = useDarkMode();
   const [user, setUser] = useState(null);
   const [creneaux, setCreneaux] = useState([]);
-  const [tarifs, setTarifs] = useState([]); // Pour stocker les catégories
+  const [tarifs, setTarifs] = useState([]);
   
   const [selectedCreneau, setSelectedCreneau] = useState(null);
-  const [selectedTarif, setSelectedTarif] = useState(null); // La catégorie choisie (objet complet)
+  const [selectedTarif, setSelectedTarif] = useState(null);
   
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -67,7 +70,7 @@ export default function Client() {
     return (
       user &&
       selectedCreneau &&
-      selectedTarif && // Il faut avoir choisi une catégorie
+      selectedTarif &&
       Number(selectedCreneau.places_restantes) > 0 &&
       form.first_name &&
       form.last_name &&
@@ -82,10 +85,9 @@ export default function Client() {
     if (!user) return showNotification("Connecte-toi pour réserver.", "error");
 
     setPaying(true);
-    let commandeId = null;
 
     try {
-      // 1️⃣ Réserver ticket via RPC mise à jour
+      // 1️⃣ Réserver ticket via RPC
       const { data, error } = await supabase.rpc("reserve_ticket", {
         p_creneau_id: selectedCreneau.id,
         p_client_id: user.id,
@@ -96,13 +98,13 @@ export default function Client() {
         p_address: form.address,
         p_sacrifice_name: form.sacrifice_name,
         p_acompte_cents: ACOMPTE_CENTS,
-        p_categorie: selectedTarif.categorie // On envoie "A", "B", ou "C"
+        p_categorie: selectedTarif.categorie
       });
 
       if (error) throw error;
 
       const row = Array.isArray(data) ? data[0] : data;
-      commandeId = row?.commande_id;
+      const commandeId = row?.commande_id;
       const ticketNum = row?.ticket_num;
 
       if (!commandeId) throw new Error("Erreur réservation.");
@@ -113,8 +115,9 @@ export default function Client() {
       );
     } catch (e) {
       console.error(e);
+      // C'est ici que ça plantait avant. Maintenant ça affichera la vraie erreur (ex: "Créneau complet")
       showNotification("Erreur : " + e.message, "error");
-      fetchCreneaux();
+      fetchCreneaux(); // On rafraichit les dispos au cas où
     } finally {
       setPaying(false);
     }
