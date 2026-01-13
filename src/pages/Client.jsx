@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useDarkMode } from "../contexts/DarkModeContext";
+import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiClock, FiUser, FiMail, FiPhone, FiMapPin, 
   FiCheck, FiCreditCard, FiLoader 
@@ -78,7 +79,7 @@ export default function Client() {
   }, [user, selectedCreneau, selectedTarif, form, paying]);
 
   async function reserverEtPayer() {
-    if (!user) return alert("Connecte-toi pour réserver.");
+    if (!user) return showNotification("Connecte-toi pour réserver.", "error");
 
     setPaying(true);
     let commandeId = null;
@@ -112,7 +113,7 @@ export default function Client() {
       );
     } catch (e) {
       console.error(e);
-      alert("Erreur : " + e.message);
+      showNotification("Erreur : " + e.message, "error");
       fetchCreneaux();
     } finally {
       setPaying(false);

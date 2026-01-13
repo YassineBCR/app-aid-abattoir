@@ -1,8 +1,10 @@
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useState } from "react";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function MockPay() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [params] = useSearchParams();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -11,7 +13,7 @@ export default function MockPay() {
   const ticketNum = params.get("ticket_num");
 
   async function onSuccess() {
-    if (!commandeId) return alert("commande_id manquant");
+    if (!commandeId) return showNotification("commande_id manquant", "error");
     setBusy(true);
 
     const { error } = await supabase.rpc("mock_payment_success", {
@@ -21,7 +23,7 @@ export default function MockPay() {
     setBusy(false);
 
     if (error) {
-      alert("Erreur mock paiement OK: " + error.message);
+      showNotification("Erreur mock paiement OK: " + error.message, "error");
       return;
     }
 
@@ -31,7 +33,7 @@ export default function MockPay() {
 
   // Fonction d'échec (inchangée, mais je la remets pour que le fichier soit complet)
   async function onFail() {
-    if (!commandeId) return alert("commande_id manquant");
+    if (!commandeId) return showNotification("commande_id manquant", "error");
     setBusy(true);
 
     // Tentative RPC
@@ -51,11 +53,11 @@ export default function MockPay() {
     setBusy(false);
 
     if (error) {
-      alert("Impossible d'annuler : " + error.message);
+      showNotification("Impossible d'annuler : " + error.message, "error");
       return;
     }
 
-    alert("Paiement refusé. La commande a été annulée.");
+    showNotification("Paiement refusé. La commande a été annulée.", "warning");
     nav("/dashboard", { replace: true });
   }
 

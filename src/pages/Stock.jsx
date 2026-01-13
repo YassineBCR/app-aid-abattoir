@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 
 const TOTAL_DEFAULT = 2000;
 
@@ -19,6 +20,7 @@ const HOURS = [
 ];
 
 export default function Stock() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [tickets, setTickets] = useState([]); // {ticket_num:number, creneau_id:string|null}
   const [creneaux, setCreneaux] = useState([]);
 
@@ -61,7 +63,7 @@ export default function Stock() {
     setLoading(false);
 
     if (error) {
-      alert("Erreur tickets: " + error.message);
+      showNotification("Erreur tickets: " + error.message, "error");
       return;
     }
 
@@ -82,7 +84,7 @@ export default function Stock() {
       .order("heure_debut", { ascending: true });
 
     if (error) {
-      alert("Erreur créneaux: " + error.message);
+      showNotification("Erreur créneaux: " + error.message, "error");
       return;
     }
 
@@ -107,7 +109,7 @@ export default function Stock() {
     setBusy(false);
 
     if (error) {
-      alert("Erreur init stock: " + error.message);
+      showNotification("Erreur init stock: " + error.message, "error");
       return;
     }
 
@@ -116,7 +118,7 @@ export default function Stock() {
   }
 
   async function createCreneau() {
-    if (!date) return alert("Choisis une date.");
+    if (!date) return showNotification("Choisis une date.", "error");
     const h = HOURS[hourIndex];
 
     setBusy(true);
@@ -137,7 +139,7 @@ export default function Stock() {
     setBusy(false);
 
     if (error) {
-      alert("Erreur création créneau: " + error.message);
+      showNotification("Erreur création créneau: " + error.message, "error");
       return;
     }
 
@@ -203,8 +205,8 @@ export default function Stock() {
   }
 
   async function assignSelected() {
-    if (!assignCreneauId) return alert("Choisis un créneau.");
-    if (selectedCount === 0) return alert("Sélectionne des tickets.");
+    if (!assignCreneauId) return showNotification("Choisis un créneau.", "error");
+    if (selectedCount === 0) return showNotification("Sélectionne des tickets.", "error");
 
     // sécurité côté front : re-check avant envoi
     const forbidden = selectedNums.filter((n) => assignedSet.has(Number(n)));
@@ -233,7 +235,7 @@ export default function Stock() {
     setBusy(false);
 
     if (error) {
-      alert("Erreur attribution tickets: " + error.message);
+      showNotification("Erreur attribution tickets: " + error.message, "error");
       return;
     }
 

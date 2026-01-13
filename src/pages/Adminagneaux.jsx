@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function AdminAgneaux() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [tarifs, setTarifs] = useState([]);
   const [stats, setStats] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -41,7 +43,7 @@ export default function AdminAgneaux() {
       .update({ prix_cents: newPrix * 100 }) // on stocke en centimes
       .eq("categorie", categorie);
     
-    if (error) alert("Erreur: " + error.message);
+    if (error) showNotification("Erreur: " + error.message, "error");
     else fetchData();
   }
 

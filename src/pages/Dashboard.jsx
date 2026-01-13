@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useDarkMode } from "../contexts/DarkModeContext";
+import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiPackage, FiClock, FiBarChart2, FiFileText, 
   FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon 
@@ -36,6 +37,7 @@ const SECTIONS = {
 
 export default function Dashboard() {
   const { darkMode, toggleDarkMode } = useDarkMode();
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null); // {id, email, role}
   const [active, setActive] = useState(null);
@@ -62,7 +64,7 @@ export default function Dashboard() {
     setLoading(false);
 
     if (error) {
-      alert("Erreur chargement profil: " + error.message);
+      showNotification("Erreur chargement profil: " + error.message, "error");
       return;
     }
 

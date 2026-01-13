@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function AdminGlobal() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   // ---------- SITES ----------
   const [sites, setSites] = useState([]);
   const [nomSite, setNomSite] = useState("");
@@ -15,10 +17,8 @@ export default function AdminGlobal() {
       .select("id, nom, adresse, created_at")
       .order("created_at", { ascending: false });
 
-    if (error) return alert("Erreur sites: " + error.message);
+    if (error) return showNotification("Erreur sites: " + error.message, "error");
     setSites(data ?? []);
-    // si aucun site sélectionné, on en prend un
-    if (!siteId && data?.length) setSiteId(data[0].id);
   }
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function AdminGlobal() {
 
   async function addSite(e) {
     e.preventDefault();
-    if (!nomSite.trim()) return alert("Nom du site obligatoire");
+    if (!nomSite.trim()) return showNotification("Nom du site obligatoire", "error");
 
     setLoadingSite(true);
     const { error } = await supabase.from("sites_abattoir").insert({
@@ -37,7 +37,7 @@ export default function AdminGlobal() {
     });
     setLoadingSite(false);
 
-    if (error) return alert("Erreur ajout site: " + error.message);
+    if (error) return showNotification("Erreur ajout site: " + error.message, "error");
 
     setNomSite("");
     setAdresseSite("");
@@ -45,9 +45,10 @@ export default function AdminGlobal() {
   }
 
   async function deleteSite(id) {
-    if (!confirm("Supprimer ce site ?")) return;
+    const confirmed = await showConfirm("Supprimer ce site ?");
+    if (!confirmed) return;
     const { error } = await supabase.from("sites_abattoir").delete().eq("id", id);
-    if (error) return alert("Erreur suppression site: " + error.message);
+    if (error) return showNotification("Erreur suppression site: " + error.message, "error");
     await fetchSites();
   }
 

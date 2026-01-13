@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function AdminSite() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [creneaux, setCreneaux] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +33,7 @@ export default function AdminSite() {
 
     setLoading(false);
 
-    if (error) return alert("Erreur chargement créneaux: " + error.message);
+    if (error) return showNotification("Erreur chargement créneaux: " + error.message, "error");
     setCreneaux(data ?? []);
   }
 
@@ -41,9 +43,9 @@ export default function AdminSite() {
 
   async function addCreneau(e) {
     e.preventDefault();
-    if (!date) return alert("Date obligatoire");
-    if (!heureDebut) return alert("Heure début obligatoire");
-    if (!heureFin) return alert("Heure fin obligatoire");
+    if (!date) return showNotification("Date obligatoire", "error");
+    if (!heureDebut) return showNotification("Heure début obligatoire", "error");
+    if (!heureFin) return showNotification("Heure fin obligatoire", "error");
 
     setSaving(true);
 
@@ -58,7 +60,7 @@ export default function AdminSite() {
 
     setSaving(false);
 
-    if (error) return alert("Erreur création créneau: " + error.message);
+    if (error) return showNotification("Erreur création créneau: " + error.message, "error");
 
     setHeureDebut("08:00");
     setHeureFin("09:00");
@@ -85,9 +87,9 @@ export default function AdminSite() {
     e.preventDefault();
     if (!editing?.id) return;
 
-    if (!editDate) return alert("Date obligatoire");
-    if (!editHeureDebut) return alert("Heure début obligatoire");
-    if (!editHeureFin) return alert("Heure fin obligatoire");
+    if (!editDate) return showNotification("Date obligatoire", "error");
+    if (!editHeureDebut) return showNotification("Heure début obligatoire", "error");
+    if (!editHeureFin) return showNotification("Heure fin obligatoire", "error");
 
     setUpdating(true);
 
@@ -103,16 +105,17 @@ export default function AdminSite() {
 
     setUpdating(false);
 
-    if (error) return alert("Erreur mise à jour: " + error.message);
+    if (error) return showNotification("Erreur mise à jour: " + error.message, "error");
 
     cancelEdit();
     await fetchCreneaux();
   }
 
   async function deleteCreneau(id) {
-    if (!confirm("Supprimer ce créneau ?")) return;
+    const confirmed = await showConfirm("Supprimer ce créneau ?");
+    if (!confirmed) return;
     const { error } = await supabase.from("creneaux_horaires").delete().eq("id", id);
-    if (error) return alert("Erreur suppression: " + error.message);
+    if (error) return showNotification("Erreur suppression: " + error.message, "error");
     await fetchCreneaux();
   }
 

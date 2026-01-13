@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function Tableau() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   
@@ -25,7 +27,7 @@ export default function Tableau() {
 
     setLoading(false);
     if (error) {
-      alert("Erreur chargement : " + error.message);
+      showNotification("Erreur chargement : " + error.message, "error");
     } else {
       setRows(data ?? []);
     }

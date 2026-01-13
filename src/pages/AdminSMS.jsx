@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { sendSms } from "../lib/smsService";
+import { useNotification } from "../contexts/NotificationContext";
 
 export default function AdminSMS() {
+  const { showAlert, showConfirm, showNotification } = useNotification();
   const [clients, setClients] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -49,8 +51,9 @@ export default function AdminSMS() {
   }
 
   async function handleSendCampaign() {
-    if (!message) return alert("Le message est vide !");
-    if (!confirm(`Envoyer ce SMS à ${clients.length} clients (Simulation) ?`)) return;
+    if (!message) return showNotification("Le message est vide !", "error");
+    const confirmed = await showConfirm(`Envoyer ce SMS à ${clients.length} clients (Simulation) ?`);
+    if (!confirmed) return;
 
     setSending(true);
     let count = 0;
@@ -62,7 +65,7 @@ export default function AdminSMS() {
     }
 
     setSending(false);
-    alert(`✅ Campagne terminée : ${count} SMS envoyés !`);
+    showNotification(`✅ Campagne terminée : ${count} SMS envoyés !`, "success");
     fetchData(); // Rafraîchir les logs
   }
 
