@@ -4,8 +4,8 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiPackage, FiClock, FiBarChart2, FiFileText, 
-  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera 
-} from "react-icons/fi";
+  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera, FiBell 
+} from "react-icons/fi"; // <--- J'ai ajouté FiBell ici
 import { HiOutlineInbox } from "react-icons/hi";
 
 import Client from "./Client";
@@ -15,15 +15,13 @@ import Tableau from "./Tableau";
 import Stock from "./Stock";
 import AdminAgneaux from "./Adminagneaux";
 import AdminSMS from "./AdminSMS";
-import PriseEnCharge from "./PriseEnCharge"; // <--- NOUVEL IMPORT
+import PriseEnCharge from "./PriseEnCharge"; 
 
 // ---- RBAC: permissions par rôle ----
 const PERMS = {
   client: { sections: ["reserver"] },
-  // AJOUT de "prise_en_charge" pour le vendeur
   vendeur: { sections: ["commandes", "prise_en_charge", "tableau"] },
   admin_site: { sections: ["commandes", "creneaux", "tableau", "stock"] },
-  // AJOUT de "prise_en_charge" pour l'admin global
   admin_global: { sections: ["commandes", "prise_en_charge", "creneaux", "tableau", "stock", "agneaux", "sms"] },
 };
 
@@ -31,9 +29,7 @@ const PERMS = {
 const SECTIONS = {
   reserver: { label: "Réserver", component: Client, Icon: FiCalendar, color: "from-green-500 to-emerald-600" },
   commandes: { label: "Commandes", component: Vendeur, Icon: FiPackage, color: "from-green-600 to-teal-600" },
-  // NOUVELLE SECTION ICI
   prise_en_charge: { label: "Prise en Charge", component: PriseEnCharge, Icon: FiCamera, color: "from-indigo-500 to-purple-600" },
-  
   creneaux: { label: "Créneaux", component: AdminSite, Icon: FiClock, color: "from-emerald-500 to-green-600" },
   tableau: { label: "Tableau", component: Tableau, Icon: FiBarChart2, color: "from-teal-500 to-cyan-600" },
   stock: { label: "Stock", component: Stock, Icon: FiFileText, color: "from-green-400 to-emerald-500" },
@@ -47,6 +43,38 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null); // {id, email, role}
   const [active, setActive] = useState(null);
+
+  // --- FONCTION DE TEST NOTIFICATION ---
+  const sendTestNotification = async () => {
+    // Petit effet visuel ou confirmation simple
+    const confirm = window.confirm("Envoyer une notification de test sur votre téléphone ?\n(Assurez-vous d'avoir quitté l'app après le clic pour bien la voir)");
+    if (!confirm) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return alert("Vous n'êtes pas connecté");
+
+      const { error } = await supabase.functions.invoke('send-push', {
+        body: {
+          user_id: user.id, // On s'envoie la notif à soi-même
+          title: "Test iOS 📱",
+          body: "Si tu lis ça, les notifications fonctionnent !",
+          url: "/dashboard"
+        }
+      });
+
+      if (error) {
+        console.error(error);
+        alert("Erreur technique : " + error.message);
+      } else {
+        alert("Envoyé ! Regardez votre téléphone (fermez l'app si besoin).");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur : " + err.message);
+    }
+  };
+  // -------------------------------------
 
   async function loadProfile() {
     setLoading(true);
@@ -172,7 +200,19 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
+            
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              
+              {/* --- BOUTON DE TEST NOTIFICATION --- */}
+              <button
+                onClick={sendTestNotification}
+                className="bg-purple-500/30 hover:bg-purple-500/50 text-white p-2.5 sm:p-3 rounded-xl transition-all duration-200 active:opacity-80 flex items-center justify-center border border-white/20"
+                title="Tester Notification"
+              >
+                <FiBell className="text-lg sm:text-xl" />
+              </button>
+              {/* ----------------------------------- */}
+
               <button
                 onClick={toggleDarkMode}
                 className="bg-white/20 hover:bg-white/30 text-white p-2.5 sm:p-3 rounded-xl transition-all duration-200 active:opacity-80 flex items-center justify-center"
