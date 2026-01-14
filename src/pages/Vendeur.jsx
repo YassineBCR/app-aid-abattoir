@@ -1,211 +1,221 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
-import { FiPackage, FiRefreshCw, FiCheckCircle, FiXCircle, FiClock, FiUser, FiTag, FiDollarSign } from "react-icons/fi";
+import { FiCheck, FiX, FiSearch, FiCalendar, FiUser, FiClock, FiAlertCircle } from "react-icons/fi";
 
 export default function Vendeur() {
-  const { showAlert, showConfirm, showNotification } = useNotification();
-  // ============================================================
-  // GESTION RÉCEPTION / INBOX (Nouvelles Commandes)
-  // ============================================================
+  const { showNotification } = useNotification();
+  const [loadingInbox, setLoadingInbox] = useState(true);
   const [inbox, setInbox] = useState([]);
-  const [loadingInbox, setLoadingInbox] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     fetchInbox();
+
+    // Écouter les nouvelles commandes en temps réel
+    const subscription = supabase
+      .channel('public:commandes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes' }, () => {
+        fetchInbox();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
-  // Récupérer les commandes à traiter (En attente ou Payées mais pas encore validées)
   async function fetchInbox() {
     setLoadingInbox(true);
-    const { data, error } = await supabase
-      .from("commandes")
-      .select(`*, creneaux_horaires ( date, heure_debut )`)
-      .in("statut", ["en_attente", "paiement_recu"]) 
-      .order("created_at", { ascending: false });
+    try {
+      // ON CHERCHE :
+      // 1. "acompte_paye" : Client a payé sur le site
+      // 2. "attente_paiement" : Créé manuellement par un staff
+      const { data, error } = await supabase
+        .from("commandes")
+        .select(`
+          *,
+          creneaux_horaires ( date, heure_debut, heure_fin )
+        `)
+        .in("statut", ["acompte_paye", "attente_paiement"]) 
+        .order("created_at", { ascending: false });
 
-    if (error) console.error(error);
-    else setInbox(data || []);
-    setLoadingInbox(false);
+      if (error) throw error;
+      setInbox(data || []);
+    } catch (error) {
+      console.error("Erreur chargement inbox:", error);
+      showNotification("Erreur de chargement des commandes.", "error");
+    } finally {
+      setLoadingInbox(false);
+    }
   }
 
-  // Action : Valider la commande
+  // --- ACTIONS ---
+
   async function validerCommande(id) {
-    const confirmed = await showConfirm("Accepter cette réservation ?");
-    if (!confirmed) return;
+    if (!window.confirm("Confirmer la validation de cette commande ? Elle passera en attente du solde.")) return;
 
-    const { error } = await supabase
-      .from("commandes")
-      .update({ statut: "validee" }) // Passe en validée (disparaît de la liste)
-      .eq("id", id);
+    try {
+      // PASSAGE EN STATUT "VALIDEE" (3b)
+      // Le client est validé, il peut venir payer le solde en caisse.
+      const { error } = await supabase
+        .from("commandes")
+        .update({ statut: "validee" }) 
+        .eq("id", id);
 
-    if (error) {
-      showNotification("Erreur : " + error.message, "error");
-    } else {
-      showNotification("Commande validée avec succès", "success");
-      // Mise à jour locale (retirer de la liste)
-      setInbox((prev) => prev.filter((c) => c.id !== id));
+      if (error) throw error;
+
+      showNotification("Commande validée ! Envoyée en caisse.", "success");
+      // La liste se mettra à jour toute seule grâce au subscribe
+      
+    } catch (err) {
+      console.error(err);
+      showNotification("Erreur lors de la validation.", "error");
     }
   }
 
-  // Action : Refuser la commande
   async function refuserCommande(id) {
-    const confirmed = await showConfirm("Refuser et annuler cette commande ?");
-    if (!confirmed) return;
+    const raison = window.prompt("Motif du refus (ex: Doublon, Erreur...) ?");
+    if (raison === null) return; // Annulation par l'utilisateur
 
-    const { error } = await supabase
-      .from("commandes")
-      .update({ statut: "refusee" })
-      .eq("id", id);
+    try {
+      // PASSAGE EN STATUT "ANNULEE"
+      const { error } = await supabase
+        .from("commandes")
+        .update({ 
+            statut: "annulee",
+            notes_internes: `Annulée le ${new Date().toLocaleDateString()} : ${raison}`
+        })
+        .eq("id", id);
 
-    if (error) {
-      showNotification("Erreur : " + error.message, "error");
-    } else {
-      showNotification("Commande refusée", "warning");
-      setInbox((prev) => prev.filter((c) => c.id !== id));
+      if (error) throw error;
+      showNotification("Commande annulée.", "info");
+
+    } catch (err) {
+      console.error(err);
+      showNotification("Erreur lors de l'annulation.", "error");
     }
   }
+
+  // Filtrage local pour la recherche
+  const filteredInbox = inbox.filter((cmd) => {
+    const search = searchTerm.toLowerCase();
+    const name = (cmd.contact_last_name + " " + cmd.contact_first_name).toLowerCase();
+    const ticket = (cmd.ticket_num || "").toString();
+    const email = (cmd.contact_email || "").toLowerCase();
+    
+    return name.includes(search) || ticket.includes(search) || email.includes(search);
+  });
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-4 pb-20 safe-x animate-fade-in">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* En-tête */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-3">
-              <FiPackage className="text-indigo-600 dark:text-indigo-400" />
-              Réception Commandes
-            </h1>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Gérer les nouvelles commandes en attente
-            </p>
-          </div>
-          <button 
-            onClick={fetchInbox} 
-            disabled={loadingInbox}
-            className="bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-200 dark:border-indigo-800 px-4 py-2 rounded-xl font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-          >
-            <FiRefreshCw className={`text-lg ${loadingInbox ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Actualiser</span>
-          </button>
+    <div className="max-w-6xl mx-auto p-4 space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 border-b border-slate-200 dark:border-slate-700 pb-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <FiAlertCircle className="text-orange-500" />
+            Commandes à Valider
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            Vérifiez les acomptes et validez pour envoyer en caisse.
+          </p>
         </div>
+        
+        <div className="relative w-full md:w-64">
+          <input
+            type="text"
+            placeholder="Rechercher (Nom, Ticket...)"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-colors dark:text-white"
+          />
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        </div>
+      </div>
 
-        {/* Liste des commandes */}
-        {loadingInbox ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
-            <p className="mt-4 text-slate-600 dark:text-slate-400">Chargement des commandes...</p>
+      {loadingInbox ? (
+        <div className="flex justify-center py-12">
+            <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        </div>
+      ) : filteredInbox.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl shadow border border-slate-200 dark:border-slate-700">
+          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FiCheck className="text-3xl text-slate-400" />
           </div>
-        ) : inbox.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border-2 border-indigo-200 dark:border-indigo-800 p-12 text-center">
-            <div className="w-20 h-20 mx-auto rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mb-4">
-              <FiCheckCircle className="text-4xl text-indigo-600 dark:text-indigo-400" />
-            </div>
-            <h3 className="text-xl font-bold text-indigo-700 dark:text-indigo-400 mb-2">Tout est à jour</h3>
-            <p className="text-slate-600 dark:text-slate-400">Aucune commande en attente de traitement.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {inbox.map((cmd) => (
-              <div 
-                key={cmd.id} 
-                className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-xl transition-all duration-200"
-              >
-                {/* Header avec ticket et statut */}
-                <div className="bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-700 dark:to-slate-800 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-3 py-1 rounded-lg font-bold text-sm flex items-center gap-2">
-                        <FiTag className="text-xs" />
-                        #{cmd.ticket_num}
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
-                        cmd.statut === 'paiement_recu' 
-                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
-                          : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-                      }`}>
-                        {cmd.statut === 'paiement_recu' ? (
-                          <>
-                            <FiCheckCircle className="text-xs" />
-                            PAYÉ
-                          </>
-                        ) : (
-                          <>
-                            <FiClock className="text-xs" />
-                            EN ATTENTE
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Acompte</div>
-                      <div className="text-green-600 dark:text-green-400 font-bold text-xl flex items-center gap-1">
-                        <FiDollarSign className="text-sm" />
-                        {(cmd.acompte_cents/100).toFixed(0)} €
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Corps de la carte */}
-                <div className="p-5 space-y-4">
-                  {/* Informations client */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
-                      <FiUser className="text-xl" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100 truncate">
-                        {cmd.contact_last_name} {cmd.contact_first_name}
-                      </h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">{cmd.contact_phone}</p>
-                    </div>
-                  </div>
-
-                  {/* Détails commande */}
-                  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4 space-y-2 border border-slate-200 dark:border-slate-600">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                        <FiClock className="text-xs" />
-                        Créneau
-                      </span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        {cmd.creneaux_horaires 
-                          ? `J${cmd.creneaux_horaires.date} - ${String(cmd.creneaux_horaires.heure_debut).slice(0,5)}` 
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-slate-600 dark:text-slate-400">Catégorie</span>
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                        {cmd.choix_categorie || "Non spécifiée"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Boutons d'action */}
-                  <div className="flex gap-3 pt-2">
-                    <button 
-                      onClick={() => validerCommande(cmd.id)}
-                      className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white py-3.5 rounded-xl font-bold shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
-                    >
-                      <FiCheckCircle className="text-lg" />
-                      <span>Accepter</span>
-                    </button>
-                    <button 
-                      onClick={() => refuserCommande(cmd.id)}
-                      className="flex-1 bg-white dark:bg-slate-700 border-2 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 py-3.5 rounded-xl font-bold transition-all duration-200 flex items-center justify-center gap-2"
-                    >
-                      <FiXCircle className="text-lg" />
-                      <span>Refuser</span>
-                    </button>
-                  </div>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Aucune nouvelle commande à traiter.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredInbox.map((cmd) => (
+            <div 
+              key={cmd.id} 
+              className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow flex flex-col lg:flex-row gap-6"
+            >
+              {/* Info Ticket & Date */}
+              <div className="flex flex-col items-center justify-center min-w-[100px] border-b lg:border-b-0 lg:border-r border-slate-100 dark:border-slate-700 pb-4 lg:pb-0 pr-0 lg:pr-6">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ticket</span>
+                <span className="text-3xl font-black text-indigo-600 font-mono">
+                  #{cmd.ticket_num || "?"}
+                </span>
+                <div className={`mt-2 px-2 py-1 rounded text-xs font-bold uppercase ${
+                    cmd.statut === 'attente_paiement' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'
+                }`}>
+                    {cmd.statut === 'attente_paiement' ? 'Manuel' : 'Acompte OK'}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+
+              {/* Détails Client */}
+              <div className="flex-1 space-y-3">
+                <div className="flex items-start justify-between">
+                    <div>
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                            <FiUser className="text-slate-400" />
+                            {cmd.contact_last_name} {cmd.contact_first_name}
+                        </h3>
+                        <p className="text-slate-500 text-sm ml-6">{cmd.contact_email} • {cmd.contact_phone}</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/50 p-2 rounded-lg">
+                        <FiCalendar className="text-indigo-500" />
+                        <span>Créneau : <strong>{cmd.creneaux_horaires?.date || "Non défini"}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/50 p-2 rounded-lg">
+                        <FiClock className="text-indigo-500" />
+                        <span>Heure : <strong>{cmd.creneaux_horaires?.heure_debut ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "-"}</strong></span>
+                    </div>
+                </div>
+                
+                {/* Résumé financier simple */}
+                <div className="text-xs text-slate-500 pt-1">
+                    Total: {(cmd.montant_total_cents/100).toFixed(2)}€ • 
+                    Acompte: {((cmd.acompte_cents||0)/100).toFixed(2)}€
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-row lg:flex-col justify-center gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 pt-4 lg:pt-0 pl-0 lg:pl-6">
+                <button
+                  onClick={() => validerCommande(cmd.id)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-500/20 transition-all active:scale-95"
+                  title="Valider et envoyer en caisse"
+                >
+                  <FiCheck className="text-xl" />
+                  <span className="lg:hidden">Valider</span>
+                </button>
+                
+                <button
+                  onClick={() => refuserCommande(cmd.id)}
+                  className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 px-3 py-3 rounded-xl transition-all"
+                  title="Annuler la commande"
+                >
+                  <FiX className="text-xl" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

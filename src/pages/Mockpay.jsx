@@ -1,112 +1,128 @@
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { useState } from "react";
-import { useNotification } from "../contexts/NotificationContext";
-import { FiCreditCard, FiCheckCircle, FiXCircle, FiArrowLeft } from "react-icons/fi";
+import { FiCheckCircle, FiXCircle, FiLoader, FiCreditCard } from "react-icons/fi";
 
 export default function MockPay() {
-  const { showAlert, showConfirm, showNotification } = useNotification();
-  const [params] = useSearchParams();
-  const nav = useNavigate();
-  const [busy, setBusy] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  
+  const commandeId = searchParams.get("commande_id");
+  const ticketNum = searchParams.get("ticket_num");
 
-  const commandeId = params.get("commande_id");
-  const ticketNum = params.get("ticket_num");
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle, success, error
 
-  async function onSuccess() {
-    if (!commandeId) return showNotification("commande_id manquant", "error");
-    setBusy(true);
-
-    const { error } = await supabase.rpc("mock_payment_success", {
-      p_commande_id: commandeId,
-    });
-
-    setBusy(false);
-
-    if (error) {
-      showNotification("Erreur mock paiement OK: " + error.message, "error");
-      return;
+  // Vérifier si les paramètres sont là
+  useEffect(() => {
+    if (!commandeId || !ticketNum) {
+      alert("Lien de paiement invalide (manque ID ou Ticket).");
+      navigate("/");
     }
+  }, [commandeId, ticketNum, navigate]);
 
-    // ✅ CORRECTION ICI : On redirige vers la page du TICKET au lieu du Dashboard
-    nav(`/paiement-ok?commande_id=${commandeId}`, { replace: true });
+  async function handlePaymentSuccess() {
+    setLoading(true);
+    try {
+      // C'EST ICI LA CORRECTION :
+      // On met le statut 'acompte_paye' qui est autorisé par la base de données.
+      // (Avant vous aviez peut-être 'paiement_recu' qui est interdit maintenant)
+      
+      const { error } = await supabase
+        .from("commandes")
+        .update({ 
+            statut: "acompte_paye",
+            // On peut aussi enregistrer la date de paiement si vous avez une colonne pour ça
+            // date_paiement: new Date() 
+        })
+        .eq("id", commandeId);
+
+      if (error) throw error;
+
+      setStatus("success");
+      
+      // Redirection automatique après 2 secondes
+      setTimeout(() => {
+        navigate("/client/dashboard"); // Ou une page de succès
+      }, 2000);
+
+    } catch (err) {
+      console.error(err);
+      setStatus("error");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // Fonction d'échec (inchangée, mais je la remets pour que le fichier soit complet)
-  async function onFail() {
-    if (!commandeId) return showNotification("commande_id manquant", "error");
-    setBusy(true);
+  async function handlePaymentFailure() {
+    // En cas d'échec, on peut soit annuler la commande (libérer le ticket), soit ne rien faire
+    // Pour l'instant, on redirige juste
+    alert("Paiement annulé. Le ticket reste réservé 15 min.");
+    navigate("/");
+  }
 
-    // Tentative RPC
-    let { error } = await supabase.rpc("mock_payment_fail", {
-      p_commande_id: commandeId,
-    });
-
-    // Fallback manuel si RPC échoue
-    if (error) {
-      const { error: updateError } = await supabase
-        .from("commandes")
-        .update({ statut: "annulee" })
-        .eq("id", commandeId);
-      error = updateError;
-    }
-
-    setBusy(false);
-
-    if (error) {
-      showNotification("Impossible d'annuler : " + error.message, "error");
-      return;
-    }
-
-    showNotification("Paiement refusé. La commande a été annulée.", "warning");
-    nav("/dashboard", { replace: true });
+  if (status === "success") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-green-50 text-green-800 p-4">
+        <FiCheckCircle className="text-6xl mb-4" />
+        <h1 className="text-3xl font-bold">Paiement Validé !</h1>
+        <p className="mt-2 text-lg">Votre ticket #{ticketNum} est confirmé.</p>
+        <p className="text-sm mt-4 opacity-75">Redirection en cours...</p>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50 dark:bg-slate-900 safe-y safe-x animate-fade-in">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-md space-y-5">
-        <div className="flex items-center gap-3">
-          <FiCreditCard className="text-2xl text-indigo-600 dark:text-indigo-400" />
-          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Paiement (Simulation)</h1>
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6 border border-slate-200 dark:border-slate-700">
+        
+        <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-3xl">
+          <FiCreditCard />
         </div>
 
-        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border-2 border-indigo-200 dark:border-indigo-800 space-y-2">
-          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">
-            Commande : <span className="font-mono">{String(commandeId).slice(0, 8)}...</span>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Simulateur Paiement</h1>
+          <p className="text-slate-500 mt-2">
+            Ticket n° <strong>{ticketNum}</strong>
+          </p>
+          <p className="text-xs text-slate-400 mt-1 font-mono">{commandeId}</p>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div className="flex justify-between text-sm mb-2 text-slate-600 dark:text-slate-400">
+            <span>Acompte à régler :</span>
+            <span className="font-bold">50.00 €</span>
           </div>
-          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-400">
-            Ticket prévu : <span className="font-bold">{ticketNum ?? "—"}</span>
+          <div className="text-xs text-left text-slate-400 italic">
+            Ceci est une page de test (Stripe Mock). Aucune carte réelle ne sera débitée.
           </div>
         </div>
+
+        {status === "error" && (
+          <div className="bg-red-100 text-red-700 p-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+            <FiXCircle /> Erreur lors de la validation.
+          </div>
+        )}
 
         <div className="space-y-3">
           <button
-            disabled={busy}
-            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl p-4 font-bold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            onClick={onSuccess}
+            onClick={handlePaymentSuccess}
+            disabled={loading}
+            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
           >
-            <FiCheckCircle className="text-xl" />
-            <span>Valider le paiement (Succès)</span>
+            {loading ? <FiLoader className="animate-spin" /> : <FiCheckCircle />}
+            Valider le Paiement (Succès)
           </button>
 
           <button
-            disabled={busy}
-            className="w-full bg-white dark:bg-slate-700 border-2 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-xl p-4 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            onClick={onFail}
+            onClick={handlePaymentFailure}
+            disabled={loading}
+            className="w-full py-3 bg-white border-2 border-slate-200 text-slate-500 hover:bg-slate-50 font-bold rounded-xl transition-all"
           >
-            <FiXCircle className="text-xl" />
-            <span>Refuser le paiement (Échec)</span>
-          </button>
-
-          <button
-            disabled={busy}
-            className="w-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-2 border-slate-200 dark:border-slate-600 rounded-xl p-3 text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
-            onClick={() => nav("/dashboard", { replace: true })}
-          >
-            <FiArrowLeft className="text-base" />
-            <span>Retour au menu</span>
+            Simuler un Échec / Annuler
           </button>
         </div>
+
       </div>
     </div>
   );

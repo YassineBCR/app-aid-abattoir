@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useDarkMode } from "../contexts/DarkModeContext";
-import { useNotification } from "../contexts/NotificationContext"; //
+import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiClock, FiUser, FiMail, FiPhone, FiMapPin, 
   FiCheck, FiCreditCard, FiLoader 
@@ -11,17 +11,21 @@ const ACOMPTE_CENTS = 5000; // 50.00€
 const RESERVE_TIMEOUT_MIN = 15;
 
 export default function Client() {
-  // 👇 C'EST LA LIGNE QUI MANQUAIT 👇
-  const { showNotification } = useNotification(); 
-  
+  const { showNotification } = useNotification();
   const { darkMode } = useDarkMode();
+  
   const [user, setUser] = useState(null);
+  
+  // Données
   const [creneaux, setCreneaux] = useState([]);
+  const [joursConfig, setJoursConfig] = useState([]); // Pour mapper date -> Jour 1
   const [tarifs, setTarifs] = useState([]);
   
+  // Sélection
   const [selectedCreneau, setSelectedCreneau] = useState(null);
   const [selectedTarif, setSelectedTarif] = useState(null);
   
+  // États UI
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
 
@@ -30,12 +34,12 @@ export default function Client() {
     last_name: "",
     phone: "",
     email: "",
-    address: "",
     sacrifice_name: "",
   });
 
-  // 1. Charger Utilisateur + Créneaux + Tarifs
+  // 1. Charger les données au démarrage
   useEffect(() => {
+    // Vérifier utilisateur connecté
     supabase.auth.getUser().then(({ data }) => {
       setUser(data?.user ?? null);
       if (data?.user?.email) {
@@ -43,35 +47,56 @@ export default function Client() {
       }
     });
 
-    fetchCreneaux();
-    fetchTarifs();
+    loadData();
   }, []);
 
-  async function fetchCreneaux() {
+  async function loadData() {
     setLoading(true);
-    const { data, error } = await supabase.rpc("get_creneaux_dispo");
-    if (error) console.error(error);
-    else setCreneaux(data ?? []);
-    setLoading(false);
+    try {
+      // A. Charger la config des Jours (pour afficher "Jour 1" au lieu de la date)
+      const { data: jours } = await supabase.from("jours_fete").select("*");
+      setJoursConfig(jours || []);
+
+      // B. CHARGER LES CRÉNEAUX VIA LA FONCTION RPC SÉCURISÉE
+      // Cette fonction compte réellement les tickets 'disponible' dans la table commandes
+      const { data: slots, error } = await supabase.rpc("get_creneaux_public");
+      
+      if (error) throw error;
+      
+      // On formate les données pour l'affichage
+      const formattedSlots = (slots || []).map(s => ({
+        ...s,
+        // La RPC renvoie 'places_restantes', on l'utilise pour l'affichage
+        places_disponibles: s.places_restantes 
+      }));
+
+      setCreneaux(formattedSlots);
+
+      // C. Charger les Tarifs
+      const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
+      setTarifs(prix || []);
+
+    } catch (err) {
+      console.error(err);
+      showNotification("Erreur de chargement des données.", "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function fetchTarifs() {
-    const { data, error } = await supabase
-      .from("tarifs")
-      .select("*")
-      .order("prix_cents", { ascending: true });
-    
-    if (error) console.error("Erreur tarifs:", error);
-    else setTarifs(data ?? []);
-  }
+  // Helper pour afficher "Jour X" au lieu de "2024-06-16"
+  const getJourLabel = (dateStr) => {
+    const j = joursConfig.find(jd => jd.date_fete === dateStr);
+    return j ? `Jour ${j.numero}` : new Date(dateStr).toLocaleDateString('fr-FR');
+  };
 
-  // Vérification formulaire complet
+  // Validation formulaire : tout doit être rempli
   const canSubmit = useMemo(() => {
     return (
       user &&
       selectedCreneau &&
       selectedTarif &&
-      Number(selectedCreneau.places_restantes) > 0 &&
+      Number(selectedCreneau.places_disponibles) > 0 &&
       form.first_name &&
       form.last_name &&
       form.phone &&
@@ -81,43 +106,48 @@ export default function Client() {
     );
   }, [user, selectedCreneau, selectedTarif, form, paying]);
 
+  // --- ACTION DE RÉSERVATION ---
   async function reserverEtPayer() {
     if (!user) return showNotification("Connecte-toi pour réserver.", "error");
 
     setPaying(true);
 
     try {
-      // 1️⃣ Réserver ticket via RPC
-      const { data, error } = await supabase.rpc("reserve_ticket", {
+      // 1. APPEL DE LA FONCTION SQL D'ATTRIBUTION
+      // On cherche un ticket existant (Stock) et on écrit les infos dessus
+      const { data, error } = await supabase.rpc("reserver_prochain_ticket", {
         p_creneau_id: selectedCreneau.id,
         p_client_id: user.id,
-        p_first_name: form.first_name,
-        p_last_name: form.last_name,
-        p_phone: form.phone,
+        p_nom: form.last_name,
+        p_prenom: form.first_name,
         p_email: form.email,
-        p_address: form.address,
+        p_tel: form.phone,
         p_sacrifice_name: form.sacrifice_name,
-        p_acompte_cents: ACOMPTE_CENTS,
-        p_categorie: selectedTarif.categorie
+        p_categorie: selectedTarif.categorie,
+        p_montant_total_cents: selectedTarif.prix_cents,
+        p_acompte_cents: ACOMPTE_CENTS
       });
 
       if (error) throw error;
 
-      const row = Array.isArray(data) ? data[0] : data;
-      const commandeId = row?.commande_id;
-      const ticketNum = row?.ticket_num;
+      // La fonction retourne { ticket_num: 1050, commande_id: "..." }
+      const result = data; 
 
-      if (!commandeId) throw new Error("Erreur réservation.");
+      if (!result || !result.ticket_num) throw new Error("Erreur retour réservation.");
 
-      // 2️⃣ Redirection Paiement MOCK
+      // 2. REDIRECTION VERS PAIEMENT
+      // On passe le numéro de ticket dans l'URL pour l'afficher sur la page de paiement
       window.location.assign(
-        `/mock-pay?commande_id=${encodeURIComponent(commandeId)}&ticket_num=${encodeURIComponent(ticketNum)}`
+        `/mock-pay?commande_id=${encodeURIComponent(result.commande_id)}&ticket_num=${encodeURIComponent(result.ticket_num)}`
       );
+
     } catch (e) {
       console.error(e);
-      // Maintenant que showNotification est défini, l'erreur s'affichera correctement à l'écran
+      // Message d'erreur spécifique si plus de place (géré par le SQL)
       showNotification("Erreur : " + e.message, "error");
-      fetchCreneaux(); // On rafraîchit les dispos
+      
+      // On rafraîchit pour mettre à jour les stocks affichés
+      loadData(); 
     } finally {
       setPaying(false);
     }
@@ -134,11 +164,11 @@ export default function Client() {
             Réserver mon Agneau
           </h1>
           <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
-            Choisissez votre créneau, le type d'agneau et réglez l'acompte.
+            Obtenez votre ticket numéroté en quelques clics.
           </p>
         </div>
 
-        {/* ÉTAPE 1 : CRÉNEAUX */}
+        {/* ÉTAPE 1 : CRÉNEAUX (Stock Réel) */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
           <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
             <FiCalendar className="text-green-600 dark:text-green-400" />
@@ -155,23 +185,30 @@ export default function Client() {
                 <button
                   key={c.id}
                   onClick={() => setSelectedCreneau(c)}
+                  disabled={c.places_disponibles <= 0}
                   className={`p-4 rounded-xl border-2 text-left transition-all ${
                     selectedCreneau?.id === c.id
                       ? "border-green-600 dark:border-green-500 bg-green-50 dark:bg-green-900/20 ring-2 ring-green-200 dark:ring-green-800"
-                      : "border-slate-200 dark:border-slate-700 hover:border-green-400 dark:hover:border-green-600 bg-white dark:bg-slate-700"
+                      : c.places_disponibles <= 0 
+                        ? "border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 opacity-60 cursor-not-allowed"
+                        : "border-slate-200 dark:border-slate-700 hover:border-green-400 dark:hover:border-green-600 bg-white dark:bg-slate-700"
                   }`}
                 >
-                  <div className="font-bold text-base sm:text-lg text-slate-800 dark:text-slate-100">Jour {c.jour}</div>
+                  <div className="font-bold text-base sm:text-lg text-slate-800 dark:text-slate-100">
+                    {getJourLabel(c.date)}
+                  </div>
                   <div className="text-green-700 dark:text-green-400 font-semibold text-sm sm:text-base flex items-center gap-2 mt-1">
                     <FiClock className="text-xs" />
-                    {c.heure_debut} - {c.heure_fin}
+                    {c.heure_debut.slice(0,5)} - {c.heure_fin.slice(0,5)}
                   </div>
                   <div className={`text-xs sm:text-sm mt-2 flex items-center gap-1 ${
-                    c.places_restantes > 0 
+                    c.places_disponibles > 0 
                       ? "text-green-600 dark:text-green-400" 
-                      : "text-red-500 dark:text-red-400"
+                      : "text-red-500 dark:text-red-400 font-bold"
                   }`}>
-                    {c.places_restantes} {c.places_restantes === 1 ? "place" : "places"} dispo
+                    {c.places_disponibles > 0 
+                      ? `${c.places_disponibles} ticket${c.places_disponibles > 1 ? 's' : ''} dispo` 
+                      : "COMPLET"}
                   </div>
                   {selectedCreneau?.id === c.id && (
                     <div className="mt-2 flex items-center gap-1 text-green-600 dark:text-green-400 text-sm">
@@ -181,6 +218,7 @@ export default function Client() {
                   )}
                 </button>
               ))}
+              {creneaux.length === 0 && <p className="col-span-3 text-center text-slate-400">Aucun créneau disponible.</p>}
             </div>
           )}
         </div>
@@ -335,7 +373,6 @@ export default function Client() {
 
       </div>
 
-      {/* Style utilitaire pour les inputs */}
       <style>{`
         .input-field {
             border: 2px solid #e2e8f0;

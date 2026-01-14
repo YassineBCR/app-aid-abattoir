@@ -1,242 +1,231 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useNotification } from "../contexts/NotificationContext";
-import { FiBarChart2, FiRefreshCw, FiDownload, FiSearch, FiFilter, FiDollarSign } from "react-icons/fi";
+import { 
+  FiSearch, FiDownload, FiFilter, FiPhone, FiMail, FiTag, FiHash, FiCalendar, FiClock
+} from "react-icons/fi";
+import * as XLSX from "xlsx"; 
 
 export default function Tableau() {
-  const { showAlert, showConfirm, showNotification } = useNotification();
-  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Filtres
-  const [filterStatut, setFilterStatut] = useState("all");
-  const [search, setSearch] = useState("");
+  const [commandes, setCommandes] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statutFilter, setStatutFilter] = useState("tous");
 
-  // Constante Prix (à dynamiser plus tard si besoin)
-  const PRIX_TOTAL_CENTS = 25000; 
+  useEffect(() => {
+    fetchCommandes();
 
-  async function fetchAllCommandes() {
+    const sub = supabase
+      .channel('tableau-suivi')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes' }, () => {
+        fetchCommandes();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(sub); };
+  }, []);
+
+  async function fetchCommandes() {
     setLoading(true);
-    // On récupère tout : commandes + infos créneaux
-    const { data, error } = await supabase
-      .from("commandes")
-      .select(`
-        *,
-        creneaux_horaires ( date, heure_debut, heure_fin, jour )
-      `)
-      .order("created_at", { ascending: false });
+    try {
+      // ON RECUPERE AUSSI LES INFOS DU CRENEAU (Date et Heure)
+      const { data, error } = await supabase
+        .from("commandes")
+        .select(`
+          *,
+          creneaux_horaires (
+            date,
+            heure_debut
+          )
+        `)
+        .in("statut", ["validee", "paye", "terminee"]) 
+        .order("ticket_num", { ascending: true });
 
-    setLoading(false);
-    if (error) {
-      showNotification("Erreur chargement : " + error.message, "error");
-    } else {
-      setRows(data ?? []);
+      if (error) throw error;
+      setCommandes(data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   }
 
-  useEffect(() => {
-    fetchAllCommandes();
-  }, []);
+  const exportToExcel = () => {
+    const dataToExport = filteredCommandes.map(c => ({
+      Ticket: c.ticket_num,
+      Sacrifice: c.sacrifice_name || "Standard",
+      // Ajout des infos de créneau dans l'Excel
+      Date: c.creneaux_horaires?.date || "Non défini",
+      Heure: c.creneaux_horaires?.heure_debut ? c.creneaux_horaires.heure_debut.slice(0,5) : "-",
+      Statut: c.statut,
+      Client: `${c.contact_last_name} ${c.contact_first_name}`,
+      Telephone: c.contact_phone,
+      Email: c.contact_email,
+      Reste_a_payer: (c.reste_a_payer || 0) + "€"
+    }));
 
-  // --- CALCULS & STATISTIQUES ---
-  const stats = useMemo(() => {
-    const validOrders = rows.filter(r => r.statut !== 'annulee' && r.statut !== 'refusee');
-    const totalVendu = validOrders.length;
-    const acompteTotal = validOrders.reduce((acc, r) => acc + (r.acompte_cents || 0), 0);
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Suivi_Commandes");
+    XLSX.writeFile(wb, "Suivi_Abattoir.xlsx");
+  };
+
+  const filteredCommandes = commandes.filter(cmd => {
+    const matchesSearch = 
+      (cmd.ticket_num?.toString().includes(searchTerm)) ||
+      (cmd.contact_last_name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (cmd.contact_phone?.includes(searchTerm));
     
-    // Estimation du reste à percevoir (sur les commandes non encore "livrées/soldées")
-    // Si 'livree', on considère que tout est payé. Sinon, il reste (Total - Acompte).
-    const resteAPercevoir = validOrders.reduce((acc, r) => {
-        if (r.statut === 'livree') return acc; // Déjà payé
-        return acc + (PRIX_TOTAL_CENTS - (r.acompte_cents || 0));
-    }, 0);
+    const matchesStatut = statutFilter === "tous" ? true : cmd.statut === statutFilter;
 
-    return { totalVendu, acompteTotal, resteAPercevoir };
-  }, [rows]);
+    return matchesSearch && matchesStatut;
+  });
 
-  // --- FILTRAGE DES DONNÉES ---
-  const filteredRows = useMemo(() => {
-    return rows.filter((r) => {
-      // Filtre Texte (Nom, Email, Ticket)
-      const s = search.toLowerCase();
-      const matchText = 
-        (r.contact_last_name || "").toLowerCase().includes(s) ||
-        (r.ticket_num || "").includes(s) ||
-        (r.contact_email || "").toLowerCase().includes(s);
+  const getStatusBadge = (statut) => {
+    switch (statut) {
+      case "validee": return <span className="px-2 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700">Validé (Attente Solde)</span>;
+      case "paye": return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Payé (Prêt)</span>;
+      case "terminee": return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Livré / Terminé</span>;
+      default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600">{statut}</span>;
+    }
+  };
 
-      // Filtre Statut
-      const matchStatut = filterStatut === "all" || r.statut === filterStatut;
-
-      return matchText && matchStatut;
-    });
-  }, [rows, search, filterStatut]);
-
-  // --- EXPORT CSV ---
-  const downloadCSV = () => {
-    const headers = ["ID Commande", "Ticket", "Statut", "Nom", "Prénom", "Téléphone", "Email", "Date Créneau", "Heure", "Acompte (€)"];
-    const csvContent = [
-      headers.join(";"),
-      ...filteredRows.map(r => [
-        r.id,
-        r.ticket_num,
-        r.statut,
-        r.contact_last_name,
-        r.contact_first_name,
-        r.contact_phone,
-        r.contact_email,
-        r.creneaux_horaires?.date,
-        r.creneaux_horaires?.heure_debut,
-        (r.acompte_cents / 100).toFixed(2)
-      ].join(";"))
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `export_commandes_${new Date().toISOString().slice(0,10)}.csv`);
-    link.click();
+  // Helper pour formater la date joliment (ex: Mar 17 Juin)
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "Non défini";
+    const date = new Date(dateStr);
+    // Affiche le jour de la semaine et le numéro (ex: Mer 28)
+    return date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+      
       {/* En-tête */}
-      <div className="flex items-center gap-3">
-        <FiBarChart2 className="text-3xl text-indigo-600 dark:text-indigo-400" />
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Tableau de Bord</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">Vue d'ensemble des commandes</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Tableau de Suivi</h1>
+          <p className="text-slate-500 text-sm">Liste des commandes validées par l'équipe.</p>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          <button 
+            onClick={exportToExcel}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            <FiDownload /> Excel
+          </button>
         </div>
       </div>
 
-      {/* 1. CARTES KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-700 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg">
-          <div className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-2">Bêtes Réservées</div>
-          <div className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stats.totalVendu}</div>
+      {/* Barre d'outils */}
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Rechercher par ticket, nom ou téléphone..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+          />
         </div>
-        <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30 p-6 rounded-2xl border border-indigo-200 dark:border-indigo-800 shadow-lg">
-          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-400 mb-2 flex items-center gap-2">
-            <FiDollarSign className="text-base" />
-            Acomptes Encaissés
-          </div>
-          <div className="text-3xl font-bold text-indigo-700 dark:text-indigo-400">{(stats.acompteTotal / 100).toLocaleString()} €</div>
-        </div>
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 p-6 rounded-2xl border border-amber-200 dark:border-amber-800 shadow-lg">
-          <div className="text-sm font-semibold text-amber-700 dark:text-amber-400 mb-2">Reste à percevoir</div>
-          <div className="text-3xl font-bold text-orange-600 dark:text-orange-400">{(stats.resteAPercevoir / 100).toLocaleString()} €</div>
-        </div>
-      </div>
-
-      {/* 2. BARRE D'OUTILS */}
-      <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700">
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-          <div className="flex gap-3 w-full md:w-auto">
-            <div className="flex-1 md:flex-initial relative">
-              <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-              <input 
-                type="text" 
-                placeholder="Rechercher (Nom, Ticket...)" 
-                className="pl-10 pr-4 py-2.5 border-2 border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 w-full md:w-64 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 transition-colors"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <div className="relative">
-              <FiFilter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
-              <select 
-                className="pl-10 pr-8 py-2.5 border-2 border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 transition-colors appearance-none cursor-pointer"
-                value={filterStatut}
-                onChange={e => setFilterStatut(e.target.value)}
-              >
-                <option value="all">Tous les statuts</option>
-                <option value="paiement_recu">Payé (Acompte)</option>
-                <option value="livree">Livrée (Terminée)</option>
-                <option value="en_attente">En attente</option>
-                <option value="annulee">Annulée</option>
-              </select>
-            </div>
-          </div>
-          
-          <div className="flex gap-3">
-            <button 
-              onClick={fetchAllCommandes} 
-              disabled={loading}
-              className="bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-200 dark:border-indigo-800 px-4 py-2.5 rounded-xl font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all duration-200 flex items-center gap-2 disabled:opacity-50"
-            >
-              <FiRefreshCw className={`text-lg ${loading ? 'animate-spin' : ''}`} />
-              <span>Actualiser</span>
-            </button>
-            <button 
-              onClick={downloadCSV} 
-              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg transition-all duration-200 flex items-center gap-2"
-            >
-              <FiDownload className="text-lg" />
-              <span>Exporter CSV</span>
-            </button>
-          </div>
+        
+        <div className="flex items-center gap-2">
+          <FiFilter className="text-slate-400" />
+          <select 
+            value={statutFilter}
+            onChange={(e) => setStatutFilter(e.target.value)}
+            className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 text-sm dark:text-white"
+          >
+            <option value="tous">Tous les statuts</option>
+            <option value="validee">Validé (Attente Solde)</option>
+            <option value="paye">Payé (Prêt)</option>
+            <option value="terminee">Livré / Terminé</option>
+          </select>
         </div>
       </div>
 
-      {/* 3. TABLEAU DES DONNÉES */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+      {/* TABLEAU */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 uppercase text-xs font-bold">
-              <tr>
-                <th className="p-4">Ticket</th>
-                <th className="p-4">Statut</th>
-                <th className="p-4">Client</th>
-                <th className="p-4">Créneau</th>
-                <th className="p-4">Montant</th>
-                <th className="p-4 text-right">ID</th>
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                <th className="p-4 font-semibold">Ticket</th>
+                <th className="p-4 font-semibold">Jour & Heure</th> {/* NOUVELLE COLONNE */}
+                <th className="p-4 font-semibold">Sacrifice</th>
+                <th className="p-4 font-semibold">Client</th>
+                <th className="p-4 font-semibold">Contact</th>
+                <th className="p-4 font-semibold text-center">Statut</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="p-12 text-center">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
-                    <p className="mt-4 text-slate-600 dark:text-slate-400">Chargement...</p>
-                  </td>
+                  <td colSpan="6" className="p-8 text-center text-slate-500">Chargement des données...</td>
                 </tr>
-              ) : filteredRows.length === 0 ? (
+              ) : filteredCommandes.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="p-12 text-center text-slate-500 dark:text-slate-400">
-                    Aucune commande trouvée.
-                  </td>
+                  <td colSpan="6" className="p-8 text-center text-slate-500 italic">Aucune commande trouvée.</td>
                 </tr>
               ) : (
-                filteredRows.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="p-4 font-bold text-indigo-600 dark:text-indigo-400">#{r.ticket_num}</td>
+                filteredCommandes.map((cmd) => (
+                  <tr key={cmd.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                    
+                    {/* Ticket */}
                     <td className="p-4">
-                      <span className={`px-3 py-1.5 rounded-full text-xs font-bold
-                        ${r.statut === 'livree' ? 'bg-slate-800 dark:bg-slate-700 text-white' : 
-                          r.statut === 'paiement_recu' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                          r.statut === 'annulee' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' :
-                          'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
-                        {r.statut.toUpperCase().replace('_', ' ')}
-                      </span>
+                      <div className="flex items-center gap-2 font-mono text-indigo-600 dark:text-indigo-400 font-bold text-lg">
+                        <FiHash className="text-sm opacity-50" />
+                        {cmd.ticket_num}
+                      </div>
                     </td>
+
+                    {/* --- NOUVELLE COLONNE JOUR & HEURE --- */}
                     <td className="p-4">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200">{r.contact_last_name} {r.contact_first_name}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{r.contact_phone}</div>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold">
+                           <FiCalendar className="text-indigo-500" />
+                           <span className="capitalize">{formatDate(cmd.creneaux_horaires?.date)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-500 text-sm">
+                           <FiClock />
+                           <span>{cmd.creneaux_horaires?.heure_debut ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "-"}</span>
+                        </div>
+                      </div>
                     </td>
-                    <td className="p-4 text-slate-600 dark:text-slate-300">
-                      {r.creneaux_horaires ? (
-                        <>
-                          {new Date(r.creneaux_horaires.date).toLocaleDateString()}<br/>
-                          <span className="text-xs">{String(r.creneaux_horaires.heure_debut).slice(0,5)}</span>
-                        </>
-                      ) : "—"}
-                    </td>
+
+                    {/* Sacrifice */}
                     <td className="p-4">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{(r.acompte_cents / 100).toFixed(2)} €</span>
+                      <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
+                        <FiTag className="text-slate-400" />
+                        {cmd.sacrifice_name || <span className="text-slate-400 italic">Standard</span>}
+                      </div>
                     </td>
-                    <td className="p-4 text-right">
-                      <span className="text-slate-400 dark:text-slate-500 text-xs font-mono">{r.id.slice(0,8)}...</span>
+
+                    {/* Client */}
+                    <td className="p-4 text-slate-700 dark:text-slate-300">
+                      <div className="font-semibold">{cmd.contact_last_name} {cmd.contact_first_name}</div>
                     </td>
+
+                    {/* Contact */}
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-400">
+                        <div className="flex items-center gap-2">
+                          <FiPhone className="text-green-500" />
+                          <span>{cmd.contact_phone}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <FiMail className="text-blue-500" />
+                          <span className="truncate max-w-[150px]">{cmd.contact_email}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Statut */}
+                    <td className="p-4 text-center">
+                      {getStatusBadge(cmd.statut)}
+                    </td>
+
                   </tr>
                 ))
               )}
@@ -244,10 +233,12 @@ export default function Tableau() {
           </table>
         </div>
         
-        <div className="p-4 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-200 dark:border-slate-600 text-xs text-slate-600 dark:text-slate-400 flex justify-between">
-          <span>Affichage de {filteredRows.length} sur {rows.length} commandes</span>
+        <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 flex justify-between">
+          <span>{filteredCommandes.length} commande(s) affichée(s)</span>
+          <span>Mise à jour temps réel</span>
         </div>
       </div>
+
     </div>
   );
 }
