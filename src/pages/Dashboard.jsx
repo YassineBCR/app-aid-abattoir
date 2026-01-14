@@ -46,28 +46,28 @@ export default function Dashboard() {
 
   // --- FONCTION DE TEST NOTIFICATION ---
   const sendTestNotification = async () => {
-    // Petit effet visuel ou confirmation simple
-    const confirm = window.confirm("Envoyer une notification de test sur votre téléphone ?\n(Assurez-vous d'avoir quitté l'app après le clic pour bien la voir)");
+    const confirm = window.confirm("Envoyer une notification de test ?");
     if (!confirm) return;
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return alert("Vous n'êtes pas connecté");
 
-      const { error } = await supabase.functions.invoke('send-push', {
-        body: {
-          user_id: user.id, // On s'envoie la notif à soi-même
-          title: "Test iOS 📱",
-          body: "Si tu lis ça, les notifications fonctionnent !",
+      // On insère simplement dans la table, c'est Supabase qui fera le reste !
+      const { error } = await supabase
+        .from('notifications_queue')
+        .insert({
+          user_id: user.id,
+          title: "Test Réussi 🚀",
+          body: "Le système par base de données fonctionne !",
           url: "/dashboard"
-        }
-      });
+        });
 
       if (error) {
         console.error(error);
-        alert("Erreur technique : " + error.message);
+        alert("Erreur base de données : " + error.message);
       } else {
-        alert("Envoyé ! Regardez votre téléphone (fermez l'app si besoin).");
+        alert("Demande envoyée ! La notification devrait arriver dans quelques secondes.");
       }
     } catch (err) {
       console.error(err);
