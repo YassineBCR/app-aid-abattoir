@@ -4,7 +4,7 @@ import { useNotification } from "../contexts/NotificationContext";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { 
   FiSearch, FiCreditCard, FiDollarSign, FiFileText, FiActivity, 
-  FiUser, FiCheckCircle, FiCamera, FiX, FiGlobe, FiArrowRight 
+  FiUser, FiCheckCircle, FiCamera, FiX, FiGlobe, FiArrowRight, FiList, FiArrowLeft, FiTrash2, FiAlertTriangle 
 } from "react-icons/fi";
 
 export default function PriseEnCharge() {
@@ -12,9 +12,12 @@ export default function PriseEnCharge() {
   const [loading, setLoading] = useState(false);
   
   // États recherche & Scanner
-  const [ticketNum, setTicketNum] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [showScanner, setShowScanner] = useState(false);
+  
+  // États de sélection
   const [commande, setCommande] = useState(null);
+  const [searchResults, setSearchResults] = useState([]); 
   const [historiquePaiements, setHistoriquePaiements] = useState([]);
 
   // États encaissement
@@ -22,42 +25,65 @@ export default function PriseEnCharge() {
   const [modePaiement, setModePaiement] = useState("especes");
   const [loadingPaiement, setLoadingPaiement] = useState(false);
 
-  // --- LOGIQUE (Identique) ---
-  const handleSearch = async (e, numeroOverride = null) => {
+  // --- NOUVEAUX ÉTATS POUR LA MODAL DE SUPPRESSION ---
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [paymentToDelete, setPaymentToDelete] = useState(null); // Stocke l'info du paiement à supprimer
+
+  // --- LOGIQUE RECHERCHE (Inchangée) ---
+  const handleSearch = async (e, overrideVal = null) => {
     if (e) e.preventDefault();
-    const num = numeroOverride || ticketNum;
-    if (!num) return;
+    const val = overrideVal || searchInput;
+    if (!val) return;
 
     setLoading(true);
     setCommande(null);
-    setHistoriquePaiements([]); 
+    setSearchResults([]); 
+    setHistoriquePaiements([]);
     setShowScanner(false);
 
     try {
-      const { data, error } = await supabase
-        .from("commandes")
-        .select("*, creneaux_horaires(*)") 
-        .eq("ticket_num", num)
-        .maybeSingle();
+      let query = supabase.from("commandes").select("*, creneaux_horaires(*)");
+      const cleanVal = val.trim();
+      const isDigits = /^\d+$/.test(cleanVal);
 
-      if (error) throw error;
-      
-      if (!data) {
-        showNotification(`Ticket n°${num} introuvable.`, "error");
-        setLoading(false);
-        return;
+      if (isDigits) {
+        if (cleanVal.startsWith('0') || cleanVal.length > 5) {
+             query = query.ilike('contact_phone', `%${cleanVal}%`);
+        } else {
+             query = query.eq("ticket_num", parseInt(cleanVal));
+        }
+      } else {
+        query = query.or(`contact_last_name.ilike.%${cleanVal}%,contact_first_name.ilike.%${cleanVal}%,contact_email.ilike.%${cleanVal}%`);
       }
 
-      setCommande(data);
-      setTicketNum(data.ticket_num);
-      fetchHistorique(data.id);
-
+      const { data, error } = await query;
+      if (error) throw error;
+      
+      if (!data || data.length === 0) {
+        showNotification("Aucun résultat trouvé.", "error");
+      } else if (data.length === 1) {
+        selectCommande(data[0]);
+      } else {
+        setSearchResults(data);
+        showNotification(`${data.length} résultats trouvés.`, "info");
+      }
     } catch (err) {
-      console.error("Erreur recherche:", err);
-      showNotification("Erreur technique.", "error");
+      console.error(err);
+      showNotification("Erreur recherche.", "error");
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectCommande = (cmd) => {
+      setCommande(cmd);
+      setSearchInput(cmd.ticket_num.toString());
+      fetchHistorique(cmd.id);
+  };
+
+  const handleBackToList = () => {
+      setCommande(null);
+      setSearchInput("");
   };
 
   const fetchHistorique = async (commandeId) => {
@@ -66,10 +92,47 @@ export default function PriseEnCharge() {
       .select("*") 
       .eq("commande_id", commandeId)
       .order("created_at", { ascending: false });
-
     if (!error) setHistoriquePaiements(data || []);
   };
 
+  // --- PRÉPARER LA SUPPRESSION (Ouvre la modal) ---
+  const requestDelete = (paiement) => {
+      setPaymentToDelete(paiement);
+      setShowDeleteModal(true);
+  };
+
+  // --- CONFIRMER LA SUPPRESSION (Exécuté quand on clique sur "Confirmer" dans la modal) ---
+  const confirmDelete = async () => {
+    if (!paymentToDelete) return;
+
+    setLoadingPaiement(true); // On utilise le même loader ou un autre
+    try {
+        const { error } = await supabase.rpc("supprimer_encaissement", {
+            p_paiement_id: paymentToDelete.id
+        });
+
+        if (error) throw error;
+
+        showNotification("Paiement annulé. Trace enregistrée.", "info");
+        
+        // Refresh des données
+        const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
+        if(data) {
+            setCommande(data);
+            fetchHistorique(data.id);
+        }
+        setShowDeleteModal(false);
+        setPaymentToDelete(null);
+
+    } catch (err) {
+        console.error(err);
+        showNotification("Erreur: " + err.message, "error");
+    } finally {
+        setLoadingPaiement(false);
+    }
+  };
+
+  // --- SCANNER (Inchangé) ---
   const handleScan = (result) => {
     if (result) {
       const rawValue = result[0]?.rawValue || result?.rawValue || result;
@@ -90,9 +153,7 @@ export default function PriseEnCharge() {
       setLoading(true);
       const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", uuid).maybeSingle();
       if(data) {
-          setCommande(data);
-          setTicketNum(data.ticket_num);
-          fetchHistorique(data.id);
+          selectCommande(data);
           setShowScanner(false);
       } else {
           showNotification("Commande introuvable par ID.", "error");
@@ -100,6 +161,7 @@ export default function PriseEnCharge() {
       setLoading(false);
   }
 
+  // --- PAIEMENT (Inchangé) ---
   const handlePaiement = async (e) => {
     e.preventDefault();
     if (!montantEncaisse || parseFloat(montantEncaisse) <= 0) return;
@@ -115,9 +177,15 @@ export default function PriseEnCharge() {
 
       if (error) throw error;
 
-      showNotification("Paiement enregistré !", "success");
+      showNotification("Paiement enregistré et sécurisé !", "success");
       setMontantEncaisse("");
-      handleSearch(null, commande.ticket_num); 
+      
+      const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
+      if(data) {
+          setCommande(data);
+          fetchHistorique(data.id);
+          setSearchResults(prev => prev.map(p => p.id === data.id ? data : p));
+      }
 
     } catch (err) {
       console.error(err);
@@ -165,7 +233,7 @@ export default function PriseEnCharge() {
              </div>
              Caisse
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Gestion des encaissements et suivi.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Recherche par Ticket, Nom ou Email.</p>
         </div>
         <div className="text-right hidden md:block">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Opérateur</p>
@@ -175,10 +243,8 @@ export default function PriseEnCharge() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
-        {/* COLONNE GAUCHE */}
+        {/* COLONNE GAUCHE (Recherche) */}
         <div className="xl:col-span-1 space-y-6">
-          
-          {/* CARTE RECHERCHE (Avec le nouveau bouton loupe) */}
           <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-white dark:border-slate-700">
               <div className="p-5 space-y-4">
                 <button 
@@ -193,44 +259,80 @@ export default function PriseEnCharge() {
 
                 <div className="relative group">
                     <form onSubmit={(e) => handleSearch(e)} className="relative">
-                        {/* Icône décorative à gauche */}
                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                             <FiSearch className="text-slate-400 text-xl group-focus-within:text-indigo-500 transition-colors" />
                         </div>
-                        
-                        {/* Input */}
                         <input
                             type="text"
-                            value={ticketNum}
-                            onChange={(e) => setTicketNum(e.target.value)}
-                            placeholder="Ou taper n° ticket..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            placeholder="N° Ticket, Nom ou Email..."
                             className="block w-full pl-12 pr-16 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-lg font-bold text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all"
                         />
-                        
-                        {/* BOUTON LOUPE AJOUTÉ ICI */}
                         <button 
                             type="submit" 
-                            disabled={loading || !ticketNum}
+                            disabled={loading || !searchInput}
                             className="absolute right-2 top-2 bottom-2 aspect-square bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl flex items-center justify-center transition-colors shadow-md"
                         >
-                            {loading ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <FiSearch className="text-xl" />
-                            )}
+                            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <FiSearch className="text-xl" />}
                         </button>
                     </form>
                 </div>
               </div>
           </div>
 
+          {/* LISTE RÉSULTATS */}
+          {!commande && searchResults.length > 0 && (
+             <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
+                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800">
+                    <h3 className="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+                        <FiList /> Résultats ({searchResults.length})
+                    </h3>
+                </div>
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                    {searchResults.map(res => (
+                        <button 
+                            key={res.id} 
+                            onClick={() => selectCommande(res)}
+                            className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex justify-between items-center group"
+                        >
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-bold">#{res.ticket_num}</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded uppercase font-bold border ${res.statut === 'paye' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                                        {res.statut}
+                                    </span>
+                                </div>
+                                <div className="text-sm font-medium text-slate-800 dark:text-white mt-1">
+                                    {res.contact_last_name} {res.contact_first_name}
+                                </div>
+                            </div>
+                            <FiArrowRight className="text-slate-300 group-hover:text-indigo-500 transition-colors text-xl" />
+                        </button>
+                    ))}
+                </div>
+             </div>
+          )}
+
           {/* FICHE CLIENT */}
-          {commande ? (
+          {commande && (
             <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
               <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                  <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
-                      <FiUser className="text-indigo-500" /> Ticket #{commande.ticket_num}
-                  </h3>
+                  <div className="flex items-center gap-3">
+                      {searchResults.length > 0 && (
+                          <button 
+                            onClick={handleBackToList}
+                            className="p-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 text-indigo-600 rounded-lg shadow-sm border border-slate-200 transition-all"
+                            title="Retour à la liste"
+                          >
+                             <FiArrowLeft className="text-lg" />
+                          </button>
+                      )}
+                      <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                          <FiUser className="text-indigo-500" /> #{commande.ticket_num}
+                      </h3>
+                  </div>
+                  
                   <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${isPaye ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                     {isPaye ? "Soldé" : "À Payer"}
                   </span>
@@ -238,8 +340,9 @@ export default function PriseEnCharge() {
               
               <div className="p-6 space-y-5">
                 <div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Nom du client</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Client</p>
                     <p className="text-xl font-bold text-slate-800 dark:text-white">{clientName}</p>
+                    <p className="text-sm text-slate-500">{commande.contact_email}</p>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
@@ -263,24 +366,16 @@ export default function PriseEnCharge() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="bg-slate-100 dark:bg-slate-800/50 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-700 p-8 text-center">
-                <div className="w-16 h-16 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
-                    <FiSearch className="text-2xl" />
-                </div>
-                <p className="text-slate-500 font-medium">En attente de ticket...</p>
-            </div>
           )}
         </div>
 
-        {/* COLONNE CENTRALE & DROITE : FINANCES */}
+        {/* COLONNE DROITE : FINANCES & ACTIONS */}
         <div className="xl:col-span-2 space-y-6">
           {commande ? (
             <>
-              {/* PANNEAU PRINCIPAL D'ENCAISSEMENT */}
+              {/* PANNEAU D'ENCAISSEMENT */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col md:flex-row">
                 
-                {/* PARTIE GAUCHE : RECAPITULATIF */}
                 <div className="md:w-1/3 bg-slate-50 dark:bg-slate-900/80 p-6 md:p-8 flex flex-col justify-between border-r border-slate-200 dark:border-slate-700">
                     <div className="space-y-6">
                         <div>
@@ -304,12 +399,10 @@ export default function PriseEnCharge() {
                     </div>
                 </div>
 
-                {/* PARTIE DROITE : ACTION PAIEMENT */}
                 <div className="md:w-2/3 p-6 md:p-8 bg-white dark:bg-slate-800">
                     {!isPaye ? (
                         <form onSubmit={handlePaiement} className="h-full flex flex-col justify-between space-y-6">
                             
-                            {/* SÉLECTEUR DE MODE */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Moyen de paiement</label>
                                 <div className="grid grid-cols-3 gap-3">
@@ -332,7 +425,6 @@ export default function PriseEnCharge() {
                                 </div>
                             </div>
 
-                            {/* INPUT MONTANT */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Montant à encaisser</label>
                                 <div className="relative group">
@@ -356,7 +448,6 @@ export default function PriseEnCharge() {
                                 </div>
                             </div>
 
-                            {/* BOUTON VALIDATION */}
                             <button
                                 type="submit"
                                 disabled={loadingPaiement || !montantEncaisse}
@@ -380,10 +471,10 @@ export default function PriseEnCharge() {
                             </div>
                             <div>
                                 <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Commande Soldée</h3>
-                                <p className="text-slate-500 dark:text-slate-400 mt-2">Le client est à jour. Vous pouvez passer au suivant.</p>
+                                <p className="text-slate-500 dark:text-slate-400 mt-2">Le client est à jour.</p>
                             </div>
                             <button 
-                                onClick={() => { setCommande(null); setTicketNum(""); }}
+                                onClick={() => { setCommande(null); setSearchInput(""); setSearchResults([]); }}
                                 className="mt-6 px-8 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors"
                             >
                                 Nouvelle Recherche
@@ -393,7 +484,7 @@ export default function PriseEnCharge() {
                 </div>
               </div>
 
-              {/* HISTORIQUE PAIEMENTS */}
+              {/* HISTORIQUE PAIEMENTS AVEC SUPPRESSION SÉCURISÉE */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-700 p-6 md:p-8">
                 <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
                   <FiActivity className="text-slate-400" /> Historique détaillé
@@ -424,9 +515,20 @@ export default function PriseEnCharge() {
                                         </p>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <span className="block font-bold text-emerald-600 text-lg">+ {Number(p.montant).toFixed(2)} €</span>
-                                    {p.reference && <span className="text-[10px] text-slate-400 uppercase tracking-wide">Ref: {p.reference}</span>}
+                                <div className="flex items-center gap-4">
+                                    <div className="text-right">
+                                        <span className="block font-bold text-emerald-600 text-lg">+ {Number(p.montant).toFixed(2)} €</span>
+                                        {p.reference && <span className="text-[10px] text-slate-400 uppercase tracking-wide">Ref: {p.reference}</span>}
+                                    </div>
+                                    
+                                    {/* BOUTON DÉCLENCHEUR MODAL */}
+                                    <button 
+                                        onClick={() => requestDelete(p)}
+                                        className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                        title="Annuler ce paiement (Audit Log)"
+                                    >
+                                        <FiTrash2 className="text-xl" />
+                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -435,17 +537,16 @@ export default function PriseEnCharge() {
               </div>
             </>
           ) : (
-            // Placeholder vide quand aucune commande
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70">
                 <img src="https://illustrations.popsy.co/gray/success.svg" className="w-48 h-48 opacity-50 grayscale mb-6" alt="Empty" />
                 <h3 className="text-xl font-bold text-slate-400">Prêt à encaisser</h3>
-                <p className="text-slate-400 mt-2 max-w-xs mx-auto">Scannez un QR code ou entrez un numéro de ticket à gauche pour commencer.</p>
+                <p className="text-slate-400 mt-2 max-w-xs mx-auto">Scannez un QR code ou entrez un numéro de ticket, un nom ou un email à gauche.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* MODAL SCANNER */}
+      {/* --- MODAL SCANNER --- */}
       {showScanner && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4 animate-fade-in">
             <button 
@@ -456,18 +557,51 @@ export default function PriseEnCharge() {
             </button>
             <div className="w-full max-w-md bg-black rounded-3xl overflow-hidden border-4 border-indigo-500 shadow-2xl relative aspect-square">
                 <Scanner onScan={handleScan} />
-                <div className="absolute inset-0 border-[50px] border-black/50 pointer-events-none flex items-center justify-center">
-                    <div className="w-64 h-64 border-2 border-white/50 rounded-xl relative">
-                        <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-indigo-500 -mt-1 -ml-1"></div>
-                        <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-indigo-500 -mt-1 -mr-1"></div>
-                        <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-indigo-500 -mb-1 -ml-1"></div>
-                        <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-indigo-500 -mb-1 -mr-1"></div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE CONFIRMATION SUPPRESSION (Pop-up Sécurité) --- */}
+      {showDeleteModal && paymentToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl border-t-8 border-red-500 overflow-hidden transform transition-all scale-100">
+                <div className="p-8 text-center space-y-6">
+                    <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto text-4xl animate-pulse">
+                        <FiAlertTriangle />
+                    </div>
+                    
+                    <div>
+                        <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Annulation de paiement</h3>
+                        <p className="text-slate-500 dark:text-slate-400 mt-2">
+                            Vous êtes sur le point de supprimer un encaissement de <strong className="text-slate-900 dark:text-white">{paymentToDelete.montant} €</strong>.
+                        </p>
+                    </div>
+
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/50 p-4 rounded-xl text-left text-sm text-red-800 dark:text-red-200">
+                        <p className="font-bold flex items-center gap-2 mb-1"><FiActivity/> Audit de Sécurité</p>
+                        <p>Cette action est irréversible. Elle sera <strong>enregistrée et notifiée</strong> immédiatement à l'administrateur dans le journal de sécurité.</p>
+                    </div>
+
+                    <div className="flex gap-4 pt-2">
+                        <button 
+                            onClick={() => { setShowDeleteModal(false); setPaymentToDelete(null); }}
+                            className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-white font-bold rounded-xl transition-colors"
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            onClick={confirmDelete}
+                            disabled={loadingPaiement}
+                            className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-500/30 transition-colors flex justify-center items-center gap-2"
+                        >
+                            {loadingPaiement ? "Traitement..." : "Confirmer la suppression"}
+                        </button>
                     </div>
                 </div>
             </div>
-            <p className="text-white mt-8 font-medium bg-black/50 px-6 py-2 rounded-full">Placez le QR Code dans le cadre</p>
         </div>
       )}
+
     </div>
   );
 }

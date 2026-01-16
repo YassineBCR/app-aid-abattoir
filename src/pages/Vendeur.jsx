@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
 import { FiCheck, FiX, FiSearch, FiCalendar, FiUser, FiClock, FiAlertCircle } from "react-icons/fi";
+import { logAction } from "../lib/logger";
 
 export default function Vendeur() {
   const { showNotification } = useNotification();
