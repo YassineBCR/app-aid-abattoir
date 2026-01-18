@@ -4,7 +4,7 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiPackage, FiClock, FiBarChart2, FiFileText, 
-  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera, FiBell, FiActivity, FiDollarSign 
+  FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera, FiBell, FiActivity, FiDollarSign, FiTag 
 } from "react-icons/fi";
 
 // IMPORT DES COMPOSANTS
@@ -17,28 +17,31 @@ import AdminAgneaux from "./Adminagneaux";
 import AdminSMS from "./AdminSMS";
 import PriseEnCharge from "./PriseEnCharge"; 
 import AdminLogs from "./AdminLogs"; 
-import AdminCaisse from "./AdminCaisse"; // <--- NOUVEL IMPORT
+import AdminCaisse from "./AdminCaisse";
+import Bouclage from "./Bouclage"; // <--- NOUVEL IMPORT
 
 // ---- CONFIGURATION DES RÔLES ----
 const PERMS = {
   client: { sections: ["reserver"] },
-  vendeur: { sections: ["commandes", "prise_en_charge", "tableau"] },
+  // AJOUT DE "bouclage" pour le vendeur
+  vendeur: { sections: ["commandes", "prise_en_charge", "bouclage", "tableau"] },
   admin_site: { sections: ["commandes", "creneaux", "tableau", "stock"] },
-  // AJOUT DE "finance" POUR ADMIN GLOBAL
-  admin_global: { sections: ["commandes", "prise_en_charge", "creneaux", "tableau", "stock", "agneaux", "sms", "logs", "finance"] },
+  // AJOUT DE "bouclage" pour l'admin global aussi
+  admin_global: { sections: ["commandes", "prise_en_charge", "bouclage", "creneaux", "tableau", "stock", "agneaux", "sms", "logs", "finance"] },
 };
 
 const SECTIONS = {
   reserver: { label: "Réserver", component: Client, Icon: FiCalendar, color: "from-green-500 to-emerald-600" },
   commandes: { label: "Commandes", component: Vendeur, Icon: FiPackage, color: "from-green-600 to-teal-600" },
   prise_en_charge: { label: "Prise en Charge", component: PriseEnCharge, Icon: FiCamera, color: "from-indigo-500 to-purple-600" },
+  // NOUVELLE SECTION BOUCLAGE
+  bouclage: { label: "Bouclage", component: Bouclage, Icon: FiTag, color: "from-orange-500 to-amber-600" },
   creneaux: { label: "Créneaux", component: Creneaux, Icon: FiClock, color: "from-emerald-500 to-green-600" },
   tableau: { label: "Tableau", component: Tableau, Icon: FiBarChart2, color: "from-teal-500 to-cyan-600" },
   stock: { label: "Stock", component: Stock, Icon: FiFileText, color: "from-green-400 to-emerald-500" },
   agneaux: { label: "Agneaux & Tarifs", component: AdminAgneaux, Icon: FiUser, color: "from-emerald-600 to-teal-600" },
   sms: { label: "SMS & Marketing", component: AdminSMS, Icon: FiMail, color: "from-teal-400 to-green-500" },
   logs: { label: "Logs & Sécurité", component: AdminLogs, Icon: FiActivity, color: "from-gray-600 to-slate-700" },
-  // NOUVELLE SECTION FINANCE
   finance: { label: "Comptabilité", component: AdminCaisse, Icon: FiDollarSign, color: "from-yellow-500 to-orange-600" },
 };
 

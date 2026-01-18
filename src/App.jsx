@@ -9,6 +9,7 @@ import PaiementOk from "./pages/PaiementOk";
 import PaiementAnnule from "./pages/PaiementAnnule";
 import MockPay from "./pages/Mockpay"; 
 import UpdatePassword from "./pages/UpdatePassword"; 
+import Bouclage from "./pages/Bouclage";
 
 // import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
 
@@ -88,6 +89,7 @@ function AppRoutes() {
         <Route path="/paiement-ok" element={<PaiementOk />} />
         <Route path="/paiement-annule" element={<PaiementAnnule />} />
         <Route path="/mock-pay" element={<MockPay />} />
+        <Route path="/bouclage" element={<Bouclage />} />
       </Routes>
     </>
   );
