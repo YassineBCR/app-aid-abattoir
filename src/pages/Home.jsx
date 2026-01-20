@@ -18,13 +18,12 @@ import {
 
 /* --- CONFIGURATION GALERIE --- */
 const galleryImages = [
-  "src/static/images/1.jpeg",
-  "src/static/images/2.png",
-  "src/static/images/3.jpeg",
-  "src/static/images/4.png",
-  "src/static/images/5.jpeg",
+  "/static/images/1.jpeg",
+  "/static/images/2.png",
+  "/static/images/3.jpeg",
+  "/static/images/4.png",
+  "/static/images/5.jpeg",
 ];
-
 /* --- STYLE CSS PERSONNALISÉ (INTÉGRÉ) --- */
 const customStyles = `
   @keyframes float {
@@ -463,7 +462,7 @@ export default function Home() {
                 
                 {/* Thumbnail Image - CHANGED HERE */}
                 <img 
-                  src="src/static/images/6.jpeg" 
+                  src="/static/images/6.jpeg"
                   alt="Video Thumbnail" 
                   className="w-full h-full object-cover transform group-hover:scale-105 transition duration-700 ease-out opacity-80 group-hover:opacity-60"
                 />
