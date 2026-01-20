@@ -16,17 +16,19 @@ import {
   FaCertificate 
 } from "react-icons/fa6";
 
-/* --- CONFIGURATION GALERIE --- */
-// Vérifiez bien l'extension : .jpg, .jpeg ou .png ?
-const galleryImages = [
-  "/static/images/1.jpeg",
-  "/static/images/2.png",
-  "/static/images/3.jpeg",
-  "/static/images/4.png",
-  "/static/images/5.jpeg",
-];
+// --- IMPORT DES IMAGES (Méthode Infaillible) ---
+// Assurez-vous que les images sont dans src/assets/
+import img1 from "../assets/1.jpeg";
+import img2 from "../assets/2.png";
+import img3 from "../assets/3.jpeg";
+import img4 from "../assets/4.png";
+import img5 from "../assets/5.jpeg";
+import img6 from "../assets/6.jpeg"; // Image du reportage
 
-/* --- STYLE CSS --- */
+/* --- CONFIGURATION GALERIE --- */
+const galleryImages = [img1, img2, img3, img4, img5];
+
+/* --- STYLE CSS PERSONNALISÉ (INTÉGRÉ) --- */
 const customStyles = `
   @keyframes float {
     0% { transform: translateY(0px); }
@@ -122,10 +124,10 @@ export default function Home() {
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [stats, setStats] = useState({ families: 0, years: 0, sacrifices: 0, satisfaction: 0 });
   
+  // Galerie
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
   const statsRef = useRef(null);
-  
-  // Date de l'Aïd (Approximative 2025)
   const openingDate = new Date(2025, 3, 14, 10, 0, 0).getTime();
 
   useEffect(() => {
@@ -155,6 +157,7 @@ export default function Home() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
+    // Countdown
     const timer = setInterval(() => {
       const now = new Date().getTime();
       const diff = openingDate - now;
@@ -170,6 +173,7 @@ export default function Home() {
       }
     }, 1000);
 
+    // Galerie Timer (3s)
     const galleryTimer = setInterval(() => {
         setCurrentImageIndex((prev) => (prev === galleryImages.length - 1 ? 0 : prev + 1));
     }, 3000);
@@ -240,7 +244,13 @@ export default function Home() {
       <style>{customStyles}</style>
 
       {/* --- NAVBAR --- */}
-      <nav className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ease-in-out px-4 sm:px-8 py-4 ${scrolled ? 'bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-700/50 shadow-lg shadow-black/5' : 'bg-transparent pt-6'}`}>
+      <nav 
+        className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ease-in-out px-4 sm:px-8 py-4 ${
+          scrolled 
+          ? 'bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-700/50 shadow-lg shadow-black/5' 
+          : 'bg-transparent pt-6'
+        }`}
+      >
         <div className="max-w-7xl mx-auto flex justify-between items-center">
             <div className={`text-2xl font-black tracking-tighter flex items-center gap-2 ${scrolled ? 'text-slate-800 dark:text-white' : 'text-white'}`}>
                 <div className="w-8 h-8 bg-gradient-to-tr from-green-400 to-emerald-600 rounded-lg flex items-center justify-center text-white text-xs">G</div>
@@ -250,7 +260,14 @@ export default function Home() {
             <div className="flex items-center gap-4">
                 {currentUser ? (
                     <div className="relative" ref={menuRef}>
-                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`hidden sm:flex items-center gap-3 px-2 pl-3 py-1.5 rounded-full backdrop-blur-md transition-all cursor-pointer hover:shadow-lg ${scrolled ? 'bg-slate-100/50 dark:bg-slate-800/50 text-slate-700 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800' : 'bg-white/10 text-white border border-white/20 hover:bg-white/20'}`}>
+                        <button 
+                            onClick={() => setIsMenuOpen(!isMenuOpen)}
+                            className={`hidden sm:flex items-center gap-3 px-2 pl-3 py-1.5 rounded-full backdrop-blur-md transition-all cursor-pointer hover:shadow-lg ${
+                                scrolled 
+                                ? 'bg-slate-100/50 dark:bg-slate-800/50 text-slate-700 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800' 
+                                : 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
+                            }`}
+                        >
                             <div className="p-1.5 bg-green-500 rounded-full text-white"><FiUser className="text-sm" /></div>
                             <div className="flex flex-col items-start text-xs leading-none pr-1">
                                 <span className="opacity-70 font-medium">Bonjour</span>
@@ -311,6 +328,8 @@ export default function Home() {
 
         <div className="container max-w-7xl mx-auto px-6 relative z-10">
           <div className="flex flex-col-reverse lg:flex-row items-center gap-12 lg:gap-20">
+            
+            {/* Colonne Texte */}
             <div className="w-full lg:w-1/2 space-y-8 text-center lg:text-left animate-fade-in-up">
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-panel border-green-500/30">
                     <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
@@ -327,7 +346,10 @@ export default function Home() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start pt-4">
-                    <button onClick={() => navigate(currentUser ? "/dashboard" : "/auth")} className="group relative px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl font-bold text-white shadow-lg shadow-green-500/25 hover:shadow-green-500/50 hover:scale-105 transition-all duration-300 w-full sm:w-auto overflow-hidden">
+                    <button 
+                        onClick={() => navigate(currentUser ? "/dashboard" : "/auth")}
+                        className="group relative px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl font-bold text-white shadow-lg shadow-green-500/25 hover:shadow-green-500/50 hover:scale-105 transition-all duration-300 w-full sm:w-auto overflow-hidden"
+                    >
                         <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 ease-out skew-x-12 -translate-x-full"></div>
                         <span className="relative flex items-center justify-center gap-2">{currentUser ? (isStaff ? "Tableau de bord" : "Réserver maintenant") : "Réserver maintenant"} <FiArrowRight /></span>
                     </button>
@@ -335,28 +357,40 @@ export default function Home() {
                 </div>
             </div>
 
+            {/* --- VISUEL 3D : CADRE PHOTO --- */}
             <div className="w-full lg:w-1/2 flex justify-center relative perspective-1000">
                 <div className="relative w-full max-w-md animate-float z-10">
+                    
+                    {/* Lueur d'arrière-plan */}
                     <div className="absolute inset-0 bg-gradient-to-tr from-green-500 to-emerald-300 rounded-[2rem] rotate-3 opacity-30 blur-2xl"></div>
+
+                    {/* Cadre Photo Modern Glassmorphism */}
                     <div className="relative z-10 bg-slate-900/40 backdrop-blur-xl rounded-[2rem] border-2 border-white/20 shadow-2xl overflow-hidden p-2">
+                        
+                        {/* Conteneur Image avec Ratio Vertical (Adapté portrait) */}
                         <div className="relative aspect-[4/5] w-full rounded-[1.5rem] overflow-hidden bg-slate-800">
                             {galleryImages.map((src, index) => (
                                 <img 
                                   key={index}
                                   src={src} 
-                                  className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'}`}
+                                  className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${
+                                      index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'
+                                  }`}
                                   alt={`Galerie ${index}`}
                                   onError={(e) => { e.target.style.display = 'none'; }}
                                 />
                             ))}
+                            
+                            {/* Overlay Texte */}
                             <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
                                 <p className="text-white font-bold text-lg drop-shadow-md">Souvenirs de l'Aïd</p>
                                 <p className="text-green-300 text-sm font-medium">Moments partagés</p>
                             </div>
                         </div>
+
                     </div>
                     
-                    {/* Cartes Flottantes */}
+                    {/* Cartes Flottantes (Décoration) */}
                     <div className="absolute top-12 -left-8 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-2000 shadow-lg z-20">
                         <div className="bg-green-500 p-2 rounded-lg text-white"><FaCalendarCheck /></div>
                         <div>
@@ -364,6 +398,7 @@ export default function Home() {
                             <p className="text-white font-bold text-sm">10 Ans d'Expérience</p>
                         </div>
                     </div>
+
                     <div className="absolute bottom-20 -right-6 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-4000 shadow-lg z-20">
                         <div className="bg-orange-500 p-2 rounded-lg text-white"><FaCertificate /></div>
                         <div>
@@ -371,8 +406,10 @@ export default function Home() {
                             <p className="text-white font-bold text-sm">Service Premium</p>
                         </div>
                     </div>
+
                 </div>
             </div>
+
           </div>
         </div>
       </section>
@@ -406,29 +443,57 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- VIDEO SECTION REVISITÉE --- */}
+      {/* --- VIDEO SECTION REVISITÉE (CARTE PREMIUM) --- */}
       <section className="relative py-24 overflow-hidden">
+        {/* Background dark */}
         <div className="absolute inset-0 bg-slate-900">
              <div className="absolute inset-0 bg-[url('/static/images/grid.svg')] opacity-10"></div>
+             {/* Blobs */}
              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-green-500/20 rounded-full blur-[120px] pointer-events-none"></div>
         </div>
 
         <div className="container max-w-7xl mx-auto px-6 relative z-10">
+          
+          {/* Header Section */}
           <div className="text-center mb-16 space-y-4">
-             <h3 className="text-4xl md:text-5xl font-black text-white">Immersion au cœur <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-300">de l'événement</span></h3>
-             <p className="text-slate-400 max-w-2xl mx-auto">Découvrez en images le déroulement de l'Aïd al-Adha à l'abattoir. Transparence, respect et convivialité.</p>
+             <h3 className="text-4xl md:text-5xl font-black text-white">
+                Immersion au cœur <br/>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-300">
+                  de l'événement
+                </span>
+             </h3>
+             <p className="text-slate-400 max-w-2xl mx-auto">
+               Découvrez en images le déroulement de l'Aïd al-Adha à l'abattoir. Transparence, respect et convivialité.
+             </p>
           </div>
 
+          {/* Video Card Container */}
           <div className="relative max-w-4xl mx-auto group cursor-pointer" onClick={() => setShowVideoPopup(true)}>
+             
+             {/* Decorative Border / Glow */}
              <div className="absolute -inset-1 bg-gradient-to-r from-green-500 to-teal-500 rounded-3xl blur opacity-30 group-hover:opacity-60 transition duration-500"></div>
+             
+             {/* The Card */}
              <div className="relative aspect-video bg-slate-800 rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
-                <img src="/static/images/6.jpeg" alt="Video Thumbnail" className="w-full h-full object-cover transform group-hover:scale-105 transition duration-700 ease-out opacity-80 group-hover:opacity-60" />
+                
+                {/* Thumbnail Image - IMPORTÉ */}
+                <img 
+                  src={img6} 
+                  alt="Video Thumbnail" 
+                  className="w-full h-full object-cover transform group-hover:scale-105 transition duration-700 ease-out opacity-80 group-hover:opacity-60"
+                />
+
+                {/* Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent"></div>
+
+                {/* Center Play Button */}
                 <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-20 h-20 md:w-24 md:h-24 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30 group-hover:scale-110 transition duration-300 shadow-lg shadow-green-500/20">
                         <FiPlay className="text-3xl md:text-4xl text-white ml-2 group-hover:text-green-400 transition" />
                     </div>
                 </div>
+
+                {/* Bottom Info Bar */}
                 <div className="absolute bottom-0 inset-x-0 p-6 md:p-8 flex items-end justify-between">
                     <div>
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 border border-green-500/30 backdrop-blur-sm mb-3">
@@ -441,8 +506,10 @@ export default function Home() {
                         </div>
                     </div>
                 </div>
+
              </div>
           </div>
+
         </div>
       </section>
 
