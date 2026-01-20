@@ -4,7 +4,8 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { supabase } from "../lib/supabase"; 
 import { 
   FiSun, FiMoon, FiPlay, FiX, FiArrowRight, FiCheck, 
-  FiLogIn, FiLogOut, FiUser, FiChevronDown, FiSettings, FiGrid, FiCalendar, FiClock 
+  FiLogIn, FiLogOut, FiUser, FiChevronDown, FiSettings, FiGrid, FiCalendar, FiClock,
+  FiHeart, FiShield
 } from "react-icons/fi";
 import { 
   FaStarAndCrescent, 
@@ -13,23 +14,50 @@ import {
   FaUsers, 
   FaCalendarCheck, 
   FaMosque, 
-  FaCertificate 
+  FaCertificate,
+  FaStar 
 } from "react-icons/fa6";
 
-// --- IMPORT DES IMAGES (Méthode Infaillible) ---
-// Assurez-vous que les images sont dans src/assets/
+// --- IMPORT DES IMAGES ---
 import img1 from "../assets/1.jpeg";
 import img2 from "../assets/2.png";
 import img3 from "../assets/3.jpeg";
 import img4 from "../assets/4.png";
 import img5 from "../assets/5.jpeg";
-import img6 from "../assets/6.jpeg"; // Image du reportage
+import img6 from "../assets/6.jpeg"; 
 
-/* --- CONFIGURATION GALERIE --- */
-const galleryImages = [img1, img2, img3, img4, img5];
+/* --- CONFIGURATION DU CARROUSEL (IMAGES + FAITS) --- */
+const carouselData = [
+  {
+    image: img1,
+    top: { icon: FaCalendarCheck, title: "10 Ans", sub: "D'expérience", color: "bg-blue-500" },
+    bottom: { icon: FaCertificate, title: "Premium", sub: "Service Qualité", color: "bg-orange-500" }
+  },
+  {
+    image: img2,
+    top: { icon: FaMosque, title: "+10 000", sub: "Sacrifices réalisés", color: "bg-emerald-600" },
+    bottom: { icon: FiCheck, title: "Certifié", sub: "Validé DDPP", color: "bg-green-500" }
+  },
+  {
+    image: img3,
+    top: { icon: FaUsers, title: "Familial", sub: "Ambiance conviviale", color: "bg-purple-500" },
+    bottom: { icon: FaHandsPraying, title: "Respect", sub: "Rite Prophétique", color: "bg-teal-500" }
+  },
+  {
+    image: img4,
+    top: { icon: FaStar, title: "4.9/5", sub: "Satisfaction Client", color: "bg-yellow-500" },
+    bottom: { icon: FiShield, title: "Sécurité", sub: "Normes Hygiène", color: "bg-red-500" }
+  },
+  {
+    image: img5,
+    top: { icon: FaScaleBalanced, title: "Équitable", sub: "Juste Prix", color: "bg-indigo-500" },
+    bottom: { icon: FiHeart, title: "Solidaire", sub: "Partage & Don", color: "bg-pink-500" }
+  }
+];
 
-/* --- STYLE CSS PERSONNALISÉ (INTÉGRÉ) --- */
+/* --- STYLE CSS PERSONNALISÉ --- */
 const customStyles = `
+  /* ANIMATIONS */
   @keyframes float {
     0% { transform: translateY(0px); }
     50% { transform: translateY(-20px); }
@@ -41,9 +69,28 @@ const customStyles = `
     66% { transform: translate(-20px, 20px) scale(0.9); }
     100% { transform: translate(0px, 0px) scale(1); }
   }
+  
+  /* Animations d'entrée pour les cartes */
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
   .animate-float { animation: float 6s ease-in-out infinite; }
   .animate-blob { animation: blob 7s infinite; }
   
+  .animate-slide-left { animation: slideInLeft 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+  .animate-slide-right { animation: slideInRight 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+  
+  /* SCROLLBAR INVISIBLE */
+  ::-webkit-scrollbar { display: none; }
+  html, body { scrollbar-width: none; -ms-overflow-style: none; }
+
+  /* GLASSMORPHISM */
   .glass-panel {
     background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(16px);
@@ -124,11 +171,13 @@ export default function Home() {
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [stats, setStats] = useState({ families: 0, years: 0, sacrifices: 0, satisfaction: 0 });
   
-  // Galerie
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  // Index du carrousel
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const statsRef = useRef(null);
-  const openingDate = new Date(2025, 3, 14, 10, 0, 0).getTime();
+  
+  // --- DATE MODIFIÉE : 27 MAI 2026 ---
+  const openingDate = new Date(2026, 4, 27, 10, 0, 0).getTime();
 
   useEffect(() => {
     const checkUser = async () => {
@@ -157,7 +206,6 @@ export default function Home() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    // Countdown
     const timer = setInterval(() => {
       const now = new Date().getTime();
       const diff = openingDate - now;
@@ -173,10 +221,10 @@ export default function Home() {
       }
     }, 1000);
 
-    // Galerie Timer (3s)
+    // Carrousel Timer (3.5s)
     const galleryTimer = setInterval(() => {
-        setCurrentImageIndex((prev) => (prev === galleryImages.length - 1 ? 0 : prev + 1));
-    }, 3000);
+        setCurrentIndex((prev) => (prev === carouselData.length - 1 ? 0 : prev + 1));
+    }, 3500);
 
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
@@ -238,6 +286,9 @@ export default function Home() {
   };
 
   const isStaff = ['admin_global', 'admin_site', 'vendeur'].includes(userRole);
+
+  // Helper pour obtenir les données actuelles
+  const currentData = carouselData[currentIndex];
 
   return (
     <div className={`min-h-screen font-sans selection:bg-green-500 selection:text-white ${darkMode ? 'dark bg-slate-900' : 'bg-slate-50'} transition-colors duration-500 overflow-x-hidden`}>
@@ -327,7 +378,7 @@ export default function Home() {
         </div>
 
         <div className="container max-w-7xl mx-auto px-6 relative z-10">
-          <div className="flex flex-col-reverse lg:flex-row items-center gap-12 lg:gap-20">
+          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
             
             {/* Colonne Texte */}
             <div className="w-full lg:w-1/2 space-y-8 text-center lg:text-left animate-fade-in-up">
@@ -357,7 +408,7 @@ export default function Home() {
                 </div>
             </div>
 
-            {/* --- VISUEL 3D : CADRE PHOTO --- */}
+            {/* --- VISUEL 3D : CADRE PHOTO & FACTS --- */}
             <div className="w-full lg:w-1/2 flex justify-center relative perspective-1000">
                 <div className="relative w-full max-w-md animate-float z-10">
                     
@@ -367,14 +418,14 @@ export default function Home() {
                     {/* Cadre Photo Modern Glassmorphism */}
                     <div className="relative z-10 bg-slate-900/40 backdrop-blur-xl rounded-[2rem] border-2 border-white/20 shadow-2xl overflow-hidden p-2">
                         
-                        {/* Conteneur Image avec Ratio Vertical (Adapté portrait) */}
+                        {/* Conteneur Image avec Ratio Vertical */}
                         <div className="relative aspect-[4/5] w-full rounded-[1.5rem] overflow-hidden bg-slate-800">
-                            {galleryImages.map((src, index) => (
+                            {carouselData.map((item, index) => (
                                 <img 
                                   key={index}
-                                  src={src} 
+                                  src={item.image} 
                                   className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${
-                                      index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'
+                                      index === currentIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'
                                   }`}
                                   alt={`Galerie ${index}`}
                                   onError={(e) => { e.target.style.display = 'none'; }}
@@ -390,20 +441,28 @@ export default function Home() {
 
                     </div>
                     
-                    {/* Cartes Flottantes (Décoration) */}
-                    <div className="absolute top-12 -left-8 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-2000 shadow-lg z-20">
-                        <div className="bg-green-500 p-2 rounded-lg text-white"><FaCalendarCheck /></div>
-                        <div>
-                            <p className="text-xs text-slate-300">Depuis 2015</p>
-                            <p className="text-white font-bold text-sm">10 Ans d'Expérience</p>
+                    {/* Cartes Flottantes (DYNAMIQUES AVEC CLÉ POUR ANIMATION) */}
+                    <div key={currentIndex} className="absolute inset-0 pointer-events-none z-20">
+                        {/* Carte Haut Gauche */}
+                        <div className="absolute top-12 -left-8 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-slide-left shadow-lg bg-slate-900/40 backdrop-blur-md border border-white/10">
+                            <div className={`${currentData.top.color} p-2.5 rounded-xl text-white shadow-lg`}>
+                                <currentData.top.icon className="text-lg" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] text-slate-300 uppercase tracking-wider font-semibold">{currentData.top.sub}</p>
+                                <p className="text-white font-bold text-sm leading-tight">{currentData.top.title}</p>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="absolute bottom-20 -right-6 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-4000 shadow-lg z-20">
-                        <div className="bg-orange-500 p-2 rounded-lg text-white"><FaCertificate /></div>
-                        <div>
-                            <p className="text-xs text-slate-300">Confiance</p>
-                            <p className="text-white font-bold text-sm">Service Premium</p>
+                        {/* Carte Bas Droite */}
+                        <div className="absolute bottom-20 -right-6 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-slide-right shadow-lg bg-slate-900/40 backdrop-blur-md border border-white/10">
+                            <div className={`${currentData.bottom.color} p-2.5 rounded-xl text-white shadow-lg`}>
+                                <currentData.bottom.icon className="text-lg" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] text-slate-300 uppercase tracking-wider font-semibold">{currentData.bottom.sub}</p>
+                                <p className="text-white font-bold text-sm leading-tight">{currentData.bottom.title}</p>
+                            </div>
                         </div>
                     </div>
 
