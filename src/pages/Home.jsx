@@ -4,7 +4,7 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { supabase } from "../lib/supabase"; 
 import { 
   FiSun, FiMoon, FiPlay, FiX, FiArrowRight, FiCheck, 
-  FiLogIn, FiLogOut, FiUser, FiChevronDown, FiBox, FiSettings 
+  FiLogIn, FiLogOut, FiUser, FiChevronDown, FiSettings, FiGrid, FiCalendar, FiClock 
 } from "react-icons/fi";
 import { 
   FaStarAndCrescent, 
@@ -15,6 +15,15 @@ import {
   FaMosque, 
   FaCertificate 
 } from "react-icons/fa6";
+
+/* --- CONFIGURATION GALERIE --- */
+const galleryImages = [
+  "src/static/images/1.jpeg",
+  "src/static/images/2.png",
+  "src/static/images/3.jpeg",
+  "src/static/images/4.png",
+  "src/static/images/5.jpeg",
+];
 
 /* --- STYLE CSS PERSONNALISÉ (INTÉGRÉ) --- */
 const customStyles = `
@@ -31,8 +40,6 @@ const customStyles = `
   }
   .animate-float { animation: float 6s ease-in-out infinite; }
   .animate-blob { animation: blob 7s infinite; }
-  .animation-delay-2000 { animation-delay: 2s; }
-  .animation-delay-4000 { animation-delay: 4s; }
   
   .glass-panel {
     background: rgba(255, 255, 255, 0.05);
@@ -105,28 +112,41 @@ export default function Home() {
   
   // États
   const [currentUser, setCurrentUser] = useState(null);
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // État du menu
-  const menuRef = useRef(null); // Référence pour le clic extérieur
+  const [userRole, setUserRole] = useState(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const [showVideoPopup, setShowVideoPopup] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [stats, setStats] = useState({ families: 0, years: 0, sacrifices: 0, satisfaction: 0 });
-  const statsRef = useRef(null);
+  
+  // Galerie
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  const statsRef = useRef(null);
   const openingDate = new Date(2025, 3, 14, 10, 0, 0).getTime();
 
   useEffect(() => {
-    // Auth Check
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    const checkUser = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            setCurrentUser(user);
+            fetchUserRole(user.id);
+        }
+    };
+    checkUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
       setCurrentUser(user);
+      if (user) {
+          fetchUserRole(user.id);
+      } else {
+          setUserRole(null);
+      }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUser(session?.user ?? null);
-    });
-
-    // Gestion du clic extérieur pour fermer le menu
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setIsMenuOpen(false);
@@ -150,11 +170,14 @@ export default function Home() {
       }
     }, 1000);
 
-    // Scroll
+    // Galerie Timer (3s)
+    const galleryTimer = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev === galleryImages.length - 1 ? 0 : prev + 1));
+    }, 3000);
+
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
 
-    // Stats
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting) {
             animateStats();
@@ -168,14 +191,27 @@ export default function Home() {
       subscription.unsubscribe();
       document.removeEventListener("mousedown", handleClickOutside);
       clearInterval(timer);
+      clearInterval(galleryTimer);
       window.removeEventListener("scroll", handleScroll);
       observer.disconnect();
     };
   }, []);
 
+  const fetchUserRole = async (userId) => {
+      try {
+          const { data } = await supabase.from('profiles').select('role').eq('id', userId).single();
+          setUserRole(data ? data.role : 'client');
+      } catch (e) {
+          console.error("Erreur role:", e);
+          setUserRole('client');
+      }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsMenuOpen(false);
+    setCurrentUser(null);
+    setUserRole(null);
     navigate("/");
   };
 
@@ -198,11 +234,13 @@ export default function Home() {
     }, duration / steps);
   };
 
+  const isStaff = ['admin_global', 'admin_site', 'vendeur'].includes(userRole);
+
   return (
     <div className={`min-h-screen font-sans selection:bg-green-500 selection:text-white ${darkMode ? 'dark bg-slate-900' : 'bg-slate-50'} transition-colors duration-500 overflow-x-hidden`}>
       <style>{customStyles}</style>
 
-      {/* --- NAVBAR FLOTTANTE --- */}
+      {/* --- NAVBAR --- */}
       <nav 
         className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ease-in-out px-4 sm:px-8 py-4 ${
           scrolled 
@@ -211,19 +249,12 @@ export default function Home() {
         }`}
       >
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-            
-            {/* LOGO */}
             <div className={`text-2xl font-black tracking-tighter flex items-center gap-2 ${scrolled ? 'text-slate-800 dark:text-white' : 'text-white'}`}>
-                <div className="w-8 h-8 bg-gradient-to-tr from-green-400 to-emerald-600 rounded-lg flex items-center justify-center text-white text-xs">
-                    G
-                </div>
+                <div className="w-8 h-8 bg-gradient-to-tr from-green-400 to-emerald-600 rounded-lg flex items-center justify-center text-white text-xs">G</div>
                 GRAMMONT
             </div>
             
-            {/* ACTIONS DROITE */}
             <div className="flex items-center gap-4">
-                
-                {/* --- MENU UTILISATEUR (DROPDOWN) --- */}
                 {currentUser ? (
                     <div className="relative" ref={menuRef}>
                         <button 
@@ -234,30 +265,33 @@ export default function Home() {
                                 : 'bg-white/10 text-white border border-white/20 hover:bg-white/20'
                             }`}
                         >
-                            <div className="p-1.5 bg-green-500 rounded-full text-white">
-                                <FiUser className="text-sm" />
-                            </div>
+                            <div className="p-1.5 bg-green-500 rounded-full text-white"><FiUser className="text-sm" /></div>
                             <div className="flex flex-col items-start text-xs leading-none pr-1">
                                 <span className="opacity-70 font-medium">Bonjour</span>
                                 <span className="font-bold max-w-[100px] truncate">{currentUser.email?.split('@')[0]}</span>
                             </div>
                             <FiChevronDown className={`ml-1 transition-transform duration-300 ${isMenuOpen ? 'rotate-180' : ''}`} />
                         </button>
-
-                        {/* Dropdown Menu */}
                         {isMenuOpen && (
                             <div className="absolute top-full right-0 mt-3 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
                                 <div className="p-3 border-b border-slate-100 dark:border-slate-700">
                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Mon Compte</p>
                                     <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{currentUser.email}</p>
+                                    {userRole && <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-700 text-slate-500">{userRole === 'client' ? 'Client' : 'Staff'}</span>}
                                 </div>
                                 <div className="p-2 space-y-1">
-                                    <button onClick={() => navigate('/dashboard')} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
-                                        <FiSettings className="text-indigo-500" /> Mon Espace
+                                    <button onClick={() => { setIsMenuOpen(false); navigate('/account'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
+                                        <FiSettings className="text-indigo-500" /> Mon Compte
                                     </button>
-                                    <button onClick={() => navigate('/dashboard')} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
-                                        <FiBox className="text-green-500" /> Mes Commandes
-                                    </button>
+                                    {isStaff ? (
+                                        <button onClick={() => { setIsMenuOpen(false); navigate('/dashboard'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
+                                            <FiGrid className="text-orange-500" /> Dashboard
+                                        </button>
+                                    ) : (
+                                        <button onClick={() => { setIsMenuOpen(false); navigate('/dashboard'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
+                                            <FiCalendar className="text-green-500" /> Réserver
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
                                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors text-left">
@@ -268,28 +302,11 @@ export default function Home() {
                         )}
                     </div>
                 ) : (
-                    <button 
-                        onClick={() => navigate("/auth")}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all shadow-lg hover:scale-105 active:scale-95 ${
-                            scrolled 
-                            ? 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900' 
-                            : 'bg-white text-green-900 hover:bg-green-50'
-                        }`}
-                    >
-                        <FiLogIn />
-                        <span>Se connecter</span>
+                    <button onClick={() => navigate("/auth")} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all shadow-lg hover:scale-105 active:scale-95 ${scrolled ? 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900' : 'bg-white text-green-900 hover:bg-green-50'}`}>
+                        <FiLogIn /> <span>Se connecter</span>
                     </button>
                 )}
-
-                {/* --- THEME TOGGLE --- */}
-                <button
-                    onClick={toggleDarkMode}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                        scrolled 
-                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' 
-                        : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-md'
-                    }`}
-                >
+                <button onClick={toggleDarkMode} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${scrolled ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-md'}`}>
                     {darkMode ? <FiSun className="text-xl" /> : <FiMoon className="text-xl" />}
                 </button>
             </div>
@@ -298,8 +315,6 @@ export default function Home() {
 
       {/* --- HERO SECTION --- */}
       <section className="relative min-h-screen flex items-center pt-24 pb-20 overflow-hidden">
-        
-        {/* Fond dégradé animé */}
         <div className="absolute inset-0 bg-slate-900">
              <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-green-900 to-slate-900 opacity-80"></div>
              <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-emerald-500/30 rounded-full mix-blend-screen filter blur-[100px] animate-blob"></div>
@@ -313,27 +328,12 @@ export default function Home() {
             
             {/* Colonne Texte */}
             <div className="w-full lg:w-1/2 space-y-8 text-center lg:text-left animate-fade-in-up">
-                
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-panel border-green-500/30">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                    </span>
-                    <span className="text-green-300 text-xs font-bold uppercase tracking-wider">
-                        Ouverture des réservations
-                    </span>
+                    <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                    <span className="text-green-300 text-xs font-bold uppercase tracking-wider">Ouverture des réservations</span>
                 </div>
-
-                <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight">
-                  L'Aïd al-Adha <br/>
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-200">
-                    Serein & Sacré
-                  </span>
-                </h1>
-                
-                <p className="text-lg text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-                  Une solution clé en main respectant strictement le rite et les normes sanitaires. Réservez votre créneau en toute tranquillité.
-                </p>
+                <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight">L'Aïd al-Adha <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-200">Serein & Sacré</span></h1>
+                <p className="text-lg text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">Une solution clé en main respectant strictement le rite et les normes sanitaires. Réservez votre créneau en toute tranquillité.</p>
 
                 <div className="flex justify-center lg:justify-start gap-3">
                     <CountdownUnit value={countdown.days} label="Jours" />
@@ -348,47 +348,48 @@ export default function Home() {
                         className="group relative px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl font-bold text-white shadow-lg shadow-green-500/25 hover:shadow-green-500/50 hover:scale-105 transition-all duration-300 w-full sm:w-auto overflow-hidden"
                     >
                         <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 ease-out skew-x-12 -translate-x-full"></div>
-                        <span className="relative flex items-center justify-center gap-2">
-                           {currentUser ? "Accéder à mon espace" : "Réserver maintenant"} <FiArrowRight />
-                        </span>
+                        <span className="relative flex items-center justify-center gap-2">{currentUser ? (isStaff ? "Tableau de bord" : "Réserver maintenant") : "Réserver maintenant"} <FiArrowRight /></span>
                     </button>
-                    <button 
-                         onClick={() => document.getElementById('about').scrollIntoView({ behavior: 'smooth'})}
-                        className="px-8 py-4 rounded-2xl font-bold text-white border border-white/20 hover:bg-white/10 transition-all w-full sm:w-auto"
-                    >
-                        En savoir plus
-                    </button>
+                    <button onClick={() => document.getElementById('about').scrollIntoView({ behavior: 'smooth'})} className="px-8 py-4 rounded-2xl font-bold text-white border border-white/20 hover:bg-white/10 transition-all w-full sm:w-auto">En savoir plus</button>
                 </div>
             </div>
 
-            {/* Colonne Visuel 3D */}
+            {/* --- VISUEL 3D : CADRE PHOTO --- */}
             <div className="w-full lg:w-1/2 flex justify-center relative perspective-1000">
-                <div className="relative w-[300px] md:w-[360px] animate-float z-10">
-                    <div className="absolute inset-0 bg-gradient-to-tr from-green-500 to-emerald-300 rounded-[3rem] rotate-6 opacity-30 blur-2xl"></div>
-                    <img 
-                      src="/static/images/iphone-screen.png" 
-                      className="relative z-10 w-full drop-shadow-2xl rounded-[3rem] border-8 border-slate-900 bg-slate-800"
-                      alt="Application Mobile"
-                      onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.style.display = 'none'; 
-                          e.target.parentNode.innerHTML = '<div class="h-[600px] w-full bg-slate-800 rounded-[3rem] flex items-center justify-center text-white border-8 border-slate-900 shadow-2xl"><span class="text-6xl">📱</span></div>';
-                      }}
-                    />
-                    
-                    <div className="absolute top-20 -left-12 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-2000 shadow-lg">
-                        <div className="bg-green-500 p-2 rounded-lg text-white"><FiCheck /></div>
-                        <div>
-                            <p className="text-xs text-slate-300">Statut</p>
-                            <p className="text-white font-bold text-sm">Validé DDPP</p>
+                <div className="relative w-full max-w-md animate-float z-10">
+                    <div className="absolute inset-0 bg-gradient-to-tr from-green-500 to-emerald-300 rounded-[2rem] rotate-3 opacity-30 blur-2xl"></div>
+                    <div className="relative z-10 bg-slate-900/40 backdrop-blur-xl rounded-[2rem] border-2 border-white/20 shadow-2xl overflow-hidden p-2">
+                        <div className="relative aspect-[4/5] w-full rounded-[1.5rem] overflow-hidden bg-slate-800">
+                            {galleryImages.map((src, index) => (
+                                <img 
+                                  key={index}
+                                  src={src} 
+                                  className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${
+                                      index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-110'
+                                  }`}
+                                  alt={`Galerie ${index}`}
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                            ))}
+                            <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                                <p className="text-white font-bold text-lg drop-shadow-md">Souvenirs de l'Aïd</p>
+                                <p className="text-green-300 text-sm font-medium">Moments partagés</p>
+                            </div>
                         </div>
                     </div>
-
-                    <div className="absolute bottom-32 -right-8 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-4000 shadow-lg">
-                        <div className="bg-orange-500 p-2 rounded-lg text-white"><FiPlay /></div>
+                    {/* Cartes Flottantes */}
+                    <div className="absolute top-12 -left-8 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-2000 shadow-lg z-20">
+                        <div className="bg-green-500 p-2 rounded-lg text-white"><FaCalendarCheck /></div>
                         <div>
-                            <p className="text-xs text-slate-300">Live</p>
-                            <p className="text-white font-bold text-sm">Abattoir Cam</p>
+                            <p className="text-xs text-slate-300">Depuis 2015</p>
+                            <p className="text-white font-bold text-sm">10 Ans d'Expérience</p>
+                        </div>
+                    </div>
+                    <div className="absolute bottom-20 -right-6 glass-panel p-4 rounded-2xl flex items-center gap-3 animate-float animation-delay-4000 shadow-lg z-20">
+                        <div className="bg-orange-500 p-2 rounded-lg text-white"><FaCertificate /></div>
+                        <div>
+                            <p className="text-xs text-slate-300">Confiance</p>
+                            <p className="text-white font-bold text-sm">Service Premium</p>
                         </div>
                     </div>
                 </div>
@@ -401,39 +402,16 @@ export default function Home() {
       {/* --- CONCEPT SECTION --- */}
       <section id="about" className="py-24 px-6 relative bg-white dark:bg-slate-900 transition-colors">
         <BlobBackground />
-        
         <div className="container max-w-7xl mx-auto relative z-10">
           <div className="text-center mb-20 max-w-3xl mx-auto space-y-4">
-            <h2 className="text-base font-bold text-green-600 dark:text-green-400 uppercase tracking-widest">
-              Pourquoi nous choisir ?
-            </h2>
-            <h3 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white">
-              L'Excellence du Service
-            </h3>
-            <p className="text-lg text-slate-600 dark:text-slate-400">
-              Nous avons repensé l'expérience de l'Aïd pour allier tradition prophétique et confort moderne.
-            </p>
+            <h2 className="text-base font-bold text-green-600 dark:text-green-400 uppercase tracking-widest">Pourquoi nous choisir ?</h2>
+            <h3 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white">L'Excellence du Service</h3>
+            <p className="text-lg text-slate-600 dark:text-slate-400">Nous avons repensé l'expérience de l'Aïd pour allier tradition prophétique et confort moderne.</p>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <ConceptCard 
-              index={1}
-              Icon={FaStarAndCrescent} 
-              title="Respect du Rite" 
-              description="Sacrifice réalisé strictement selon le rite musulman par des sacrificateurs agréés par la Grande Mosquée."
-            />
-            <ConceptCard 
-              index={2}
-              Icon={FaHandsPraying} 
-              title="Confort Familial" 
-              description="Des espaces d'attente aménagés, des écrans de suivi et une organisation fluide pour éviter l'attente."
-            />
-            <ConceptCard 
-              index={3}
-              Icon={FaScaleBalanced} 
-              title="Traçabilité Totale" 
-              description="Chaque bête est identifiée. Suivez votre commande de la réservation jusqu'au retrait via l'application."
-            />
+            <ConceptCard index={1} Icon={FaStarAndCrescent} title="Respect du Rite" description="Sacrifice réalisé strictement selon le rite musulman par des sacrificateurs agréés par la Grande Mosquée." />
+            <ConceptCard index={2} Icon={FaHandsPraying} title="Confort Familial" description="Des espaces d'attente aménagés, des écrans de suivi et une organisation fluide pour éviter l'attente." />
+            <ConceptCard index={3} Icon={FaScaleBalanced} title="Traçabilité Totale" description="Chaque bête est identifiée. Suivez votre commande de la réservation jusqu'au retrait via l'application." />
           </div>
         </div>
       </section>
@@ -450,45 +428,81 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- VIDEO SECTION --- */}
-      <section className="relative py-32 flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-fixed bg-cover bg-center bg-[url('https://images.unsplash.com/photo-1542601906990-24d4c16419d9?q=80&w=2000&auto=format&fit=crop')] transform scale-105 filter brightness-50"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent"></div>
+      {/* --- VIDEO SECTION REVISITÉE (CARTE PREMIUM) --- */}
+      <section className="relative py-24 overflow-hidden">
+        {/* Background dark */}
+        <div className="absolute inset-0 bg-slate-900">
+             <div className="absolute inset-0 bg-[url('/static/images/grid.svg')] opacity-10"></div>
+             {/* Blobs */}
+             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-green-500/20 rounded-full blur-[120px] pointer-events-none"></div>
+        </div>
 
-        <div className="relative z-10 text-center px-6 max-w-4xl mx-auto space-y-8">
-          <h3 className="text-4xl md:text-6xl font-black text-white leading-tight drop-shadow-lg">
-            Vivez l'expérience <br/>
-            <span className="text-green-400">en images</span>
-          </h3>
+        <div className="container max-w-7xl mx-auto px-6 relative z-10">
           
-          <button
-            onClick={() => setShowVideoPopup(true)}
-            className="group relative inline-flex items-center justify-center w-24 h-24 bg-white/10 backdrop-blur-md rounded-full border border-white/30 hover:scale-110 transition-all duration-300"
-          >
-             <span className="absolute inset-0 rounded-full bg-green-500 opacity-20 animate-ping"></span>
-             <FiPlay className="text-3xl text-white ml-2 group-hover:text-green-400 transition-colors" />
-          </button>
-          <p className="text-slate-300 font-medium tracking-wide uppercase text-sm">Regarder le reportage officiel</p>
+          {/* Header Section */}
+          <div className="text-center mb-16 space-y-4">
+             <h3 className="text-4xl md:text-5xl font-black text-white">
+                Immersion au cœur <br/>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-300">
+                  de l'événement
+                </span>
+             </h3>
+             <p className="text-slate-400 max-w-2xl mx-auto">
+               Découvrez en images le déroulement de l'Aïd al-Adha à l'abattoir. Transparence, respect et convivialité.
+             </p>
+          </div>
+
+          {/* Video Card Container */}
+          <div className="relative max-w-4xl mx-auto group cursor-pointer" onClick={() => setShowVideoPopup(true)}>
+             
+             {/* Decorative Border / Glow */}
+             <div className="absolute -inset-1 bg-gradient-to-r from-green-500 to-teal-500 rounded-3xl blur opacity-30 group-hover:opacity-60 transition duration-500"></div>
+             
+             {/* The Card */}
+             <div className="relative aspect-video bg-slate-800 rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+                
+                {/* Thumbnail Image - CHANGED HERE */}
+                <img 
+                  src="src/static/images/6.jpeg" 
+                  alt="Video Thumbnail" 
+                  className="w-full h-full object-cover transform group-hover:scale-105 transition duration-700 ease-out opacity-80 group-hover:opacity-60"
+                />
+
+                {/* Overlay Gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent"></div>
+
+                {/* Center Play Button */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-20 h-20 md:w-24 md:h-24 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30 group-hover:scale-110 transition duration-300 shadow-lg shadow-green-500/20">
+                        <FiPlay className="text-3xl md:text-4xl text-white ml-2 group-hover:text-green-400 transition" />
+                    </div>
+                </div>
+
+                {/* Bottom Info Bar */}
+                <div className="absolute bottom-0 inset-x-0 p-6 md:p-8 flex items-end justify-between">
+                    <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 border border-green-500/30 backdrop-blur-sm mb-3">
+                            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                            <span className="text-xs font-bold text-green-300 uppercase tracking-wide">Reportage Officiel</span>
+                        </div>
+                        <h4 className="text-xl md:text-3xl font-bold text-white">L'Excellence du Service</h4>
+                        <div className="flex items-center gap-2 text-slate-300 text-sm mt-1">
+                            <FiClock className="text-green-400" /> <span>03 min 45s</span>
+                        </div>
+                    </div>
+                </div>
+
+             </div>
+          </div>
+
         </div>
       </section>
 
-      {/* --- MODAL VIDEO --- */}
       {showVideoPopup && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-300">
           <div className="relative w-full max-w-5xl aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10">
-            <button 
-              onClick={() => setShowVideoPopup(false)}
-              className="absolute top-6 right-6 z-20 p-2 bg-black/50 hover:bg-white/20 text-white rounded-full transition-all hover:rotate-90"
-            >
-              <FiX size={24} />
-            </button>
-            <iframe
-              className="w-full h-full"
-              src="https://www.youtube.com/embed/Dsf3csUASlc?autoplay=1"
-              title="YouTube video"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            ></iframe>
+            <button onClick={() => setShowVideoPopup(false)} className="absolute top-6 right-6 z-20 p-2 bg-black/50 hover:bg-white/20 text-white rounded-full transition-all hover:rotate-90"><FiX size={24} /></button>
+            <iframe className="w-full h-full" src="https://www.youtube.com/embed/Dsf3csUASlc?autoplay=1" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
           </div>
         </div>
       )}
@@ -497,9 +511,7 @@ export default function Home() {
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pt-16 pb-8">
         <div className="container max-w-7xl mx-auto px-6">
             <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-12">
-                <div className="text-3xl font-black tracking-tighter text-slate-800 dark:text-white">
-                    GRAMMONT
-                </div>
+                <div className="text-3xl font-black tracking-tighter text-slate-800 dark:text-white">GRAMMONT</div>
                 <div className="flex gap-8 text-sm font-medium text-slate-500 dark:text-slate-400">
                     <a href="#" className="hover:text-green-500 transition-colors">À propos</a>
                     <a href="#" className="hover:text-green-500 transition-colors">Tarifs</a>
@@ -507,14 +519,12 @@ export default function Home() {
                     <a href="#" className="hover:text-green-500 transition-colors">Contact</a>
                 </div>
             </div>
-            
             <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center text-xs text-slate-400">
                 <p>&copy; {new Date().getFullYear()} Abattoir Grammont. Tous droits réservés.</p>
                 <p>Développé avec ❤️ pour la communauté.</p>
             </div>
         </div>
       </footer>
-      
     </div>
   );
 }
