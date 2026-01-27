@@ -18,7 +18,7 @@ import {
   FaStar 
 } from "react-icons/fa6";
 
-// --- IMPORT DES IMAGES ---
+// --- IMPORT DES IMAGES (Mettez vos images dans src/assets/) ---
 import img1 from "../assets/1.jpeg";
 import img2 from "../assets/2.png";
 import img3 from "../assets/3.jpeg";
@@ -54,6 +54,9 @@ const carouselData = [
     bottom: { icon: FiHeart, title: "Solidaire", sub: "Partage & Don", color: "bg-pink-500" }
   }
 ];
+
+/* --- CONFIGURATION GALERIE SIMPLE (POUR LA LOGIQUE INTERNE) --- */
+const galleryImages = [img1, img2, img3, img4, img5];
 
 /* --- STYLE CSS PERSONNALISÉ --- */
 const customStyles = `
@@ -342,7 +345,7 @@ export default function Home() {
                                             <FiGrid className="text-orange-500" /> Dashboard
                                         </button>
                                     ) : (
-                                        <button onClick={() => { setIsMenuOpen(false); navigate('/dashboard'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
+                                        <button onClick={() => { setIsMenuOpen(false); navigate('/reservation'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors text-left">
                                             <FiCalendar className="text-green-500" /> Réserver
                                         </button>
                                     )}
@@ -378,6 +381,7 @@ export default function Home() {
         </div>
 
         <div className="container max-w-7xl mx-auto px-6 relative z-10">
+          {/* ORDRE MOBILE CORRIGÉ: flex-col et non flex-col-reverse */}
           <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
             
             {/* Colonne Texte */}
@@ -398,7 +402,7 @@ export default function Home() {
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start pt-4">
                     <button 
-                        onClick={() => navigate(currentUser ? "/dashboard" : "/auth")}
+                        onClick={() => navigate(currentUser ? "/reservation" : "/auth")}
                         className="group relative px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl font-bold text-white shadow-lg shadow-green-500/25 hover:shadow-green-500/50 hover:scale-105 transition-all duration-300 w-full sm:w-auto overflow-hidden"
                     >
                         <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-500 ease-out skew-x-12 -translate-x-full"></div>

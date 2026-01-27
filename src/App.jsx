@@ -11,7 +11,8 @@ import MockPay from "./pages/Mockpay";
 import UpdatePassword from "./pages/UpdatePassword"; 
 import Bouclage from "./pages/Bouclage";
 import Account from "./pages/Account";
-
+import Reservation from "./pages/Reservation";
+import PaiementYavin from './pages/PaiementYavin';
 
 // import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
 
@@ -93,7 +94,8 @@ function AppRoutes() {
         <Route path="/mock-pay" element={<MockPay />} />
         <Route path="/bouclage" element={<Bouclage />} />
         <Route path="/account" element={<Account />} />
-      </Routes>
+        <Route path="/reservation" element={<Reservation />} />
+        <Route path="/paiement" element={<PaiementYavin />} />      </Routes>
     </>
   );
 }
