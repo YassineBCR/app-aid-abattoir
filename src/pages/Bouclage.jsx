@@ -23,7 +23,7 @@ export default function Bouclage() {
   const handleBackspace = () => setSearchInput(prev => prev.slice(0, -1));
 
   // --- 1. RECHERCHE SÉCURISÉE AVEC VÉRIFICATIONS ---
-  const handleSearch = async (e = null, overrideVal = null) => {
+ const handleSearch = async (e = null, overrideVal = null) => {
     if (e) e.preventDefault();
     const val = overrideVal || searchInput;
     if (!val) return showNotification("Veuillez entrer un numéro", "warning");
@@ -31,12 +31,29 @@ export default function Bouclage() {
     setLoading(true);
     
     try {
-      // On récupère la commande ET le créneau lié
-      const { data, error } = await supabase
+      let query = supabase
         .from("commandes")
-        .select("*, creneaux_horaires(*)")
-        .or(`ticket_num.eq.${parseInt(val) || 0},id.eq.${val}`)
-        .maybeSingle();
+        .select("*, creneaux_horaires(*)");
+
+      // CORRECTION : Détecter si c'est un UUID ou un numéro simple
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+      if (isUUID) {
+        // C'est un ID technique (QR code complet ?)
+        query = query.eq('id', val);
+      } else {
+        // C'est un numéro de ticket (entier)
+        // On nettoie l'entrée pour être sûr que c'est un chiffre
+        const ticketNum = parseInt(val);
+        if (isNaN(ticketNum)) {
+            showNotification("Numéro de ticket invalide", "error");
+            setLoading(false);
+            return;
+        }
+        query = query.eq('ticket_num', ticketNum);
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (error) throw error;
       
@@ -57,7 +74,6 @@ export default function Bouclage() {
             showNotification("⚠️ Erreur : Ce ticket n'a pas de créneau attribué.", "warning");
         }
 
-        // Tout est récupéré, on affiche le modal de contrôle
         setSelectedCommande(data);
         setShowScanner(false);
         setSearchInput("");
