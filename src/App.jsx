@@ -1,103 +1,116 @@
-import { useEffect, useState } from "react";
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "./lib/supabase";
+import { useState } from 'react';
+import Header from './components/Header';
+import DeliveryDayPicker from './components/DeliveryDayPicker';
+import AddressForm from './components/AddressForm';
+import ContactForm from './components/ContactForm';
+import PaymentSummary from './components/PaymentSummary';
+import SuccessView from './components/SuccessView';
 
-import Home from "./pages/Home";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
-import PaiementOk from "./pages/PaiementOk"; 
-import PaiementAnnule from "./pages/PaiementAnnule";
-import MockPay from "./pages/Mockpay"; 
-import UpdatePassword from "./pages/UpdatePassword"; 
-import Bouclage from "./pages/Bouclage";
-import Account from "./pages/Account";
-import Reservation from "./pages/Reservation";
-import PaiementYavin from './pages/PaiementYavin';
+const INITIAL_ADDRESS = {
+  rue: '',
+  codePostal: '',
+  ville: '',
+  complement: '',
+};
 
-// import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
+const INITIAL_CONTACT = {
+  nom: '',
+  prenom: '',
+  telephone: '',
+  email: '',
+};
 
-function AppRoutes() {
-  const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState(null);
-  const navigate = useNavigate();
-  const location = useLocation();
+export default function App() {
+  const [deliveryDay, setDeliveryDay] = useState('');
+  const [address, setAddress] = useState(INITIAL_ADDRESS);
+  const [contact, setContact] = useState(INITIAL_CONTACT);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  const isFormValid =
+    deliveryDay &&
+    address.rue.trim() &&
+    address.codePostal.trim() &&
+    address.ville.trim() &&
+    contact.nom.trim() &&
+    contact.prenom.trim() &&
+    contact.telephone.trim() &&
+    contact.email.trim();
 
-    // Pages accessibles sans vérification stricte
-    const isPublicPage = 
-      location.pathname.startsWith("/paiement") || 
-      location.pathname.startsWith("/mock-pay") ||
-      location.pathname === "/update-password";
+  const handlePay = async () => {
+    if (!isFormValid) return;
+    setLoading(true);
+    // Mock payment delay
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setLoading(false);
+    setSuccess(true);
+  };
 
-    async function init() {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-
-      if (data.session) {
-        setSession(data.session);
-        // NOTE: On NE redirige PAS automatiquement vers dashboard ici
-        // pour laisser l'utilisateur sur la page d'accueil s'il le souhaite.
-      } else {
-        setSession(null);
-        // Sécurité : Si on essaie d'aller sur dashboard sans être connecté, on renvoie à l'accueil
-        if (!isPublicPage && location.pathname.startsWith("/dashboard")) {
-          navigate("/", { replace: true });
-        }
-      }
-      setLoading(false);
-    }
-
-    init();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession ?? null);
-      
-      const isPublicNow = 
-        location.pathname.startsWith("/paiement") || 
-        location.pathname.startsWith("/mock-pay") ||
-        location.pathname === "/update-password";
-
-      if (!isPublicNow) {
-        // Si on se déconnecte alors qu'on était sur le dashboard -> Hop accueil
-        if (!newSession && location.pathname.startsWith("/dashboard")) {
-          navigate("/", { replace: true });
-        }
-      }
-    });
-
-    return () => {
-      mounted = false;
-      sub?.subscription?.unsubscribe?.();
-    };
-  }, [navigate, location.pathname]);
-
-  if (loading) {
+  if (success) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-stone-50">
+        <Header />
+        <SuccessView deliveryDay={deliveryDay} address={address} />
       </div>
     );
   }
 
   return (
-    <>
-      {/* <Navbar session={session} /> */}
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/update-password" element={<UpdatePassword />} />
-        <Route path="/dashboard/*" element={<Dashboard />} />
-        <Route path="/paiement-ok" element={<PaiementOk />} />
-        <Route path="/paiement-annule" element={<PaiementAnnule />} />
-        <Route path="/mock-pay" element={<MockPay />} />
-        <Route path="/bouclage" element={<Bouclage />} />
-        <Route path="/account" element={<Account />} />
-        <Route path="/reservation" element={<Reservation />} />
-        <Route path="/paiement" element={<PaiementYavin />} />      </Routes>
-    </>
+    <div className="min-h-screen bg-stone-50">
+      <Header />
+
+      <main className="mx-auto max-w-2xl px-4 py-6 flex flex-col gap-5 pb-8">
+        {/* Hero message */}
+        <div className="text-center py-2">
+          <h1 className="text-xl sm:text-2xl font-bold text-stone-900 text-balance">
+            {"Commandez votre mouton,"}
+            <br />
+            <span className="text-brand-700">{"recevez-le chez vous"}</span>
+          </h1>
+          <p className="mt-2 text-sm text-stone-500 max-w-md mx-auto">
+            {"Choisissez votre jour de livraison, renseignez votre adresse et payez votre acompte en ligne."}
+          </p>
+        </div>
+
+        {/* Step indicators */}
+        <div className="flex items-center justify-center gap-2">
+          <StepPill number={1} label="Jour" active={true} done={!!deliveryDay} />
+          <div className="w-6 h-px bg-stone-200" />
+          <StepPill number={2} label="Adresse" active={!!deliveryDay} done={!!address.rue && !!address.codePostal && !!address.ville} />
+          <div className="w-6 h-px bg-stone-200" />
+          <StepPill number={3} label="Contact" active={!!address.rue} done={!!contact.nom && !!contact.telephone} />
+          <div className="w-6 h-px bg-stone-200" />
+          <StepPill number={4} label="Paiement" active={isFormValid} done={false} />
+        </div>
+
+        <DeliveryDayPicker selected={deliveryDay} onSelect={setDeliveryDay} />
+        <AddressForm data={address} onChange={setAddress} />
+        <ContactForm data={contact} onChange={setContact} />
+        <PaymentSummary loading={loading} onPay={handlePay} disabled={!isFormValid} />
+      </main>
+    </div>
   );
 }
 
-export default AppRoutes;
+function StepPill({ number, label, active, done }) {
+  return (
+    <div className={`flex items-center gap-1.5 ${active ? 'opacity-100' : 'opacity-40'}`}>
+      <span
+        className={`
+          flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold
+          ${done
+            ? 'bg-brand-600 text-white'
+            : active
+              ? 'bg-brand-100 text-brand-800 border border-brand-300'
+              : 'bg-stone-100 text-stone-400'
+          }
+        `}
+      >
+        {done ? '\u2713' : number}
+      </span>
+      <span className={`text-xs font-medium ${active ? 'text-stone-700' : 'text-stone-400'}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
