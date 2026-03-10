@@ -12,7 +12,7 @@ import UpdatePassword from "./pages/UpdatePassword";
 import Bouclage from "./pages/Bouclage";
 import Account from "./pages/Account";
 import Reservation from "./pages/Reservation";
-import PaiementYavin from './pages/PaiementYavin';
+import PaiementStripe from './pages/PaiementStripe';
 
 // import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
 
@@ -95,7 +95,7 @@ function AppRoutes() {
         <Route path="/bouclage" element={<Bouclage />} />
         <Route path="/account" element={<Account />} />
         <Route path="/reservation" element={<Reservation />} />
-        <Route path="/paiement" element={<PaiementYavin />} />      </Routes>
+        <Route path="/paiement" element={<PaiementStripe />} />      </Routes>
     </>
   );
 }

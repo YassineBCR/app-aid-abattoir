@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { FiMail, FiLock, FiUser, FiArrowRight, FiCheck, FiAlertCircle, FiChevronLeft } from "react-icons/fi";
+// --- MODIFICATION : Ajout de FiX pour la croix rouge ---
+import { FiMail, FiLock, FiUser, FiArrowRight, FiCheck, FiAlertCircle, FiChevronLeft, FiX } from "react-icons/fi";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -17,6 +18,10 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+
+  // --- NOUVEAU : Variables dynamiques pour la validation visuelle ---
+  const isLengthValid = password.length >= 12;
+  const hasUppercase = /[A-Z]/.test(password);
 
   // Nettoyer les messages quand on change de vue
   useEffect(() => {
@@ -39,8 +44,6 @@ export default function Auth() {
       setError("Email ou mot de passe incorrect.");
       setLoading(false);
     } else {
-      // --- CORRECTION IMPORTANTE ---
-      // On force la redirection vers le dashboard une fois connecté
       navigate("/dashboard");
     }
   };
@@ -48,8 +51,19 @@ export default function Auth() {
   // --- 2. INSCRIPTION ---
   const handleRegister = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    // Blocage si les conditions ne sont pas réunies
+    if (!isLengthValid) {
+      setError("Le mot de passe doit contenir au moins 12 caractères.");
+      return;
+    }
+    if (!hasUppercase) {
+      setError("Le mot de passe doit contenir au moins une lettre majuscule.");
+      return;
+    }
+
+    setLoading(true);
 
     const { error } = await supabase.auth.signUp({
       email,
@@ -67,7 +81,7 @@ export default function Auth() {
     setLoading(false);
   };
 
-  // --- 3. MOT DE PASSE OUBLIÉ (Envoi du mail) ---
+  // --- 3. MOT DE PASSE OUBLIÉ ---
   const handleResetPassword = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -75,7 +89,6 @@ export default function Auth() {
     setMessage(null);
 
     try {
-      // L'URL vers laquelle l'utilisateur sera redirigé depuis l'email
       const redirectUrl = `${window.location.origin}/update-password`;
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -98,12 +111,10 @@ export default function Auth() {
       
       <div className="w-full max-w-md bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden relative transition-all duration-300">
         
-        {/* Barre décorative en haut */}
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 to-emerald-600"></div>
 
         <div className="p-8 sm:p-10">
           
-          {/* En-tête dynamique */}
           <div className="text-center mb-10">
             <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
               {view === "login" && "Connexion"}
@@ -117,7 +128,6 @@ export default function Auth() {
             </p>
           </div>
 
-          {/* Messages d'erreur ou de succès */}
           {error && (
             <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 border border-red-100 dark:border-red-800 flex gap-3 animate-fade-in">
               <FiAlertCircle className="mt-1 flex-shrink-0" /> <p className="text-sm">{error}</p>
@@ -129,10 +139,8 @@ export default function Auth() {
             </div>
           )}
 
-          {/* Formulaire Unique */}
           <form onSubmit={view === "login" ? handleLogin : view === "register" ? handleRegister : handleResetPassword} className="space-y-5">
             
-            {/* Champ Nom (Inscription uniquement) */}
             {view === "register" && (
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiUser /></div>
@@ -147,7 +155,6 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Champ Email (Toujours visible) */}
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiMail /></div>
               <input
@@ -160,22 +167,36 @@ export default function Auth() {
               />
             </div>
 
-            {/* Champ Mot de passe (Caché si mot de passe oublié) */}
             {view !== "forgot" && (
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiLock /></div>
-                <input
-                  type="password"
-                  placeholder="Mot de passe"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all dark:text-white"
-                  required
-                />
+              <div>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 group-focus-within:text-green-500 transition-colors"><FiLock /></div>
+                  <input
+                    type="password"
+                    placeholder="Mot de passe"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all dark:text-white"
+                    required
+                  />
+                </div>
+                
+                {/* --- NOUVEAU : Indicateurs dynamiques (Rouge -> Vert) à l'inscription --- */}
+                {view === "register" && (
+                  <div className="mt-3 ml-2 space-y-1.5">
+                    <div className={`flex items-center text-xs transition-colors duration-300 ${isLengthValid ? 'text-green-500' : 'text-red-500 dark:text-red-400'}`}>
+                      {isLengthValid ? <FiCheck className="mr-1.5 text-sm" /> : <FiX className="mr-1.5 text-sm" />}
+                      <span>Au moins 12 caractères</span>
+                    </div>
+                    <div className={`flex items-center text-xs transition-colors duration-300 ${hasUppercase ? 'text-green-500' : 'text-red-500 dark:text-red-400'}`}>
+                      {hasUppercase ? <FiCheck className="mr-1.5 text-sm" /> : <FiX className="mr-1.5 text-sm" />}
+                      <span>Au moins une lettre majuscule</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Lien Mot de passe oublié (Login uniquement) */}
             {view === "login" && (
               <div className="flex justify-end">
                 <button type="button" onClick={() => setView("forgot")} className="text-sm font-medium text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 transition-colors">
@@ -184,11 +205,10 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Bouton d'action */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-500/30 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+              disabled={loading || (view === "register" && (!isLengthValid || !hasUppercase))} // NOUVEAU : on grise le bouton si le mot de passe n'est pas bon
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-500/30 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 mt-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -205,7 +225,6 @@ export default function Auth() {
             </button>
           </form>
 
-          {/* Navigation bas de page */}
           <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 text-center">
             {view === "forgot" ? (
               <button onClick={() => setView("login")} className="flex items-center justify-center gap-2 mx-auto font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">

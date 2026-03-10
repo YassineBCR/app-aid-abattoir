@@ -1,78 +1,113 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
+import express from 'express';
+import cors from 'cors';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
 const app = express();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// --- 1. WEBHOOK STRIPE (Validation de la place) ---
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error("Erreur Webhook:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Si le paiement est validé par la banque
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    
+    // On récupère l'ID caché
+    const reservationId = session.metadata.reservationId;
+    const stripeSessionId = session.id;
+
+    console.log(`✅ Paiement reçu pour la réservation : ${reservationId}`);
+
+    // Mettre à jour la transaction
+    await supabase
+      .from('transactions')
+      .update({ statut: 'reussi' })
+      .eq('stripe_payment_intent_id', stripeSessionId);
+
+    // Valider la réservation et bloquer la place définitivement
+    if (reservationId) {
+      const { error: resError } = await supabase
+        .from('reservations')
+        .update({ 
+          statut: 'confirmee_payee', 
+          stripe_session_id: stripeSessionId 
+        })
+        .eq('id', reservationId);
+
+      if (resError) console.error("Erreur mise à jour réservation:", resError);
+    }
+  }
+
+  res.json({ received: true });
+});
+
+// Autoriser le front-end à communiquer avec le serveur
+app.use(cors({ origin: process.env.FRONT_ORIGIN || "http://localhost:5173" }));
 app.use(express.json());
 
-app.use(
-  cors({
-    origin: process.env.FRONT_ORIGIN || "http://localhost:5173",
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
-
-app.get("/health", (_, res) => res.json({ ok: true }));
-
-app.post("/api/sumup/checkout", async (req, res) => {
+// --- 2. CRÉATION DU LIEN DE PAIEMENT STRIPE ---
+app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { commande_id, montant_cents, redirect_url } = req.body;
+    const { montant, userId, description, reservationId } = req.body;
 
-    if (!commande_id || !montant_cents) {
-      return res.status(400).json({ error: "Paramètres manquants" });
-    }
+    if (!reservationId) throw new Error("ID de réservation manquant.");
 
-    const SUMUP_API_KEY = process.env.SUMUP_API_KEY;
-    const SUMUP_EMAIL = process.env.SUMUP_EMAIL;
-
-    if (!SUMUP_API_KEY || !SUMUP_EMAIL) {
-      return res.status(500).json({ error: "Config SumUp manquante (.env)" });
-    }
-
-    const payload = {
-        checkout_reference: commande_id,
-        amount: (Number(montant_cents) / 100).toFixed(2),
-        currency: "EUR",
-        pay_to_email: SUMUP_EMAIL,
-        description: "Acompte réservation",
-        redirect_url: redirect_url || "http://localhost:5173/",
-        hosted_checkout: { enabled: true }, // ✅ IMPORTANT
-      };
-
-    const r = await fetch("https://api.sumup.com/v0.1/checkouts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${SUMUP_API_KEY}`,
-        "Content-Type": "application/json",
+    // Créer la session Stripe
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'eur',
+            product_data: { name: description || 'Réservation Abattoir' },
+            unit_amount: montant, // en centimes
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      // Cacher l'ID pour le webhook
+      metadata: { 
+        userId: userId,
+        reservationId: reservationId 
       },
-      body: JSON.stringify(payload),
+      success_url: `${process.env.FRONT_ORIGIN || "http://localhost:5173"}/paiement-ok?session_id={CHECKOUT_SESSION_ID}`,
+      
+      // --- LA CORRECTION EST ICI ---
+      // On attache l'ID de réservation à l'URL d'annulation
+      cancel_url: `${process.env.FRONT_ORIGIN || "http://localhost:5173"}/paiement-annule?commande_id=${reservationId}`,
     });
 
-    const data = await r.json();
+    // Créer la trace dans Supabase "en_attente"
+    await supabase.from('transactions').insert([{
+      user_id: userId,
+      montant: montant,
+      stripe_payment_intent_id: session.id,
+      description: description,
+      statut: 'en_attente'
+    }]);
 
-    if (!r.ok) {
-      return res.status(r.status).json({
-        error: "SumUp API error",
-        details: data,
-      });
-    }
-
-    const url = data.hosted_checkout_url || null;
-
-
-    return res.json({
-        ...data,
-        checkout_url: url, // on garde ce nom pour ton front
-      });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    // Renvoyer l'URL au front-end
+    res.json({ url: session.url });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-const port = process.env.PORT || 8787;
-app.listen(port, () => {
-  console.log(`✅ Server running on http://localhost:${port}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ Serveur Stripe démarré sur le port ${PORT}`));
