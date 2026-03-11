@@ -2,99 +2,93 @@ import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import Ticket from "../components/Ticket";
-import emailjs from "@emailjs/browser";
-import QRCode from "qrcode";
 import { FiCheckCircle, FiMail, FiArrowLeft, FiLoader, FiXCircle } from "react-icons/fi";
-
-const SERVICE_ID = "service_qmeq26s";
-const TEMPLATE_ID = "template_1r2fngu";
-const PUBLIC_KEY = "M1uCyX4sX1jw1owSm";
 
 export default function PaiementOk() {
   const [searchParams] = useSearchParams();
   const [msg, setMsg] = useState("Vérification sécurisée avec la banque...");
   const [commande, setCommande] = useState(null);
   const [status, setStatus] = useState("loading");
+  const [emailSent, setEmailSent] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     const sessionId = searchParams.get("session_id");
+    const commandeId = searchParams.get("commande_id");
 
-    if (!sessionId) {
+    if (!sessionId || !commandeId) {
       setStatus("error");
-      setMsg("Aucune session de paiement détectée.");
+      setMsg("Informations de session manquantes.");
       return;
     }
 
     const verifyAndValidate = async () => {
       try {
-        // 1. ON DEMANDE AU SERVEUR SI LE PAIEMENT EST RÉELLEMENT PASSÉ
         const response = await fetch(`http://localhost:3000/verify-session/${sessionId}`);
         const sessionData = await response.json();
 
-        // 2. SI C'EST PAYÉ
         if (sessionData.status === 'paid') {
-          const meta = sessionData.metadata;
-          
-          // Sécurité Anti-Doublon : On vérifie si ce navigateur a déjà créé ce ticket
-          const alreadyCreated = localStorage.getItem(`stripe_${sessionId}`);
+          await supabase.from("commandes").update({ statut: "acompte_paye" }).eq("id", commandeId);
 
-          if (alreadyCreated) {
-            // S'il a juste actualisé la page, on récupère son ticket déjà créé.
-            const { data } = await supabase.from("commandes").select("*, creneaux_horaires(date, heure_debut)").eq("contact_email", meta.email).order("created_at", { ascending: false }).limit(1).single();
-            if (data && mounted) { setCommande(data); setStatus("success"); setMsg("Paiement validé !"); }
-          } else {
-            // S'IL N'EST PAS CRÉÉ, ON LE CRÉE MAINTENANT ! (Et on retire la place)
-            setStatus("loading");
-            setMsg("Paiement validé ! Génération de votre ticket officiel...");
+          const { data: finalTicket } = await supabase.from("commandes").select("*, creneaux_horaires(date, heure_debut)").eq("id", commandeId).single();
 
-            const { data: newTicket, error } = await supabase.rpc("reserver_prochain_ticket", {
-              p_creneau_id: meta.creneau_id,
-              p_client_id: meta.client_id,
-              p_nom: meta.nom,
-              p_prenom: meta.prenom,
-              p_email: meta.email,
-              p_tel: meta.tel,
-              p_sacrifice_name: meta.sacrifice_name,
-              p_categorie: meta.categorie,
-              p_montant_total_cents: parseInt(meta.montant_total),
-              p_acompte_cents: parseInt(meta.acompte)
-            });
-
-            if (error) throw error;
-
-            // On le marque directement en payé pour le Vendeur
-            await supabase.from("commandes").update({ statut: "acompte_paye" }).eq("id", newTicket.commande_id);
-
-            // On enregistre dans le navigateur pour bloquer les doublons s'il rafraîchit
-            localStorage.setItem(`stripe_${sessionId}`, "true");
-
-            // On récupère toutes les infos du ticket pour l'afficher
-            const { data: finalTicket } = await supabase.from("commandes").select("*, creneaux_horaires(date, heure_debut)").eq("id", newTicket.commande_id).single();
-
-            if (finalTicket && mounted) {
-              setCommande(finalTicket);
-              setStatus("success");
-              setMsg("Paiement validé avec succès ! ✅");
-              
-              if (SERVICE_ID !== "service_xxxxxxx") {
-                  const qrImageUrl = await QRCode.toDataURL(JSON.stringify({ id: finalTicket.id, ticket: finalTicket.ticket_num, nom: finalTicket.contact_last_name }));
-                  emailjs.send(SERVICE_ID, TEMPLATE_ID, { contact_first_name: finalTicket.contact_first_name, contact_last_name: finalTicket.contact_last_name, ticket_num: finalTicket.ticket_num, sacrifice_name: finalTicket.sacrifice_name, date_creneau: finalTicket.creneaux_horaires?.date, contact_email: finalTicket.contact_email, qr_code_img: qrImageUrl }, PUBLIC_KEY);
-              }
+          if (finalTicket && mounted) {
+            setCommande(finalTicket);
+            setStatus("success");
+            setMsg("Paiement validé avec succès ! ✅");
+            
+            const emailAlreadySent = localStorage.getItem(`email_sent_${commandeId}`);
+            if (!emailAlreadySent) {
+                localStorage.setItem(`email_sent_${commandeId}`, "true");
+                sendResendEmail(finalTicket, mounted);
             }
           }
         } else {
-          // Si Stripe dit que ce n'est pas payé
-          if (mounted) { setStatus("error"); setMsg("Le paiement a été refusé par votre banque."); }
+          await supabase.from("commandes").delete().eq("id", commandeId);
+          if (mounted) { 
+            setStatus("error"); 
+            setMsg("Le paiement a été refusé. La place a été remise en stock."); 
+          }
         }
       } catch (err) {
-        if (mounted) { setStatus("error"); setMsg("Erreur de connexion."); }
+        console.error("Erreur Serveur :", err);
+        if (mounted) { 
+            setStatus("error"); 
+            setMsg("Impossible de contacter le serveur de paiement. Vérifiez que votre serveur Node.js est bien allumé !"); 
+        }
       }
     };
 
     verifyAndValidate();
     return () => { mounted = false; };
   }, [searchParams]);
+
+  // ON APPELLE MAINTENANT NOTRE PROPRE SERVEUR POUR ENVOYER L'EMAIL VIA RESEND
+  const sendResendEmail = async (cmd, mounted) => {
+    try {
+      const dateFormatee = new Date(cmd.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+      const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
+
+      const payload = {
+        email: cmd.contact_email,
+        firstName: cmd.contact_first_name,
+        ticketNum: cmd.ticket_num,
+        sacrificeName: cmd.sacrifice_name,
+        dateCreneau: dateFormatee,
+        heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5),
+        qrData: qrData
+      };
+
+      // Demande au serveur d'envoyer le mail
+      await fetch("http://localhost:3000/send-ticket-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (mounted) setEmailSent(true); 
+    } catch (err) { console.error("Erreur lors de l'envoi de l'email :", err); }
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-slate-900">
@@ -106,9 +100,16 @@ export default function PaiementOk() {
             {status === 'error' && <FiXCircle className="text-red-500" />}
           </div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white">
-            {status === 'loading' ? "Vérification..." : status === 'success' ? "Paiement Confirmé" : "Erreur"}
+            {status === 'loading' ? "Vérification..." : status === 'success' ? "Paiement Confirmé" : "Erreur Serveur"}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">{msg}</p>
+          
+          {emailSent && (
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 font-bold mt-2">
+              <FiMail className="text-base" /><span>Votre ticket a été envoyé par email !</span>
+            </div>
+          )}
+
           <Link className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold mt-4" to="/dashboard">
             <FiArrowLeft /> Retour à l'accueil
           </Link>

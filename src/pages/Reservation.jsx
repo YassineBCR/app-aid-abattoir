@@ -96,31 +96,37 @@ export default function Reservation() {
     if (!canSubmit) return;
     setPaying(true);
     try {
-      // ON N'APPELLE PAS LA BASE DE DONNÉES ! ON NE TOUCHE PAS AU STOCK.
-      // On envoie juste les infos au serveur pour créer le lien Stripe
+      // 1. ON CRÉE LE TICKET D'ABORD (Pour qu'il ait un vrai numéro et bloque la place)
+      const { data: ticketData, error } = await supabase.rpc("reserver_prochain_ticket", {
+        p_creneau_id: selectedCreneau.id,
+        p_client_id: currentUser.id,
+        p_nom: form.last_name,
+        p_prenom: form.first_name,
+        p_email: form.email,
+        p_tel: form.phone,
+        p_sacrifice_name: form.sacrifice_name,
+        p_categorie: selectedTarif.categorie,
+        p_montant_total_cents: selectedTarif.prix_cents,
+        p_acompte_cents: ACOMPTE_CENTS
+      });
+
+      if (error) throw error;
+
+      // 2. ON ENVOIE L'ID AU SERVEUR STRIPE POUR LA VÉRIFICATION (C'est ça qui manquait !)
       const response = await fetch("http://localhost:3000/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          payload: {
-            p_creneau_id: selectedCreneau.id,
-            p_client_id: currentUser.id,
-            p_nom: form.last_name,
-            p_prenom: form.first_name,
-            p_email: form.email,
-            p_tel: form.phone,
-            p_sacrifice_name: form.sacrifice_name,
-            p_categorie: selectedTarif.categorie,
-            p_montant_total_cents: selectedTarif.prix_cents,
-            p_acompte_cents: ACOMPTE_CENTS
-          }
+          montant: ACOMPTE_CENTS,
+          commandeId: ticketData.commande_id,
+          description: `Acompte Ticket N°${ticketData.ticket_num}`
         }),
       });
 
-      const data = await response.json();
+      const stripeData = await response.json();
 
-      if (data.url) {
-        window.location.href = data.url; // On va sur Stripe
+      if (stripeData.url) {
+        window.location.href = stripeData.url; 
       } else {
         throw new Error("Erreur serveur Stripe");
       }
@@ -226,7 +232,7 @@ export default function Reservation() {
                                     {paying ? <FiLoader className="animate-spin text-xl" /> : <FiCreditCard className="text-xl" />}{paying ? "Préparation du paiement..." : `Aller au paiement sécurisé`}
                                 </button>
                                 <p className="text-xs text-center text-slate-400 mt-2 font-bold">
-                                  Votre ticket sera généré et la place retirée du stock UNIQUEMENT après paiement.
+                                  Votre ticket sera généré et la place retirée du stock.
                                 </p>
                             </div>
                         )}
