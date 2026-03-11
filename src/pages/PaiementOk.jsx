@@ -28,7 +28,12 @@ export default function PaiementOk() {
         const sessionData = await response.json();
 
         if (sessionData.status === 'paid') {
-          await supabase.from("commandes").update({ statut: "acompte_paye" }).eq("id", commandeId);
+          // --- LA CORRECTION EST ICI ---
+          // On valide le statut ET on force la date à l'instant exact du paiement
+          await supabase.from("commandes").update({ 
+              statut: "acompte_paye",
+              created_at: new Date().toISOString() // La date sera maintenant toujours 100% exacte !
+          }).eq("id", commandeId);
 
           const { data: finalTicket } = await supabase.from("commandes").select("*, creneaux_horaires(date, heure_debut)").eq("id", commandeId).single();
 
@@ -51,10 +56,9 @@ export default function PaiementOk() {
           }
         }
       } catch (err) {
-        console.error("Erreur Serveur :", err);
         if (mounted) { 
             setStatus("error"); 
-            setMsg("Impossible de contacter le serveur de paiement. Vérifiez que votre serveur Node.js est bien allumé !"); 
+            setMsg("Impossible de contacter le serveur de paiement."); 
         }
       }
     };
@@ -63,31 +67,26 @@ export default function PaiementOk() {
     return () => { mounted = false; };
   }, [searchParams]);
 
-  // ON APPELLE MAINTENANT NOTRE PROPRE SERVEUR POUR ENVOYER L'EMAIL VIA RESEND
   const sendResendEmail = async (cmd, mounted) => {
     try {
       const dateFormatee = new Date(cmd.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
       const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
 
-      const payload = {
-        email: cmd.contact_email,
-        firstName: cmd.contact_first_name,
-        ticketNum: cmd.ticket_num,
-        sacrificeName: cmd.sacrifice_name,
-        dateCreneau: dateFormatee,
-        heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5),
-        qrData: qrData
-      };
-
-      // Demande au serveur d'envoyer le mail
       await fetch("http://localhost:3000/send-ticket-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+            email: cmd.contact_email,
+            firstName: cmd.contact_first_name,
+            ticketNum: cmd.ticket_num,
+            sacrificeName: cmd.sacrifice_name,
+            dateCreneau: dateFormatee,
+            heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5),
+            qrData: qrData
+        })
       });
-
       if (mounted) setEmailSent(true); 
-    } catch (err) { console.error("Erreur lors de l'envoi de l'email :", err); }
+    } catch (err) { console.error(err); }
   };
 
   return (
@@ -105,12 +104,12 @@ export default function PaiementOk() {
           <p className="text-slate-600 dark:text-slate-400">{msg}</p>
           
           {emailSent && (
-            <div className="flex items-center justify-center gap-2 text-sm text-green-600 dark:text-green-400 font-bold mt-2">
+            <div className="flex items-center justify-center gap-2 text-sm text-green-600 font-bold mt-2">
               <FiMail className="text-base" /><span>Votre ticket a été envoyé par email !</span>
             </div>
           )}
 
-          <Link className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold mt-4" to="/dashboard">
+          <Link className="inline-flex items-center gap-2 text-indigo-600 font-bold mt-4" to="/dashboard">
             <FiArrowLeft /> Retour à l'accueil
           </Link>
         </div>

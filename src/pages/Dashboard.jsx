@@ -6,10 +6,9 @@ import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiCalendar, FiPackage, FiClock, FiBarChart2, FiFileText, 
   FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, FiCamera, FiBell, FiActivity, FiDollarSign, FiTag, FiPlayCircle, FiX, FiLayers,
-  FiHome, FiSettings
+  FiHome, FiSettings, FiPieChart, FiList 
 } from "react-icons/fi";
 
-// IMPORT POUR LA DÉMO
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 
@@ -17,32 +16,37 @@ import "driver.js/dist/driver.css";
 import Client from "./Client";
 import Vendeur from "./Vendeur";
 import Creneaux from "./Creneaux";
-import Tableau from "./Tableau";
+import Tableau from "./Tableau"; 
+import Statistiques from "./Statistiques"; 
 import Stock from "./Stock";
 import AdminAgneaux from "./Adminagneaux";
 import AdminSMS from "./AdminSMS";
-import PriseEnCharge from "./PriseEnCharge"; 
+import PriseEnCharge from "./PriseEnCharge"; // C'est maintenant le Guichet Unique !
 import AdminLogs from "./AdminLogs"; 
 import AdminCaisse from "./AdminCaisse";
 import Bouclage from "./Bouclage";
 import AdminSettings from "./AdminSettings";
 
-// ---- CONFIGURATION DES RÔLES ----
+// ---- CONFIGURATION DES RÔLES (Nettoyée de la Caisse séparée) ----
 const PERMS = {
   client: { sections: ["reserver"] },
   vendeur: { sections: ["commandes", "prise_en_charge", "bouclage", "tableau"] },
-  admin_site: { sections: ["commandes", "creneaux", "tableau", "stock"] },
-  // admin_global a accès à TOUT, y compris 'reserver' (pour la démo) et 'settings'
-  admin_global: { sections: ["commandes", "prise_en_charge", "bouclage", "reserver", "creneaux", "tableau", "stock", "agneaux", "sms", "logs", "finance", "settings"] },
+  admin_site: { sections: ["commandes", "creneaux", "tableau", "statistiques", "stock"] },
+  admin_global: { sections: ["commandes", "prise_en_charge", "bouclage", "reserver", "creneaux", "tableau", "statistiques", "stock", "agneaux", "sms", "logs", "finance", "settings"] },
 };
 
+// ---- CONFIGURATION DES ONGLETS ----
 const SECTIONS = {
   reserver: { label: "Espace Client", component: Client, Icon: FiCalendar, color: "from-green-500 to-emerald-600", desc: "Interface de réservation pour le client." },
-  commandes: { label: "Commandes", component: Vendeur, Icon: FiPackage, color: "from-green-600 to-teal-600", desc: "Gestion des commandes entrantes." },
-  prise_en_charge: { label: "Prise en Charge", component: PriseEnCharge, Icon: FiCamera, color: "from-indigo-500 to-purple-600", desc: "Scan et association des agneaux." },
+  commandes: { label: "Commandes", component: Vendeur, Icon: FiPackage, color: "from-green-600 to-teal-600", desc: "Historique en direct des réservations Stripe." },
+  
+  // Le Guichet Unique
+  prise_en_charge: { label: "Guichet (Boucle + Caisse)", component: PriseEnCharge, Icon: FiCamera, color: "from-emerald-600 to-teal-700", desc: "Scan, attribution du mouton et encaissement final." },
+  
   bouclage: { label: "Bouclage", component: Bouclage, Icon: FiTag, color: "from-orange-500 to-amber-600", desc: "Processus d'identification officiel." },
   creneaux: { label: "Créneaux", component: Creneaux, Icon: FiClock, color: "from-emerald-500 to-green-600", desc: "Configuration des horaires d'abattoir." },
-  tableau: { label: "Tableau", component: Tableau, Icon: FiBarChart2, color: "from-teal-500 to-cyan-600", desc: "Vue d'ensemble et statistiques." },
+  tableau: { label: "Registre", component: Tableau, Icon: FiList, color: "from-teal-500 to-cyan-600", desc: "Liste détaillée des commandes." },
+  statistiques: { label: "Statistiques", component: Statistiques, Icon: FiPieChart, color: "from-blue-500 to-indigo-600", desc: "Chiffres et bilan financier en direct." },
   stock: { label: "Stock", component: Stock, Icon: FiFileText, color: "from-green-400 to-emerald-500", desc: "Gestion des stocks physiques." },
   agneaux: { label: "Agneaux & Tarifs", component: AdminAgneaux, Icon: FiUser, color: "from-emerald-600 to-teal-600", desc: "Configuration des prix et types." },
   sms: { label: "SMS & Marketing", component: AdminSMS, Icon: FiMail, color: "from-teal-400 to-green-500", desc: "Campagnes de communication." },
@@ -85,7 +89,6 @@ export default function Dashboard() {
       setActive(targetSection);
       
       setTimeout(() => {
-        // Scénarios spécifiques
         if (targetSection === 'reserver') {
            steps = [
             { element: `button[data-tab="reserver"]`, popover: { title: "Vue Client", description: "Interface vue par les clients inscrits." } },
@@ -97,23 +100,7 @@ export default function Dashboard() {
             },
             { element: '#client-submit', popover: { title: "Paiement", description: "Accès à la passerelle de paiement." } }
            ];
-        }
-        else if (targetSection === 'commandes') {
-          steps = [
-            { element: '#vendeur-search', popover: { title: 'Recherche', description: 'Recherche instantanée par nom ou ticket.' }, onHighlightStarted: (el) => { el.value = "Ticket #1042"; }, onDeselected: (el) => { el.value = ""; } },
-            { element: '#vendeur-list', popover: { title: 'Flux Commandes', description: 'Les commandes payées arrivent ici.' } },
-            { element: '#vendeur-validate-btn', popover: { title: 'Validation', description: 'Validation de la présence du client.' } }
-          ];
-        }
-        else if (targetSection === 'prise_en_charge') {
-          steps = [
-            { element: '#caisse-scanner', popover: { title: 'Scanner', description: 'Lecture QR Code via caméra.' } },
-            { element: '#caisse-search', popover: { title: 'Recherche', description: 'Alternative manuelle.' }, onHighlightStarted: (el) => { el.value = "12345"; }, onDeselected: (el) => { el.value = ""; } },
-            { element: '#caisse-results', popover: { title: 'Dossier Client', description: 'Affichage immédiat du dossier.' } },
-            { element: '#caisse-payment-form', popover: { title: 'Encaissement', description: 'Paiement du solde final.' } }
-          ];
-        }
-        else {
+        } else {
           const sectionInfo = SECTIONS[targetSection];
           steps = [
             { element: `button[data-tab="${targetSection}"]`, popover: { title: sectionInfo.label, description: sectionInfo.desc } },
@@ -283,8 +270,8 @@ export default function Dashboard() {
       {/* CONTENU PRINCIPAL */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-2 sm:p-3">
-            <div id="demo-nav" className="flex flex-wrap gap-2">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-2 sm:p-3 overflow-x-auto no-scrollbar">
+            <div id="demo-nav" className="flex flex-nowrap md:flex-wrap gap-2 min-w-max md:min-w-0">
               {allowedSections.map((key) => {
                 const section = SECTIONS[key];
                 const Icon = section.Icon;
@@ -293,7 +280,7 @@ export default function Dashboard() {
                     key={key}
                     data-tab={key} 
                     onClick={() => setActive(key)} 
-                    className={`flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all ${active === key ? `bg-gradient-to-r ${section.color} text-white shadow-md` : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"}`}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${active === key ? `bg-gradient-to-r ${section.color} text-white shadow-md` : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"}`}
                   >
                     <Icon /> {section.label}
                   </button>
@@ -301,7 +288,7 @@ export default function Dashboard() {
               })}
             </div>
           </div>
-          <div id="demo-content" className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div id="demo-content" className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden min-h-[500px]">
             {ActiveComponent ? <ActiveComponent /> : <div className="p-12 text-center text-slate-500">Aucune section active.</div>}
           </div>
         </div>

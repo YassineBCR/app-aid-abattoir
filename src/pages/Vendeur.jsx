@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useNotification } from "../contexts/NotificationContext";
-import { FiCheck, FiX, FiSearch, FiCalendar, FiUser, FiClock, FiAlertCircle } from "react-icons/fi";
-import { logAction } from "../lib/logger";
+import { FiSearch, FiUser, FiCheckCircle, FiCreditCard, FiPackage } from "react-icons/fi";
 
 export default function Vendeur() {
-  const { showNotification } = useNotification();
   const [loadingInbox, setLoadingInbox] = useState(true);
   const [inbox, setInbox] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,63 +22,36 @@ export default function Vendeur() {
       const { data, error } = await supabase
         .from("commandes")
         .select(`*, creneaux_horaires ( date, heure_debut, heure_fin )`)
-        // CORRECTION ICI : On n'affiche QUE les acomptes réellement payés via Stripe
-        .eq("statut", "acompte_paye") 
+        // On affiche toutes les commandes qui ont passé l'étape du paiement Stripe
+        .in("statut", ["acompte_paye", "en_attente_caisse", "paye_integralement"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;
       setInbox(data || []);
     } catch (error) {
-      console.error("Erreur chargement inbox:", error);
-      showNotification("Erreur de chargement des commandes.", "error");
+      console.error("Erreur chargement:", error);
     } finally {
       setLoadingInbox(false);
     }
   }
 
-  async function validerCommande(id) {
-    if (!window.confirm("Confirmer la validation de cette commande ? Elle passera en attente du solde.")) return;
-    try {
-      const { error } = await supabase.from("commandes").update({ statut: "validee" }).eq("id", id);
-      if (error) throw error;
-      showNotification("Commande validée ! Envoyée en caisse.", "success");
-    } catch (err) {
-      console.error(err);
-      showNotification("Erreur lors de la validation.", "error");
-    }
-  }
-
-  async function refuserCommande(id) {
-    const raison = window.prompt("Motif du refus (ex: Doublon, Erreur...) ?");
-    if (raison === null) return; 
-    try {
-      const { error } = await supabase.from("commandes").update({ statut: "annulee", notes_internes: `Annulée le ${new Date().toLocaleDateString()} : ${raison}` }).eq("id", id);
-      if (error) throw error;
-      showNotification("Commande annulée.", "info");
-    } catch (err) {
-      console.error(err);
-      showNotification("Erreur lors de l'annulation.", "error");
-    }
-  }
-
   const filteredInbox = inbox.filter((cmd) => {
     const search = searchTerm.toLowerCase();
-    const name = (cmd.contact_last_name + " " + cmd.contact_first_name).toLowerCase();
+    const name = (cmd.contact_last_name + " " + cmd.contact_first_name + " " + cmd.sacrifice_name).toLowerCase();
     const ticket = (cmd.ticket_num || "").toString();
-    const email = (cmd.contact_email || "").toLowerCase();
-    return name.includes(search) || ticket.includes(search) || email.includes(search);
+    return name.includes(search) || ticket.includes(search);
   });
 
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 border-b border-slate-200 dark:border-slate-700 pb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <FiAlertCircle className="text-orange-500" />
-            Commandes à Valider
+            <FiPackage className="text-teal-500" />
+            Historique des Commandes
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Vérifiez les acomptes sécurisés par Stripe et validez pour envoyer en caisse.
+            Flux en direct de toutes les réservations validées par un paiement Stripe.
           </p>
         </div>
         
@@ -91,7 +61,7 @@ export default function Vendeur() {
             placeholder="Rechercher (Nom, Ticket...)"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-colors dark:text-white"
+            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none transition-colors dark:text-white"
           />
           <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         </div>
@@ -99,63 +69,52 @@ export default function Vendeur() {
 
       {loadingInbox ? (
         <div className="flex justify-center py-12">
-            <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin"></div>
         </div>
       ) : filteredInbox.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl shadow border border-slate-200 dark:border-slate-700">
-          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FiCheck className="text-3xl text-slate-400" />
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Aucune nouvelle commande payée à traiter.</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Aucune commande confirmée pour le moment.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4"> 
           {filteredInbox.map((cmd) => (
-            <div 
-              key={cmd.id} 
-              className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow flex flex-col lg:flex-row gap-6"
-            >
-              <div className="flex flex-col items-center justify-center min-w-[100px] border-b lg:border-b-0 lg:border-r border-slate-100 dark:border-slate-700 pb-4 lg:pb-0 pr-0 lg:pr-6">
+            <div key={cmd.id} className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-6 items-center hover:shadow-md transition-shadow">
+              
+              {/* Badge Ticket */}
+              <div className="flex flex-col items-center justify-center min-w-[120px] bg-slate-50 dark:bg-slate-900 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ticket</span>
-                <span className="text-3xl font-black text-indigo-600 font-mono">#{cmd.ticket_num || "?"}</span>
-                <div className="mt-2 px-2 py-1 rounded text-xs font-bold uppercase bg-orange-100 text-orange-700">
-                    Acompte OK
+                <span className="text-3xl font-black text-teal-600 font-mono">#{cmd.ticket_num || "?"}</span>
+              </div>
+
+              {/* Infos Client */}
+              <div className="flex-1 space-y-2 text-center md:text-left">
+                <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center justify-center md:justify-start gap-2">
+                    <FiUser className="text-slate-400" /> {cmd.contact_last_name} {cmd.contact_first_name}
+                </h3>
+                <p className="text-slate-500 text-sm">Sacrifice : <span className="font-bold">{cmd.sacrifice_name}</span> | Tél : {cmd.contact_phone}</p>
+                
+                <div className="flex items-center justify-center md:justify-start gap-4 text-sm text-slate-500">
+                    <span className="flex items-center gap-1 font-medium bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                        <FiCheckCircle className="text-teal-500" /> 
+                        Payé le {new Date(cmd.created_at).toLocaleDateString('fr-FR')} à {new Date(cmd.created_at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}
+                    </span>
                 </div>
               </div>
 
-              <div className="flex-1 space-y-3">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
-                            <FiUser className="text-slate-400" /> {cmd.contact_last_name} {cmd.contact_first_name}
-                        </h3>
-                        <p className="text-slate-500 text-sm ml-6">{cmd.contact_email} • {cmd.contact_phone}</p>
-                    </div>
+              {/* Badge Statut */}
+              <div className="flex flex-col items-center md:items-end justify-center min-w-[200px] space-y-2">
+                <div className={`px-3 py-1.5 rounded-xl border font-bold text-sm flex items-center gap-2
+                    ${cmd.statut === 'paye_integralement' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      cmd.statut === 'en_attente_caisse' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                      'bg-teal-50 text-teal-700 border-teal-200'}`}
+                >
+                  {cmd.statut === 'paye_integralement' ? "Caisse Clôturée" : cmd.statut === 'en_attente_caisse' ? "Mouton attribué" : "Acompte Payé"}
                 </div>
-                
-                <div className="text-xs text-slate-500 pt-1">
-                    Total: {(cmd.montant_total_cents/100).toFixed(2)}€ • Acompte: {((cmd.acompte_cents||0)/100).toFixed(2)}€
+                <div className="text-xs text-slate-400 flex items-center gap-1 font-mono px-2 py-1 rounded">
+                  <FiCreditCard /> Stripe : {(cmd.acompte_cents / 100).toFixed(2)} €
                 </div>
               </div>
 
-              <div className="flex flex-row lg:flex-col justify-center gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 pt-4 lg:pt-0 pl-0 lg:pl-6">
-                <button
-                  onClick={() => validerCommande(cmd.id)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-500/20 transition-all active:scale-95"
-                  title="Valider et envoyer en caisse"
-                >
-                  <FiCheck className="text-xl" />
-                  <span className="lg:hidden">Valider</span>
-                </button>
-                
-                <button
-                  onClick={() => refuserCommande(cmd.id)}
-                  className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 px-3 py-3 rounded-xl transition-all"
-                  title="Annuler la commande"
-                >
-                  <FiX className="text-xl" />
-                </button>
-              </div>
             </div>
           ))}
         </div>

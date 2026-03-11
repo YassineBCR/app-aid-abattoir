@@ -12,7 +12,9 @@ import UpdatePassword from "./pages/UpdatePassword";
 import Bouclage from "./pages/Bouclage";
 import Account from "./pages/Account";
 import Reservation from "./pages/Reservation";
+import Caisse from './pages/Caisse';
 import PaiementStripe from './pages/PaiementStripe';
+import PriseEnCharge from './pages/PriseEnCharge'; // Ajout de l'import manquant !
 
 // import Navbar from "./components/Navbar"; // Décommente quand tu voudras le menu
 
@@ -95,7 +97,12 @@ function AppRoutes() {
         <Route path="/bouclage" element={<Bouclage />} />
         <Route path="/account" element={<Account />} />
         <Route path="/reservation" element={<Reservation />} />
-        <Route path="/paiement" element={<PaiementStripe />} />      </Routes>
+        <Route path="/paiement" element={<PaiementStripe />} /> 
+        
+        {/* Les deux routes corrigées (Terrain et Guichet) */}
+        <Route path="/prise-en-charge" element={<PriseEnCharge />} />
+        <Route path="/caisse" element={<Caisse />} />
+      </Routes>
     </>
   );
 }
