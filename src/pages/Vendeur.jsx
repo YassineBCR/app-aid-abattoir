@@ -25,7 +25,8 @@ export default function Vendeur() {
       const { data, error } = await supabase
         .from("commandes")
         .select(`*, creneaux_horaires ( date, heure_debut, heure_fin )`)
-        .in("statut", ["acompte_paye", "attente_paiement"]) 
+        // CORRECTION ICI : On n'affiche QUE les acomptes réellement payés via Stripe
+        .eq("statut", "acompte_paye") 
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -80,13 +81,12 @@ export default function Vendeur() {
             Commandes à Valider
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Vérifiez les acomptes et validez pour envoyer en caisse.
+            Vérifiez les acomptes sécurisés par Stripe et validez pour envoyer en caisse.
           </p>
         </div>
         
         <div className="relative w-full md:w-64">
           <input
-            id="vendeur-search" // <--- ID AJOUTÉ POUR DÉMO
             type="text"
             placeholder="Rechercher (Nom, Ticket...)"
             value={searchTerm}
@@ -102,16 +102,15 @@ export default function Vendeur() {
             <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
         </div>
       ) : filteredInbox.length === 0 ? (
-        <div id="vendeur-list" className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl shadow border border-slate-200 dark:border-slate-700">
+        <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl shadow border border-slate-200 dark:border-slate-700">
           <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
             <FiCheck className="text-3xl text-slate-400" />
           </div>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Aucune nouvelle commande à traiter.</p>
+          <p className="text-slate-500 dark:text-slate-400 font-medium">Aucune nouvelle commande payée à traiter.</p>
         </div>
       ) : (
-        <div id="vendeur-list" className="grid grid-cols-1 gap-4"> 
-          {/* ID AJOUTÉ POUR DÉMO (List wrapper) */}
-          {filteredInbox.map((cmd, index) => (
+        <div className="grid grid-cols-1 gap-4"> 
+          {filteredInbox.map((cmd) => (
             <div 
               key={cmd.id} 
               className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow flex flex-col lg:flex-row gap-6"
@@ -119,8 +118,8 @@ export default function Vendeur() {
               <div className="flex flex-col items-center justify-center min-w-[100px] border-b lg:border-b-0 lg:border-r border-slate-100 dark:border-slate-700 pb-4 lg:pb-0 pr-0 lg:pr-6">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ticket</span>
                 <span className="text-3xl font-black text-indigo-600 font-mono">#{cmd.ticket_num || "?"}</span>
-                <div className={`mt-2 px-2 py-1 rounded text-xs font-bold uppercase ${cmd.statut === 'attente_paiement' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>
-                    {cmd.statut === 'attente_paiement' ? 'Manuel' : 'Acompte OK'}
+                <div className="mt-2 px-2 py-1 rounded text-xs font-bold uppercase bg-orange-100 text-orange-700">
+                    Acompte OK
                 </div>
               </div>
 
@@ -133,7 +132,7 @@ export default function Vendeur() {
                         <p className="text-slate-500 text-sm ml-6">{cmd.contact_email} • {cmd.contact_phone}</p>
                     </div>
                 </div>
-                {/* ... Details omitted for brevity but remain same ... */}
+                
                 <div className="text-xs text-slate-500 pt-1">
                     Total: {(cmd.montant_total_cents/100).toFixed(2)}€ • Acompte: {((cmd.acompte_cents||0)/100).toFixed(2)}€
                 </div>
@@ -141,7 +140,6 @@ export default function Vendeur() {
 
               <div className="flex flex-row lg:flex-col justify-center gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 pt-4 lg:pt-0 pl-0 lg:pl-6">
                 <button
-                  id={index === 0 ? "vendeur-validate-btn" : undefined} // <--- ID AJOUTÉ SEULEMENT AU PREMIER ÉLÉMENT
                   onClick={() => validerCommande(cmd.id)}
                   className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-500/20 transition-all active:scale-95"
                   title="Valider et envoyer en caisse"
