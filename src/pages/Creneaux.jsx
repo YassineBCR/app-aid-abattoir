@@ -1,28 +1,26 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import { 
-  FiClock, FiUsers, FiEdit3, FiPlus, FiTrash2, FiPieChart, FiEye, FiSearch, FiPrinter, FiPhone, FiFileText, FiX, FiCalendar
-} from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
+import { 
+  FiClock, FiUsers, FiEdit3, FiPlus, FiTrash2, FiPieChart, FiEye, FiSearch, FiPrinter, FiPhone, FiFileText, FiX, FiCalendar,
+  FiBox, FiTag, FiXCircle, FiCheck, FiLayers, FiUser, FiInfo, FiGrid
+} from "react-icons/fi";
+import { logAction } from "../lib/logger"; // <--- IMPORT DU LOGGER
 
-export default function Creneaux() {
+// =========================================================
+// SOUS-COMPOSANT 1 : GESTION DES CRENEAUX (HORAIRES/QUOTA)
+// =========================================================
+function CreneauxManager() {
   const [creneaux, setCreneaux] = useState([]);
   const [loading, setLoading] = useState(true);
   const { showNotification } = useNotification();
   
-  // --- ÉTATS MODALE ÉDITION ---
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  
-  // CORRECTION ICI : on utilise 'capacite_max' pour correspondre à la base de données
   const [formData, setFormData] = useState({ 
-    date: new Date().toISOString().split('T')[0], 
-    heure_debut: "", 
-    heure_fin: "", 
-    capacite_max: 50 // Remplace 'quota'
+    date: new Date().toISOString().split('T')[0], heure_debut: "", heure_fin: "", capacite_max: 50 
   });
   
-  // --- ÉTATS MODALE DÉTAILS ---
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [slotOrders, setSlotOrders] = useState([]);
@@ -33,38 +31,19 @@ export default function Creneaux() {
 
   const fetchCreneaux = async () => {
     try {
-      const { data: slots, error } = await supabase
-        .from("creneaux_horaires")
-        .select("*")
-        .order("date", { ascending: true })
-        .order("heure_debut", { ascending: true });
-
+      const { data: slots, error } = await supabase.from("creneaux_horaires").select("*").order("date", { ascending: true }).order("heure_debut", { ascending: true });
       if (error) throw error;
 
       const slotsWithCounts = await Promise.all(slots.map(async (slot) => {
-          const { count } = await supabase
-            .from("commandes")
-            .select("*", { count: 'exact', head: true })
-            .eq("creneau_id", slot.id);
+          const { count } = await supabase.from("commandes").select("*", { count: 'exact', head: true }).eq("creneau_id", slot.id);
           return { ...slot, remplissage: count || 0 };
       }));
 
-      // CORRECTION : utilisation de capacite_max pour les stats
       const totQuota = slotsWithCounts.reduce((acc, curr) => acc + (curr.capacite_max || 0), 0);
       const totResa = slotsWithCounts.reduce((acc, curr) => acc + (curr.remplissage || 0), 0);
-      
-      setStats({
-          totalQuota: totQuota,
-          totalResa: totResa,
-          percent: totQuota > 0 ? Math.round((totResa / totQuota) * 100) : 0
-      });
-
+      setStats({ totalQuota: totQuota, totalResa: totResa, percent: totQuota > 0 ? Math.round((totResa / totQuota) * 100) : 0 });
       setCreneaux(slotsWithCounts);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -77,41 +56,21 @@ export default function Creneaux() {
   }, []);
 
   const openDetails = async (slot) => {
-      setSelectedSlot(slot);
-      setDetailLoading(true);
-      setShowDetailModal(true);
-      setSearchTerm("");
+      setSelectedSlot(slot); setDetailLoading(true); setShowDetailModal(true); setSearchTerm("");
       try {
-          const { data, error } = await supabase
-              .from("commandes")
-              .select("*")
-              .eq("creneau_id", slot.id)
-              .order("ticket_num", { ascending: true });
+          const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slot.id).order("ticket_num", { ascending: true });
           if (error) throw error;
           setSlotOrders(data || []);
-      } catch (err) { showNotification("Impossible de charger les détails", "error"); } 
-      finally { setDetailLoading(false); }
+      } catch (err) { showNotification("Impossible de charger les détails", "error"); } finally { setDetailLoading(false); }
   };
-
-  const handlePrintList = () => { window.print(); };
 
   const openModal = (creneau = null) => {
       if (creneau) {
           setEditingId(creneau.id);
-          setFormData({ 
-            date: creneau.date, 
-            heure_debut: creneau.heure_debut, 
-            heure_fin: creneau.heure_fin, 
-            capacite_max: creneau.capacite_max // CORRECTION
-          });
+          setFormData({ date: creneau.date, heure_debut: creneau.heure_debut, heure_fin: creneau.heure_fin, capacite_max: creneau.capacite_max });
       } else {
           setEditingId(null);
-          setFormData({ 
-            date: new Date().toISOString().split('T')[0], 
-            heure_debut: "", 
-            heure_fin: "", 
-            capacite_max: 50 
-          });
+          setFormData({ date: new Date().toISOString().split('T')[0], heure_debut: "", heure_fin: "", capacite_max: 50 });
       }
       setShowModal(true);
   };
@@ -119,37 +78,28 @@ export default function Creneaux() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (formData.heure_debut >= formData.heure_fin) return showNotification("L'heure de fin doit être après l'heure de début.", "error");
-
-    // CORRECTION : S'assurer que capacite_max est un nombre valide
-    const payload = {
-        ...formData,
-        capacite_max: Number(formData.capacite_max) || 0
-    };
-
+    const payload = { ...formData, capacite_max: Number(formData.capacite_max) || 0 };
     try {
-      if (editingId) {
-          const { error } = await supabase.from("creneaux_horaires").update(payload).eq("id", editingId);
-          if (error) throw error;
-          showNotification("Créneau mis à jour", "success");
-      } else {
-          const { error } = await supabase.from("creneaux_horaires").insert([payload]);
-          if (error) throw error;
-          showNotification("Créneau créé", "success");
+      if (editingId) { 
+          await supabase.from("creneaux_horaires").update(payload).eq("id", editingId); 
+          showNotification("Créneau mis à jour", "success"); 
+          logAction('MODIFICATION', 'SYSTEME', { action: 'Modification du créneau', id: editingId, ...payload });
+      } 
+      else { 
+          await supabase.from("creneaux_horaires").insert([payload]); 
+          showNotification("Créneau créé", "success"); 
+          logAction('CREATION', 'SYSTEME', { action: 'Création de créneau', ...payload });
       }
-      setShowModal(false);
-      fetchCreneaux();
-    } catch (error) {
-      console.error(error);
-      showNotification("Erreur : " + (error.message || "Impossible d'enregistrer"), "error");
-    }
+      setShowModal(false); fetchCreneaux();
+    } catch (error) { showNotification("Erreur : " + (error.message || "Impossible d'enregistrer"), "error"); }
   };
 
   const handleDelete = async (id) => {
       if(!window.confirm("Supprimer ce créneau ?")) return;
       try {
-          const { error } = await supabase.from("creneaux_horaires").delete().eq("id", id);
-          if(error) throw error;
-          showNotification("Créneau supprimé", "success");
+          await supabase.from("creneaux_horaires").delete().eq("id", id);
+          showNotification("Créneau supprimé", "success"); 
+          logAction('SUPPRESSION', 'SYSTEME', { action: 'Suppression du créneau', id: id });
           fetchCreneaux();
       } catch(err) { showNotification("Impossible de supprimer (Commandes actives ?)", "error"); }
   };
@@ -163,31 +113,18 @@ export default function Creneaux() {
   };
 
   const filteredOrders = slotOrders.filter(o => o.contact_last_name?.toLowerCase().includes(searchTerm.toLowerCase()) || o.ticket_num?.toString().includes(searchTerm));
-
-  const formatDateFr = (dateStr) => {
-    if(!dateStr) return "";
-    const [y, m, d] = dateStr.split('-');
-    return `${d}/${m}`;
-  };
-
-  // CORRECTION NaN : Gestion safe de l'input numérique
-  const handleCapacityChange = (e) => {
-      const val = e.target.value;
-      setFormData({
-          ...formData, 
-          capacite_max: val === '' ? '' : parseInt(val)
-      });
-  };
+  const formatDateFr = (dateStr) => { if(!dateStr) return ""; const [y, m, d] = dateStr.split('-'); return `${d}/${m}`; };
+  const handleCapacityChange = (e) => { const val = e.target.value; setFormData({ ...formData, capacite_max: val === '' ? '' : parseInt(val) }); };
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in pb-20">
+    <div className="space-y-8 animate-fade-in pb-20">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
           <div className="lg:col-span-2 flex flex-col justify-center">
                 <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
-                    <div className="p-3 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl text-white shadow-xl shadow-blue-500/30"><FiClock className="text-3xl" /></div>
-                    Gestion des Créneaux
+                    <div className="p-3 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl text-white shadow-xl shadow-emerald-500/30"><FiClock className="text-3xl" /></div>
+                    Configuration Horaires
                 </h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">Planification horaire et contrôle des accès.</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">Gérez la capacité d'accueil de l'abattoir.</p>
           </div>
           <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-col justify-between relative overflow-hidden group">
               <div className="absolute right-0 top-0 w-40 h-40 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-white/20 transition-all"></div>
@@ -200,14 +137,13 @@ export default function Creneaux() {
               </div>
               <div className="mt-4 relative z-10">
                   <div className="flex justify-between text-xs font-bold mb-1"><span>Taux d'occupation</span><span>{stats.percent}%</span></div>
-                  <div className="h-2 w-full bg-slate-700 rounded-full overflow-hidden"><div className={`h-full transition-all duration-1000 ease-out ${stats.percent > 90 ? 'bg-red-500' : 'bg-blue-500'}`} style={{width: `${stats.percent}%`}}></div></div>
+                  <div className="h-2 w-full bg-slate-700 rounded-full overflow-hidden"><div className={`h-full transition-all duration-1000 ease-out ${stats.percent > 90 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{width: `${stats.percent}%`}}></div></div>
               </div>
           </div>
       </div>
-      <div className="h-px bg-slate-200 dark:bg-slate-700 print:hidden"></div>
 
       <div className="flex justify-end print:hidden">
-          <button onClick={() => openModal()} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all transform hover:-translate-y-1 active:scale-95">
+          <button onClick={() => openModal()} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/30 flex items-center gap-2 transition-all transform hover:-translate-y-1 active:scale-95">
               <FiPlus className="text-xl" /> Nouveau Créneau
           </button>
       </div>
@@ -216,25 +152,19 @@ export default function Creneaux() {
         {loading ? <p className="col-span-full text-center py-10 text-slate-400 animate-pulse">Chargement...</p> : creneaux.length === 0 ? 
             <div className="col-span-full text-center py-20 bg-slate-50 dark:bg-slate-800 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700"><FiClock className="mx-auto text-4xl text-slate-300 mb-4"/><p className="text-slate-500 font-medium">Aucun créneau configuré.</p></div> : 
             creneaux.map((c) => {
-            // CORRECTION : Utilisation de capacite_max
             const percent = Math.min(100, (c.remplissage / (c.capacite_max || 1)) * 100);
             let statusColor = percent >= 100 ? "bg-slate-800" : percent > 85 ? "bg-red-500" : "bg-emerald-500";
             return (
                 <div key={c.id} className="group bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col hover:shadow-2xl transition-all duration-300 relative">
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${statusColor}`}></div>
                     <div className="p-6 flex-1">
-                        <div className="mb-2 text-xs font-bold uppercase text-slate-400 flex items-center gap-1">
-                          <FiCalendar /> {formatDateFr(c.date)}
-                        </div>
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{c.heure_debut.slice(0,5)} <span className="text-slate-300 mx-1 font-light">à</span> {c.heure_fin.slice(0,5)}</h3>
-                        </div>
+                        <div className="mb-2 text-xs font-bold uppercase text-slate-400 flex items-center gap-1"><FiCalendar /> {formatDateFr(c.date)}</div>
+                        <div className="flex justify-between items-start mb-4"><h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{c.heure_debut.slice(0,5)} <span className="text-slate-300 mx-1 font-light">à</span> {c.heure_fin.slice(0,5)}</h3></div>
                         <div className="space-y-3">
                             <div className="flex justify-between items-end">
                                 <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-medium"><FiUsers className="text-lg"/> Occupé</div>
                                 <div className="text-right">
                                     <span className="text-2xl font-black text-slate-900 dark:text-white">{c.remplissage}</span>
-                                    {/* CORRECTION : Affichage capacite_max */}
                                     <span className="text-sm text-slate-400 font-bold"> / {c.capacite_max}</span>
                                 </div>
                             </div>
@@ -242,9 +172,9 @@ export default function Creneaux() {
                         </div>
                     </div>
                     <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                        <button onClick={() => openDetails(c)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-sm font-bold hover:bg-indigo-200 transition-colors"><FiEye /> Consulter</button>
+                        <button onClick={() => openDetails(c)} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg text-sm font-bold hover:bg-emerald-200 transition-colors"><FiEye /> Détails</button>
                         <div className="flex gap-2">
-                            <button onClick={() => openModal(c)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><FiEdit3 /></button>
+                            <button onClick={() => openModal(c)} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"><FiEdit3 /></button>
                             <button onClick={() => handleDelete(c.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><FiTrash2 /></button>
                         </div>
                     </div>
@@ -263,49 +193,35 @@ export default function Creneaux() {
                 <form onSubmit={handleSave} className="p-6 space-y-6">
                     <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-500 uppercase">Date du créneau</label>
-                        <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"/>
+                        <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"/>
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase">Début</label>
-                            <input type="time" required value={formData.heure_debut} onChange={e => setFormData({...formData, heure_debut: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"/>
+                            <input type="time" required value={formData.heure_debut} onChange={e => setFormData({...formData, heure_debut: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"/>
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase">Fin</label>
-                            <input type="time" required value={formData.heure_fin} onChange={e => setFormData({...formData, heure_fin: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"/>
+                            <input type="time" required value={formData.heure_fin} onChange={e => setFormData({...formData, heure_fin: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"/>
                         </div>
                     </div>
-                    
                     <div className="space-y-2">
-                        {/* CORRECTION : Affichage capacite_max */}
-                        <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">Quota <span className="text-indigo-600">{formData.capacite_max}</span></label>
+                        <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">Quota <span className="text-emerald-600">{formData.capacite_max}</span></label>
                         <div className="flex items-center gap-4">
                             <FiUsers className="text-slate-400 text-xl"/>
-                            {/* CORRECTION : input range sur capacite_max */}
-                            <input type="range" min="1" max="500" step="1" 
-                                value={formData.capacite_max || 0} 
-                                onChange={handleCapacityChange} 
-                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                            />
-                            {/* CORRECTION : input number sur capacite_max */}
-                            <input type="number" 
-                                value={formData.capacite_max} 
-                                onChange={handleCapacityChange} 
-                                className="w-20 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-bold text-center outline-none focus:ring-2 focus:ring-indigo-500"
-                            />
+                            <input type="range" min="1" max="500" step="1" value={formData.capacite_max || 0} onChange={handleCapacityChange} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"/>
+                            <input type="number" value={formData.capacite_max} onChange={handleCapacityChange} className="w-20 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500"/>
                         </div>
                     </div>
                     <div className="pt-4 flex gap-3">
                         <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors">Annuler</button>
-                        <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/30">Enregistrer</button>
+                        <button type="submit" className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30">Enregistrer</button>
                     </div>
                 </form>
             </div>
         </div>
       )}
       
-      {/* MODALE DETAILS */}
       {showDetailModal && selectedSlot && (
           <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200 print:bg-white print:p-0 print:block">
               <div className="bg-white dark:bg-slate-800 w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden print:shadow-none print:w-full print:max-w-none print:rounded-none flex flex-col max-h-[90vh]">
@@ -315,21 +231,14 @@ export default function Creneaux() {
                           <p className="text-slate-400 font-mono text-lg">{formatDateFr(selectedSlot.date)} • {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p>
                       </div>
                       <div className="flex gap-3">
-                          <button onClick={handlePrintList} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg"><FiPrinter/> Imprimer</button>
+                          <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg"><FiPrinter/> Imprimer</button>
                           <button onClick={() => setShowDetailModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><FiX className="text-xl"/></button>
                       </div>
                   </div>
                   <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 print:hidden shrink-0">
                       <div className="relative">
                           <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg" />
-                          <input type="text" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium outline-none focus:ring-2 focus:ring-indigo-500"/>
-                      </div>
-                  </div>
-                   <div className="hidden print:block p-8 border-b-2 border-black">
-                      <h1 className="text-3xl font-black uppercase mb-2">LISTE DE CONTRÔLE</h1>
-                      <div className="flex justify-between items-end">
-                          <div><p className="text-xl font-bold">DATE : {formatDateFr(selectedSlot.date)} | {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p></div>
-                          <div className="text-right"><p className="font-bold">Total : {slotOrders.length}</p></div>
+                          <input type="text" placeholder="Rechercher un client..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium outline-none focus:ring-2 focus:ring-emerald-500"/>
                       </div>
                   </div>
                   <div className="overflow-y-auto flex-1 p-0">
@@ -341,7 +250,7 @@ export default function Creneaux() {
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-700 print:divide-slate-300">
                                   {filteredOrders.map(order => (
                                       <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 print:hover:bg-transparent">
-                                          <td className="p-4 print:p-2 font-mono font-bold text-indigo-600 print:text-black">#{order.ticket_num}</td>
+                                          <td className="p-4 print:p-2 font-mono font-bold text-emerald-600 print:text-black">#{order.ticket_num}</td>
                                           <td className="p-4 print:p-2 font-bold text-slate-800 dark:text-white print:text-black">{order.contact_last_name} {order.contact_first_name}</td>
                                           <td className="p-4 print:p-2 text-slate-500 flex items-center gap-2 print:text-black"><FiPhone className="print:hidden"/> {order.contact_phone}</td>
                                           <td className="p-4 print:p-2 text-center">{getStatusBadge(order)}</td>
@@ -352,13 +261,412 @@ export default function Creneaux() {
                           </table>
                       )}
                   </div>
-                  <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center print:hidden shrink-0">
-                      <span className="text-sm font-bold text-slate-500">{filteredOrders.length} résultats</span>
-                      <button onClick={() => setShowDetailModal(false)} className="px-6 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold transition-colors">Fermer</button>
-                  </div>
               </div>
           </div>
       )}
+    </div>
+  );
+}
+
+// =========================================================
+// SOUS-COMPOSANT 2 : GESTION DU STOCK (ATTRIBUTION TICKETS)
+// =========================================================
+function StockManager() {
+  const { showNotification } = useNotification();
+  const [loading, setLoading] = useState(true);
+  
+  const [creneaux, setCreneaux] = useState([]);
+  const [ticketsDispo, setTicketsDispo] = useState({});
+  const [joursConfig, setJoursConfig] = useState([]);
+  const [inputs, setInputs] = useState({}); 
+
+  const [showModal, setShowModal] = useState(false);
+  const [selectedSlotId, setSelectedSlotId] = useState(null);
+  
+  const [gridRange, setGridRange] = useState({ start: 1, end: 500 });
+  const [allTicketsStatus, setAllTicketsStatus] = useState({});
+  const [selectedForAdd, setSelectedForAdd] = useState([]);
+  const [loadingGrid, setLoadingGrid] = useState(false);
+
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailTickets, setDetailTickets] = useState([]); 
+  const [selectedTicketInfo, setSelectedTicketInfo] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  useEffect(() => {
+    loadData();
+    const sub = supabase.channel('stock_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes' }, () => {
+        loadData();
+        if (showDetailModal && selectedSlotId) fetchSlotDetails(selectedSlotId);
+        if (showModal) fetchAllTicketsStatus();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, [showDetailModal, showModal, selectedSlotId]);
+
+  async function loadData() {
+    try {
+      const { data: jours } = await supabase.from("jours_fete").select("*");
+      setJoursConfig(jours || []);
+
+      const { data: slots } = await supabase.from("creneaux_horaires").select("*").order("date", { ascending: true }).order("heure_debut", { ascending: true });
+      setCreneaux(slots || []);
+
+      const { data: tickets } = await supabase.from("commandes").select("ticket_num, creneau_id").eq("statut", "disponible");
+      const mapping = {};
+      tickets?.forEach(t => {
+        if (!mapping[t.creneau_id]) mapping[t.creneau_id] = [];
+        mapping[t.creneau_id].push(t.ticket_num);
+      });
+      setTicketsDispo(mapping);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  }
+
+  async function openGridModal(slotId) {
+    setSelectedSlotId(slotId); setShowModal(true); setSelectedForAdd([]); fetchAllTicketsStatus();
+  }
+
+  async function fetchAllTicketsStatus() {
+    setLoadingGrid(true);
+    try {
+        const { data, error } = await supabase.from("commandes").select("ticket_num, statut, creneau_id");
+        if (error) throw error;
+        const statusMap = {};
+        data?.forEach(t => { statusMap[t.ticket_num] = { statut: t.statut, creneau_id: t.creneau_id }; });
+        setAllTicketsStatus(statusMap);
+    } catch (err) { showNotification("Erreur chargement grille", "error"); } finally { setLoadingGrid(false); }
+  }
+
+  const getTicketState = (num) => {
+      if (selectedForAdd.includes(num)) return 'selected';
+      const info = allTicketsStatus[num];
+      if (!info) return 'free';
+      if (['acompte_paye', 'validee', 'paye', 'terminee'].includes(info.statut)) return 'sold';
+      return 'stock';
+  };
+
+  const handleTicketClick = (num) => {
+      const state = getTicketState(num);
+      if (state === 'sold' || state === 'stock') return;
+      if (state === 'selected') { setSelectedForAdd(prev => prev.filter(n => n !== num)); } 
+      else { setSelectedForAdd(prev => [...prev, num]); }
+  };
+
+  async function confirmGridAdd() {
+    if (selectedForAdd.length === 0) return;
+    try {
+        const { error } = await supabase.rpc("assigner_liste_tickets", { p_ticket_nums: selectedForAdd, p_creneau_id: selectedSlotId });
+        if (error) throw error;
+        
+        // LOG ACTION
+        logAction('AJOUT', 'STOCK', { quantite: selectedForAdd.length, creneau: selectedSlotId, methode: 'grille_visuelle' });
+
+        showNotification(`${selectedForAdd.length} tickets ajoutés au stock !`, "success");
+        setShowModal(false); loadData();
+    } catch (err) { showNotification("Erreur: " + err.message, "error"); }
+  }
+
+  async function openDetailModal(slotId) {
+    setSelectedSlotId(slotId); setShowDetailModal(true); setSelectedTicketInfo(null); fetchSlotDetails(slotId);
+  }
+
+  async function fetchSlotDetails(slotId) {
+    setLoadingDetails(true);
+    try {
+        const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slotId).order("ticket_num", { ascending: true });
+        if (error) throw error;
+        setDetailTickets(data || []);
+    } catch (err) { showNotification("Erreur chargement détails", "error"); } finally { setLoadingDetails(false); }
+  }
+
+  async function handleAddTicket(creneauId) {
+    const numTicket = inputs[creneauId];
+    if (!numTicket) return;
+    try {
+      const { error } = await supabase.rpc("assigner_ticket_stock", { p_ticket_num: parseInt(numTicket), p_creneau_id: creneauId });
+      if (error) throw error;
+      
+      // LOG ACTION
+      logAction('AJOUT', 'STOCK', { ticket: parseInt(numTicket), creneau: creneauId });
+
+      showNotification(`Ticket #${numTicket} ajouté !`, "success");
+      setInputs(prev => ({ ...prev, [creneauId]: "" })); loadData();
+    } catch (err) { showNotification(err.message, "error"); }
+  }
+
+  async function removeTicket(ticketNum) {
+    if (!window.confirm(`Retirer le ticket #${ticketNum} du stock ?`)) return;
+    try {
+      const { error } = await supabase.rpc("retirer_ticket_stock", { p_ticket_num: ticketNum });
+      if (error) throw error;
+      
+      // LOG ACTION
+      logAction('RETRAIT', 'STOCK', { ticket: ticketNum });
+
+      showNotification("Ticket retiré.", "info");
+      loadData();
+      if(showDetailModal) fetchSlotDetails(selectedSlotId);
+    } catch (err) { showNotification(err.message, "error"); }
+  }
+
+  const getJourLabel = (dateStr) => {
+    const j = joursConfig.find(jd => jd.date_fete === dateStr);
+    return j ? `JOUR ${j.numero}` : dateStr;
+  };
+
+  const groupedCreneaux = creneaux.reduce((acc, curr) => {
+    const label = getJourLabel(curr.date);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push(curr);
+    return acc;
+  }, {});
+
+  const getStatusColor = (statut) => {
+      if (statut === 'disponible') return "bg-green-100 text-green-700 border-green-200";
+      if (['acompte_paye', 'validee', 'paye', 'terminee'].includes(statut)) return "bg-orange-100 text-orange-700 border-orange-200";
+      return "bg-slate-100 text-slate-500 border-slate-200";
+  };
+
+  const gridNumbers = [];
+  if (showModal) {
+      for (let i = gridRange.start; i <= gridRange.end; i++) {
+          gridNumbers.push(i);
+      }
+  }
+
+  return (
+    <div className="space-y-8 animate-fade-in pb-20">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+        <div>
+          <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
+            <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl text-white shadow-xl shadow-blue-500/30"><FiBox className="text-3xl" /></div>
+            Stock & Attribution
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">
+            Attribuez physiquement les numéros de tickets aux créneaux.
+          </p>
+        </div>
+      </div>
+
+      {loading ? <div className="text-center py-12 text-slate-400 font-bold">Chargement du stock...</div> : (
+        <div className="space-y-8">
+          {Object.entries(groupedCreneaux).map(([jourLabel, slots]) => (
+            <div key={jourLabel} className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                <div className="bg-blue-100 text-blue-800 p-2 rounded-lg"><FiCalendar className="text-xl" /></div>
+                <h2 className="text-xl font-bold text-slate-800 dark:text-white uppercase tracking-wide">{jourLabel}</h2>
+              </div>
+
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {slots.map((slot) => {
+                  const ticketsDuSlot = ticketsDispo[slot.id] || [];
+                  const count = ticketsDuSlot.length;
+
+                  return (
+                    <div key={slot.id} className="p-6 flex flex-col gap-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-slate-100 dark:bg-slate-700 p-3 rounded-xl text-center min-w-[80px]">
+                            <div className="text-lg font-bold text-slate-800 dark:text-white">{slot.heure_debut.slice(0, 5)}</div>
+                            <div className="text-xs text-slate-500">{slot.heure_fin.slice(0, 5)}</div>
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-slate-500">Tickets disponibles (en stock libre)</div>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {count} <span className="text-sm text-slate-400 font-normal">tickets</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="relative">
+                            <FiTag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input 
+                              type="number" placeholder="N°"
+                              className="pl-10 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 w-24 md:w-32 dark:text-white font-mono font-bold"
+                              value={inputs[slot.id] || ""}
+                              onChange={(e) => setInputs({...inputs, [slot.id]: e.target.value})}
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddTicket(slot.id)}
+                            />
+                            <button onClick={() => handleAddTicket(slot.id)} className="absolute right-1 top-1 bottom-1 px-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 flex items-center justify-center transition-colors"><FiPlus /></button>
+                          </div>
+
+                          <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
+
+                          <button 
+                            onClick={() => openGridModal(slot.id)} 
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all text-sm"
+                          >
+                            <FiGrid className="text-lg" /> Sélection Grille
+                          </button>
+                          
+                          <button 
+                            onClick={() => openDetailModal(slot.id)} 
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm"
+                          >
+                            <FiEye className="text-lg" /> Détails
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700">
+                <div className="bg-blue-600 p-5 flex flex-col sm:flex-row justify-between items-center gap-4 text-white shrink-0">
+                    <div>
+                        <h3 className="text-2xl font-black flex items-center gap-2"><FiGrid /> Gestion Visuelle du Stock</h3>
+                        <p className="text-blue-100 text-sm mt-1">Cliquez sur les cases blanches pour ajouter les tickets au créneau.</p>
+                    </div>
+                    <div className="flex items-center gap-3 bg-blue-800/50 p-2 rounded-xl">
+                        <span className="text-sm font-medium">Afficher de :</span>
+                        <input type="number" value={gridRange.start} onChange={(e) => setGridRange(p => ({...p, start: parseInt(e.target.value) || 1}))} className="w-20 px-2 py-1 rounded text-slate-900 font-bold outline-none" />
+                        <span className="text-sm font-medium">à</span>
+                        <input type="number" value={gridRange.end} onChange={(e) => setGridRange(p => ({...p, end: parseInt(e.target.value) || 500}))} className="w-20 px-2 py-1 rounded text-slate-900 font-bold outline-none" />
+                    </div>
+                    <button onClick={() => setShowModal(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors"><FiX className="text-2xl"/></button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 flex flex-wrap gap-4 justify-center border-b border-slate-200 dark:border-slate-700 shrink-0">
+                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-red-500"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Vendu (Bloqué)</span></div>
+                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-orange-400"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">En Stock (Ailleurs)</span></div>
+                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded border-2 border-slate-300 bg-white"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Libre (Cliquable)</span></div>
+                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-bold">Votre Sélection</span></div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900/50">
+                    {loadingGrid ? (
+                         <div className="flex h-full items-center justify-center"><div className="animate-spin text-4xl text-blue-500"><FiGrid/></div></div>
+                    ) : (
+                        <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-3">
+                            {gridNumbers.map(num => {
+                                const state = getTicketState(num);
+                                let btnClass = "py-3 px-1 rounded-lg text-sm font-bold font-mono transition-all border-2 shadow-sm ";
+                                
+                                if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
+                                else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
+                                else if (state === 'selected') btnClass += "bg-blue-500 text-white border-blue-600 transform scale-110 shadow-blue-500/30 ring-4 ring-blue-300 z-10";
+                                else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md cursor-pointer";
+
+                                return (
+                                    <button key={num} onClick={() => handleTicketClick(num)} className={btnClass}>{num}</button>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-between items-center">
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">
+                        <strong className="text-blue-600 dark:text-blue-400 text-2xl">{selectedForAdd.length}</strong> tickets prêts
+                    </p>
+                    <button onClick={confirmGridAdd} disabled={selectedForAdd.length === 0} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all text-lg">
+                        Confirmer l'ajout au stock
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {showDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-slate-200 dark:border-slate-700">
+                <div className="w-full md:w-1/3 border-r border-slate-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-900/50">
+                    <div className="p-5 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-white dark:bg-slate-800">
+                        <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiLayers/> Tous les tickets</h3>
+                        <span className="text-xs bg-slate-200 dark:bg-slate-700 px-3 py-1 rounded-full font-bold">{detailTickets.length} total</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {loadingDetails ? <div className="text-center py-4"><FiLayers className="animate-spin mx-auto text-slate-400 text-2xl"/></div> : 
+                         detailTickets.length === 0 ? <p className="text-center text-slate-400 italic mt-4 font-medium">Aucun ticket.</p> :
+                         detailTickets.map(t => (
+                            <button 
+                                key={t.ticket_num} onClick={() => setSelectedTicketInfo(t)}
+                                className={`w-full text-left p-4 rounded-xl border-2 transition-all flex justify-between items-center ${
+                                    selectedTicketInfo?.ticket_num === t.ticket_num ? "bg-white dark:bg-slate-700 border-blue-500 shadow-md ring-2 ring-blue-500/20" : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-blue-300"
+                                }`}
+                            >
+                                <span className="font-mono font-black text-xl text-slate-700 dark:text-slate-200">#{t.ticket_num}</span>
+                                <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${getStatusColor(t.statut)}`}>
+                                    {t.statut === 'disponible' ? 'Libre' : 'Réservé'}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex-1 flex flex-col relative bg-white dark:bg-slate-800">
+                    <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><FiX className="text-2xl"/></button>
+                    <div className="p-8 flex-1 flex flex-col justify-center items-center">
+                        {selectedTicketInfo ? (
+                            selectedTicketInfo.statut === 'disponible' ? (
+                                <div className="text-center space-y-4">
+                                    <div className="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto text-5xl mb-4 border-4 border-green-100"><FiCheck /></div>
+                                    <h2 className="text-3xl font-black text-slate-800 dark:text-white">Ticket #{selectedTicketInfo.ticket_num}</h2>
+                                    <p className="text-slate-500 font-medium">Ce ticket est actuellement en stock et disponible à la vente.</p>
+                                    <button onClick={() => removeTicket(selectedTicketInfo.ticket_num)} className="mt-8 px-6 py-3 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors font-bold flex items-center gap-2 mx-auto"><FiXCircle /> Retirer ce ticket du stock</button>
+                                </div>
+                            ) : (
+                                <div className="w-full max-w-md space-y-6 animate-fade-in">
+                                    <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-6">
+                                        <span className="bg-orange-100 text-orange-800 border border-orange-200 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-4 inline-block">Vendu / Attribué</span>
+                                        <h2 className="text-5xl font-black text-slate-900 dark:text-white mb-2">#{selectedTicketInfo.ticket_num}</h2>
+                                        <p className="text-slate-500 font-medium">Pour le sacrifice : <strong className="text-slate-800 dark:text-slate-200">{selectedTicketInfo.sacrifice_name || "Non précisé"}</strong></p>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-4 p-5 bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl">
+                                            <div className="bg-white dark:bg-slate-800 p-4 rounded-full text-blue-600 shadow-sm border border-slate-100 dark:border-slate-700"><FiUser className="text-2xl"/></div>
+                                            <div><p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Client Propriétaire</p><p className="font-bold text-xl text-slate-800 dark:text-white">{selectedTicketInfo.contact_last_name} {selectedTicketInfo.contact_first_name}</p></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        ) : (
+                            <div className="text-center text-slate-400"><FiInfo className="text-6xl mx-auto mb-4 opacity-20" /><p className="font-medium text-lg">Sélectionnez un ticket dans la liste<br/>pour voir ses détails.</p></div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =========================================================
+// COMPOSANT PRINCIPAL : TABS ET WRAPPER
+// =========================================================
+export default function CreneauxStock() {
+  const [activeTab, setActiveTab] = useState('creneaux');
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
+      {/* TABS NAVIGATION */}
+      <div className="flex gap-4 border-b-2 border-slate-200 dark:border-slate-700 print:hidden overflow-x-auto no-scrollbar">
+          <button 
+              onClick={() => setActiveTab('creneaux')} 
+              className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'creneaux' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+          >
+              <FiClock className="text-xl" /> Horaires & Capacités
+          </button>
+          <button 
+              onClick={() => setActiveTab('stock')} 
+              className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'stock' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
+          >
+              <FiBox className="text-xl" /> Attribution du Stock (Tickets)
+          </button>
+      </div>
+
+      {/* CONTENU */}
+      {activeTab === 'creneaux' ? <CreneauxManager /> : <StockManager />}
     </div>
   );
 }

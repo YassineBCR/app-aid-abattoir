@@ -5,15 +5,15 @@ import { Scanner } from "@yudiel/react-qr-scanner";
 import { 
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
-  FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser
+  FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus
 } from "react-icons/fi";
+import { logAction } from "../lib/logger"; // <--- IMPORT DU LOGGER
 
 export default function PriseEnCharge() {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   
-  // ================= CAISSE STATE =================
   const [activeCaisse, setActiveCaisse] = useState(null);
   const [showOuvertureModal, setShowOuvertureModal] = useState(false);
   const [showClotureModal, setShowClotureModal] = useState(false);
@@ -23,25 +23,30 @@ export default function PriseEnCharge() {
   const [justification, setJustification] = useState("");
   const [theoriqueCaisse, setTheoriqueCaisse] = useState({ especes: 0, cb: 0 });
 
-  // ================= RECHERCHE & COMMANDE STATE =================
   const [searchInput, setSearchInput] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [commande, setCommande] = useState(null);
   const [searchResults, setSearchResults] = useState([]); 
   const [historique, setHistorique] = useState([]);
   
-  // ================= ENCAISSEMENT STATE =================
   const [montantEncaisse, setMontantEncaisse] = useState("");
   const [modePaiement, setModePaiement] = useState("especes");
   const [loadingPaiement, setLoadingPaiement] = useState(false);
 
-  // ================= ANNULATION STATE (NOUVEAU MODAL) =================
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [transactionToCancel, setTransactionToCancel] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [loadingCancel, setLoadingCancel] = useState(false);
 
-  // INITIALISATION : Vérifier si une caisse est ouverte
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creneauxDispo, setCreneauxDispo] = useState([]);
+  const [tarifs, setTarifs] = useState([]);
+  const [loadingCreate, setLoadingCreate] = useState(false);
+  const [newResaForm, setNewResaForm] = useState({
+    first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "",
+    creneau_id: "", tarif_categorie: "", prix_cents: 0
+  });
+
   useEffect(() => {
     checkActiveCaisse();
   }, []);
@@ -50,88 +55,10 @@ export default function PriseEnCharge() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserEmail(user.email);
-
-    const { data } = await supabase
-      .from('caisses_vendeurs')
-      .select('*')
-      .eq('vendeur_email', user.email)
-      .eq('statut', 'ouverte')
-      .maybeSingle();
-      
+    const { data } = await supabase.from('caisses_vendeurs').select('*').eq('vendeur_email', user.email).eq('statut', 'ouverte').maybeSingle();
     if (data) setActiveCaisse(data);
     else setActiveCaisse(null);
   };
-
-  // ==================== GESTION DE LA CAISSE (OUVERTURE/CLOTURE) ====================
-
-  const handleOuvrirCaisse = async (e) => {
-    e.preventDefault();
-    const fondCents = Math.round((parseFloat(fondDeCaisse) || 0) * 100);
-    try {
-      const { data, error } = await supabase.from('caisses_vendeurs').insert({
-        vendeur_email: userEmail,
-        fond_caisse_initial_cents: fondCents,
-        statut: 'ouverte'
-      }).select().single();
-
-      if (error) throw error;
-      setActiveCaisse(data);
-      setShowOuvertureModal(false);
-      showNotification("Caisse ouverte avec succès. Bon courage !", "success");
-    } catch (err) {
-      showNotification("Erreur lors de l'ouverture de caisse.", "error");
-    }
-  };
-
-  const preparerCloture = async () => {
-    const { data: transactions } = await supabase.from('historique_paiements').select('montant_cents, moyen_paiement').eq('caisse_id', activeCaisse.id);
-    let sumEspeces = activeCaisse.fond_caisse_initial_cents || 0;
-    let sumCb = 0;
-    if (transactions) {
-      transactions.forEach(tx => {
-        if (tx.moyen_paiement === 'especes') sumEspeces += tx.montant_cents;
-        if (tx.moyen_paiement === 'cb') sumCb += tx.montant_cents;
-      });
-    }
-    setTheoriqueCaisse({ especes: sumEspeces, cb: sumCb });
-    setShowClotureModal(true);
-  };
-
-  const handleCloturerCaisse = async (e) => {
-    e.preventDefault();
-    const reelEspecesCents = Math.round((parseFloat(reelEspeces) || 0) * 100);
-    const reelCbCents = Math.round((parseFloat(reelCb) || 0) * 100);
-    const ecartEspeces = reelEspecesCents - theoriqueCaisse.especes;
-    const ecartCb = reelCbCents - theoriqueCaisse.cb;
-
-    if ((ecartEspeces !== 0 || ecartCb !== 0) && !justification.trim()) {
-      return showNotification("Un écart a été détecté. Une justification est obligatoire.", "error");
-    }
-
-    try {
-      const { error } = await supabase.from('caisses_vendeurs').update({
-        total_theorique_especes_cents: theoriqueCaisse.especes,
-        total_theorique_cb_cents: theoriqueCaisse.cb,
-        total_reel_especes_cents: reelEspecesCents,
-        total_reel_cb_cents: reelCbCents,
-        ecart_especes_cents: ecartEspeces,
-        ecart_cb_cents: ecartCb,
-        justification_ecart: justification,
-        statut: 'cloturee',
-        heure_cloture: new Date().toISOString()
-      }).eq('id', activeCaisse.id);
-
-      if (error) throw error;
-      setActiveCaisse(null);
-      setShowClotureModal(false);
-      showNotification("Caisse clôturée. Excellent travail !", "success");
-      setCommande(null);
-    } catch (err) {
-      showNotification("Erreur lors de la clôture.", "error");
-    }
-  };
-
-  // ==================== RECHERCHE & CHARGEMENT DOSSIER ====================
 
   const handleSearch = async (e, overrideVal = null) => {
     if (e) e.preventDefault();
@@ -142,30 +69,32 @@ export default function PriseEnCharge() {
       let query = supabase.from("commandes").select("*, creneaux_horaires(*)");
       const cleanVal = val.toString().trim();
       const isDigits = /^\d+$/.test(cleanVal);
-      
       if (isDigits) {
         if (cleanVal.startsWith('0') || cleanVal.length > 5) query = query.ilike('contact_phone', `%${cleanVal}%`);
         else query = query.eq("ticket_num", parseInt(cleanVal));
       } else {
         query = query.or(`contact_last_name.ilike.%${cleanVal}%,contact_first_name.ilike.%${cleanVal}%,contact_email.ilike.%${cleanVal}%`);
       }
-      
       const { data, error } = await query;
       if (error) throw error;
-      if (!data || data.length === 0) showNotification("Aucun résultat trouvé.", "error");
+      if (!data || data.length === 0) showNotification("Aucun résultat.", "error");
       else if (data.length === 1) selectCommande(data[0]);
       else { setSearchResults(data); showNotification(`${data.length} résultats trouvés.`, "info"); }
     } catch (err) { showNotification("Erreur recherche.", "error"); } finally { setLoading(false); }
   };
 
+  useEffect(() => {
+      if (activeCaisse) {
+          const pendingId = sessionStorage.getItem('pending_commande_id');
+          if (pendingId) {
+              loadCommandeById(pendingId);
+              sessionStorage.removeItem('pending_commande_id');
+          }
+      }
+  }, [activeCaisse]);
+
   const loadHistorique = async (id) => {
-      const { data, error } = await supabase
-        .from('historique_paiements')
-        .select('*')
-        .eq('commande_id', id)
-        .order('date_paiement', { ascending: false });
-        
-      if (error) console.error("Erreur chargement historique:", error);
+      const { data } = await supabase.from('historique_paiements').select('*').eq('commande_id', id).order('date_paiement', { ascending: false });
       setHistorique(data || []);
   };
 
@@ -200,109 +129,173 @@ export default function PriseEnCharge() {
       setLoading(false);
   }
 
-  // ==================== ENCAISSEMENT D'UN PAIEMENT ====================
+  const handleOuvrirCaisse = async (e) => {
+    e.preventDefault();
+    const fondCents = Math.round((parseFloat(fondDeCaisse) || 0) * 100);
+    try {
+      const { data, error } = await supabase.from('caisses_vendeurs').insert({
+        vendeur_email: userEmail, fond_caisse_initial_cents: fondCents, statut: 'ouverte'
+      }).select().single();
+      if (error) throw error;
+      setActiveCaisse(data);
+      setShowOuvertureModal(false);
+      showNotification("Caisse ouverte avec succès.", "success");
+      
+      // LOG ACTION
+      logAction('CREATION', 'CAISSE', { action: 'Ouverture de caisse', fond_initial: fondCents / 100 });
+      
+    } catch (err) { showNotification("Erreur lors de l'ouverture de caisse.", "error"); }
+  };
+
+  const preparerCloture = async () => {
+    const { data: transactions } = await supabase.from('historique_paiements').select('montant_cents, moyen_paiement').eq('caisse_id', activeCaisse.id);
+    let sumEspeces = activeCaisse.fond_caisse_initial_cents || 0;
+    let sumCb = 0;
+    if (transactions) {
+      transactions.forEach(tx => {
+        if (tx.moyen_paiement === 'especes') sumEspeces += tx.montant_cents;
+        if (tx.moyen_paiement === 'cb') sumCb += tx.montant_cents;
+      });
+    }
+    setTheoriqueCaisse({ especes: sumEspeces, cb: sumCb });
+    setShowClotureModal(true);
+  };
+
+  const handleCloturerCaisse = async (e) => {
+    e.preventDefault();
+    const reelEspecesCents = Math.round((parseFloat(reelEspeces) || 0) * 100);
+    const reelCbCents = Math.round((parseFloat(reelCb) || 0) * 100);
+    const ecartEspeces = reelEspecesCents - theoriqueCaisse.especes;
+    const ecartCb = reelCbCents - theoriqueCaisse.cb;
+    if ((ecartEspeces !== 0 || ecartCb !== 0) && !justification.trim()) {
+      return showNotification("Un écart a été détecté. Une justification est obligatoire.", "error");
+    }
+    try {
+      const { error } = await supabase.from('caisses_vendeurs').update({
+        total_theorique_especes_cents: theoriqueCaisse.especes, total_theorique_cb_cents: theoriqueCaisse.cb,
+        total_reel_especes_cents: reelEspecesCents, total_reel_cb_cents: reelCbCents,
+        ecart_especes_cents: ecartEspeces, ecart_cb_cents: ecartCb,
+        justification_ecart: justification, statut: 'cloturee', heure_cloture: new Date().toISOString()
+      }).eq('id', activeCaisse.id);
+      if (error) throw error;
+      
+      // LOG ACTION
+      logAction('MODIFICATION', 'CAISSE', { action: 'Clôture de caisse', ecart_especes: ecartEspeces/100, ecart_cb: ecartCb/100, justification: justification });
+
+      setActiveCaisse(null); setShowClotureModal(false); showNotification("Caisse clôturée.", "success"); setCommande(null);
+    } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
+  };
+
+  const sendTicketEmail = async (cmd) => {
+      if (!cmd.contact_email || cmd.contact_email.includes('surplace@abattoir.local')) return;
+      try {
+          const dateFormatee = new Date(cmd.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+          const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
+          await fetch("http://localhost:3000/send-ticket-email", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: cmd.contact_email, firstName: cmd.contact_first_name, ticketNum: cmd.ticket_num, sacrificeName: cmd.sacrifice_name, dateCreneau: dateFormatee, heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5), qrData: qrData })
+          });
+          showNotification("Billet envoyé par email au client.", "info");
+      } catch (err) { console.error("Erreur envoi email :", err); }
+  };
+
+  const openCreateModal = async () => {
+      if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
+      setLoading(true);
+      try {
+          const { data: slots } = await supabase.rpc("get_creneaux_public");
+          setCreneauxDispo(slots || []);
+          const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
+          setTarifs(prix || []);
+          setNewResaForm({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0 });
+          setShowCreateModal(true);
+      } catch(err) { showNotification("Erreur de chargement des données.", "error"); } finally { setLoading(false); }
+  };
+
+  const handleCreateReservation = async (e) => {
+      e.preventDefault();
+      if (!newResaForm.creneau_id || !newResaForm.tarif_categorie) return showNotification("Sélectionnez un créneau et un tarif.", "error");
+      setLoadingCreate(true);
+      try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const { data, error } = await supabase.rpc("reserver_prochain_ticket", {
+              p_creneau_id: newResaForm.creneau_id, p_client_id: user.id, p_nom: newResaForm.last_name, p_prenom: newResaForm.first_name, p_email: newResaForm.email || "surplace@abattoir.local",
+              p_tel: newResaForm.phone, p_sacrifice_name: newResaForm.sacrifice_name, p_categorie: newResaForm.tarif_categorie, p_montant_total_cents: newResaForm.prix_cents, p_acompte_cents: 0
+          });
+          if (error) throw error;
+          
+          // LOG ACTION
+          logAction('CREATION', 'COMMANDE', { ticket: data.ticket_num, source: 'guichet_sur_place', client: `${newResaForm.first_name} ${newResaForm.last_name}` });
+
+          showNotification(`Réservation créée ! Ticket N°${data.ticket_num}`, "success");
+          setShowCreateModal(false);
+          const { data: fullCmd } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", data.commande_id).single();
+          if(fullCmd) { selectCommande(fullCmd); if (newResaForm.email) sendTicketEmail(fullCmd); }
+      } catch (err) { showNotification("Erreur lors de la création.", "error"); } finally { setLoadingCreate(false); }
+  };
 
   const validerPaiement = async (e) => {
       e.preventDefault();
-      if (!activeCaisse) return showNotification("Vous devez ouvrir votre caisse d'abord !", "error");
-
+      if (!activeCaisse) return showNotification("Ouvrez votre caisse !", "error");
       const montantAsaisi = parseFloat(montantEncaisse) || 0;
-      if (montantAsaisi <= 0) return showNotification("Veuillez saisir un montant.", "info");
-
+      if (montantAsaisi <= 0) return showNotification("Saisissez un montant.", "info");
       setLoadingPaiement(true);
       try {
           const montantAjouteCents = Math.round(montantAsaisi * 100);
-
           const { error: errHistory } = await supabase.from('historique_paiements').insert({
-              commande_id: commande.id,
-              caisse_id: activeCaisse.id,
-              ticket_num: commande.ticket_num,
-              montant_cents: montantAjouteCents,
-              moyen_paiement: modePaiement,
-              encaisse_par: userEmail
+              commande_id: commande.id, caisse_id: activeCaisse.id, ticket_num: commande.ticket_num,
+              montant_cents: montantAjouteCents, moyen_paiement: modePaiement, encaisse_par: userEmail
           });
           if (errHistory) throw errHistory;
-
           const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
           const nouveauTotalPayeCents = ancienPayeCents + montantAjouteCents;
-          
           let nouveauStatut = commande.statut;
           const totalCents = commande.montant_total_cents || 0;
-          
           if (nouveauTotalPayeCents >= totalCents) { nouveauStatut = 'paye_integralement'; }
           else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) { nouveauStatut = 'acompte_paye'; }
-
           await supabase.from('commandes').update({ montant_paye_cents: nouveauTotalPayeCents, statut: nouveauStatut }).eq('id', commande.id);
+          
+          // LOG ACTION
+          logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant_encaisse: montantAsaisi, moyen: modePaiement });
 
           showNotification("Paiement encaissé avec succès.", "success");
-          
           const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
           if(data) selectCommande(data);
-
-      } catch (err) {
-          showNotification("Erreur lors de l'encaissement.", "error");
-      } finally {
-          setLoadingPaiement(false);
-      }
+      } catch (err) { showNotification("Erreur d'encaissement.", "error"); } finally { setLoadingPaiement(false); }
   };
 
-  // ==================== PREPARATION & ANNULATION D'ERREUR ====================
-
   const promptAnnulerTransaction = (transaction) => {
-      if (!activeCaisse) return showNotification("Caisse fermée. Impossible d'annuler.", "error");
-      if (transaction.moyen_paiement === 'stripe') return showNotification("Impossible d'annuler un paiement en ligne d'ici.", "error");
-      
-      // On ouvre le modal et on stocke la transaction
-      setTransactionToCancel(transaction);
-      setCancelReason("");
-      setShowCancelModal(true);
+      if (!activeCaisse) return showNotification("Caisse fermée.", "error");
+      if (transaction.moyen_paiement === 'stripe') return showNotification("Impossible d'annuler un paiement Stripe.", "error");
+      setTransactionToCancel(transaction); setCancelReason(""); setShowCancelModal(true);
   };
 
   const confirmAnnulerTransaction = async (e) => {
       e.preventDefault();
-      if (!cancelReason.trim()) return showNotification("Veuillez saisir un motif.", "info");
-
+      if (!cancelReason.trim()) return showNotification("Saisissez un motif.", "info");
       setLoadingCancel(true);
       try {
-          // 1. Transaction négative dans l'historique avec le motif
           const { error: errHistory } = await supabase.from('historique_paiements').insert({
-              commande_id: commande.id,
-              caisse_id: activeCaisse.id,
-              ticket_num: commande.ticket_num,
-              montant_cents: -Math.abs(transactionToCancel.montant_cents),
-              moyen_paiement: transactionToCancel.moyen_paiement,
-              encaisse_par: userEmail,
-              notes: `Annulation : ${cancelReason}` // Le motif personnalisé
+              commande_id: commande.id, caisse_id: activeCaisse.id, ticket_num: commande.ticket_num,
+              montant_cents: -Math.abs(transactionToCancel.montant_cents), moyen_paiement: transactionToCancel.moyen_paiement,
+              encaisse_par: userEmail, notes: `Annulation : ${cancelReason}`
           });
           if (errHistory) throw errHistory;
-
-          // 2. Mise à jour du total de la commande
           const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
           const nouveauPayeCents = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
           let nouveauStatut = commande.statut;
           const totalCents = commande.montant_total_cents || 0;
-          
-          if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') {
-              nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente';
-          }
-
+          if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') { nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente'; }
           await supabase.from('commandes').update({ montant_paye_cents: nouveauPayeCents, statut: nouveauStatut }).eq('id', commande.id);
           
-          showNotification("Transaction annulée et tracée avec succès.", "success");
-          
-          // Fermeture modal et rechargement
-          setShowCancelModal(false);
-          setTransactionToCancel(null);
-          loadCommandeById(commande.id);
+          // LOG ACTION
+          logAction('SUPPRESSION', 'CAISSE', { ticket: commande.ticket_num, montant_annule: (transactionToCancel.montant_cents / 100), motif: cancelReason });
 
-      } catch (err) {
-          showNotification("Erreur lors de l'annulation.", "error");
-      } finally {
-          setLoadingCancel(false);
-      }
+          showNotification("Annulation tracée.", "success");
+          setShowCancelModal(false); setTransactionToCancel(null); loadCommandeById(commande.id);
+      } catch (err) { showNotification("Erreur d'annulation.", "error"); } finally { setLoadingCancel(false); }
   };
 
-  // ==================== CALCULS POUR L'AFFICHAGE ====================
   const total = commande ? (commande.montant_total_cents / 100) : 0;
   const dejaPayeCents = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
   const dejaPaye = dejaPayeCents / 100;
@@ -315,18 +308,15 @@ export default function PriseEnCharge() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 min-h-screen">
-      
-      {/* HEADER CAISSE */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 pt-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
              <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
              Caisse & Encaissement
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Recherchez un ticket pour gérer ses paiements.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement et création de réservations sur place.</p>
         </div>
         
-        {/* STATUT DE CAISSE EN DIRECT */}
         <div>
             {activeCaisse ? (
                 <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/30 p-2 pr-4 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
@@ -351,34 +341,38 @@ export default function PriseEnCharge() {
       </div>
 
       {!activeCaisse ? (
-          // ECRAN DE BLOCAGE
-          <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
+          <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 animate-fade-in">
               <div className="w-24 h-24 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6"><FiLock className="text-5xl text-slate-400" /></div>
               <h2 className="text-2xl font-black text-slate-800 dark:text-white">Votre caisse est fermée</h2>
               <p className="text-slate-500 mt-2 max-w-md text-center">Déclarez votre fond de caisse (monnaie) pour commencer à encaisser.</p>
               <button onClick={() => setShowOuvertureModal(true)} className="mt-8 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all"><FiUnlock /> Ouvrir ma caisse</button>
           </div>
       ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-            {/* COLONNE GAUCHE: RECHERCHE */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in">
             <div className="xl:col-span-1 space-y-6">
               <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
-                  <div className="p-5 space-y-4">
-                    <button onClick={() => setShowScanner(true)} className="group w-full py-5 bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 text-white rounded-2xl shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-3 transition-all transform hover:-translate-y-0.5 active:scale-95">
-                        <div className="bg-white/20 p-2 rounded-full"><FiCamera className="text-2xl" /></div>
-                        <span className="font-bold text-lg tracking-wide">Scanner le Ticket</span>
-                    </button>
+                  <div className="p-5 space-y-5">
+                    <div className="grid grid-cols-2 gap-3">
+                        <button onClick={() => setShowScanner(true)} className="group w-full py-4 bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 text-white rounded-2xl shadow-lg shadow-indigo-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
+                            <div className="bg-white/20 p-2.5 rounded-full"><FiCamera className="text-xl" /></div>
+                            <span className="font-bold text-sm tracking-wide">Scanner</span>
+                        </button>
+                        <button onClick={openCreateModal} className="group w-full py-4 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl shadow-lg shadow-emerald-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
+                            <div className="bg-white/20 p-2.5 rounded-full"><FiPlus className="text-xl" /></div>
+                            <span className="font-bold text-sm tracking-wide">Nouvelle Résa</span>
+                        </button>
+                    </div>
+
                     <div className="relative group">
                         <form onSubmit={(e) => handleSearch(e)} className="relative">
                             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><FiSearch className="text-slate-400 text-xl" /></div>
-                            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="N° Ticket, Nom ou Tél..." className="block w-full pl-12 pr-16 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-lg font-bold outline-none focus:border-indigo-500 transition-all dark:text-white" />
+                            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="N° Ticket, Nom, Tél..." className="block w-full pl-12 pr-16 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-base font-bold outline-none focus:border-indigo-500 transition-all dark:text-white" />
                             <button type="submit" disabled={loading || !searchInput} className="absolute right-2 top-2 bottom-2 aspect-square bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center"><FiSearch className="text-xl" /></button>
                         </form>
                     </div>
                   </div>
               </div>
 
-              {/* RÉSULTATS RECHERCHE */}
               {!commande && searchResults.length > 0 && (
                  <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden"> 
                     <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800">
@@ -399,12 +393,10 @@ export default function PriseEnCharge() {
               )}
             </div>
 
-            {/* COLONNE DROITE: DETAILS DOSSIER & ENCAISSEMENT */}
             <div className="xl:col-span-2">
               {commande ? (
-                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
+                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
                     
-                    {/* EN-TETE DOSSIER */}
                     <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                         <div className="flex items-center gap-3">
                             <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
@@ -419,7 +411,6 @@ export default function PriseEnCharge() {
                     
                     <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
                         
-                        {/* RESUME CLIENT (Gauche) */}
                         <div className="lg:w-1/3 space-y-6">
                             <div className="text-center lg:text-left">
                                 <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto lg:mx-0 mb-3 text-2xl text-slate-400"><FiUser /></div>
@@ -441,10 +432,8 @@ export default function PriseEnCharge() {
                             </div>
                         </div>
 
-                        {/* ZONE INTERACTIVE (Droite) */}
                         <div className="lg:w-2/3 flex flex-col gap-6">
                             
-                            {/* FORMULAIRE D'ENCAISSEMENT (Affiché uniquement s'il reste à payer) */}
                             {!isPaye ? (
                                 <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
                                     <form onSubmit={validerPaiement} className="space-y-4">
@@ -474,7 +463,6 @@ export default function PriseEnCharge() {
                                 </div>
                             )}
 
-                            {/* HISTORIQUE DIRECT DES PAIEMENTS DU TICKET */}
                             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
                                 <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                                     <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique des paiements de ce ticket</h4>
@@ -491,20 +479,15 @@ export default function PriseEnCharge() {
                                                             {Number(tx.montant_cents) < 0 ? <FiAlertTriangle className="text-red-500"/> : getPaymentIcon(tx.moyen_paiement)}
                                                             {tx.moyen_paiement.toUpperCase()}
                                                         </p>
-                                                        <p className="text-[11px] text-slate-500 mt-0.5">{new Date(tx.date_paiement).toLocaleString('fr-FR')} • {tx.encaisse_par}</p>
+                                                        <p className="text-[11px] text-slate-500 mt-0.5">{new Date(tx.date_paiement).toLocaleString('fr-FR')} • {tx.encaisse_par.split('@')[0]}</p>
                                                         {tx.notes && <p className="text-[11px] text-red-500 font-bold mt-0.5">{tx.notes}</p>}
                                                     </div>
                                                     <div className="text-right flex items-center gap-3">
                                                         <span className={`font-black ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                                             {(Number(tx.montant_cents) / 100).toFixed(2)} €
                                                         </span>
-                                                        {/* L'APPEL AU NOUVEAU MODAL DE CONFIRMATION EST ICI */}
                                                         {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe' && (
-                                                            <button 
-                                                                onClick={() => promptAnnulerTransaction(tx)} 
-                                                                title="Annuler cette erreur de caisse" 
-                                                                className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors"
-                                                            >
+                                                            <button onClick={() => promptAnnulerTransaction(tx)} title="Annuler cette erreur de caisse" className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
                                                                 <FiTrash2 className="text-base" />
                                                             </button>
                                                         )}
@@ -515,55 +498,114 @@ export default function PriseEnCharge() {
                                     )}
                                 </div>
                             </div>
-
                         </div>
                     </div>
                 </div>
               ) : (
-                <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70">
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70 animate-fade-in">
                     <div className="w-24 h-24 bg-indigo-50 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6 text-indigo-300 dark:text-slate-500"><FiCreditCard className="text-5xl" /></div>
                     <h3 className="text-xl font-bold text-slate-400">Guichet Caisse Prêt</h3>
-                    <p className="text-slate-400 mt-2 max-w-sm mx-auto">Scannez un QR code ou recherchez un client pour afficher son solde et encaisser de l'argent.</p>
+                    <p className="text-slate-400 mt-2 max-w-sm mx-auto">Scannez un ticket ou créez une réservation pour encaisser.</p>
                 </div>
               )}
             </div>
           </div>
       )}
 
-      {/* ================= MODAL ANNULATION D'UNE TRANSACTION ================= */}
+      {showCreateModal && (
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+                <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
+                    <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                        <FiPlus className="text-indigo-500"/> Créer une réservation
+                    </h3>
+                    <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
+                </div>
+                
+                <form onSubmit={handleCreateReservation} className="space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Créneau <span className="text-red-500">*</span></label>
+                            <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({...newResaForm, creneau_id: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                                <option value="">-- Choisir un créneau --</option>
+                                {creneauxDispo.map(c => (
+                                    <option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>
+                                        {new Date(c.date).toLocaleDateString('fr-FR')} à {c.heure_debut.slice(0,5)} ({c.places_restantes} dispo)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Catégorie <span className="text-red-500">*</span></label>
+                            <select required value={newResaForm.tarif_categorie} onChange={e => {
+                                const t = tarifs.find(tar => tar.categorie === e.target.value);
+                                setNewResaForm({...newResaForm, tarif_categorie: e.target.value, prix_cents: t ? t.prix_cents : 0})
+                            }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                                <option value="">-- Choisir une catégorie --</option>
+                                {tarifs.map(t => (
+                                    <option key={t.categorie} value={t.categorie}>
+                                        Cat. {t.categorie} - {t.nom} ({(t.prix_cents/100).toFixed(2)}€)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Prénom <span className="text-red-500">*</span></label>
+                            <input required type="text" value={newResaForm.first_name} onChange={e => setNewResaForm({...newResaForm, first_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom <span className="text-red-500">*</span></label>
+                            <input required type="text" value={newResaForm.last_name} onChange={e => setNewResaForm({...newResaForm, last_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Téléphone <span className="text-red-500">*</span></label>
+                            <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({...newResaForm, phone: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Pour envoi QR Code)</label>
+                            <input type="email" placeholder="client@email.com" value={newResaForm.email} onChange={e => setNewResaForm({...newResaForm, email: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom pour le sacrifice <span className="text-red-500">*</span></label>
+                            <input required type="text" placeholder="Ex: Famille X..." value={newResaForm.sacrifice_name} onChange={e => setNewResaForm({...newResaForm, sacrifice_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                        </div>
+                    </div>
+                    
+                    <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
+                        <span className="text-indigo-800 dark:text-indigo-300 font-bold">Total à encaisser ensuite :</span>
+                        <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents/100).toFixed(2)} €</span>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                        <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
+                        <button type="submit" disabled={loadingCreate} className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                            {loadingCreate ? "Création..." : <>Créer & Aller en caisse <FiArrowRight /></>}
+                        </button>
+                    </div>
+                </form>
+            </div>
+          </div>
+      )}
+
       {showCancelModal && transactionToCancel && (
           <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
-                  
                   <div className="flex items-center gap-4 mb-4">
-                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
-                          <FiAlertTriangle className="text-2xl" />
-                      </div>
+                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0"><FiAlertTriangle className="text-2xl" /></div>
                       <h3 className="text-xl font-black text-slate-800 dark:text-white">Annuler l'encaissement</h3>
                   </div>
-
                   <p className="text-slate-600 dark:text-slate-400 mb-6 text-sm">
-                      Vous êtes sur le point d'annuler un encaissement de <strong className="text-slate-900 dark:text-white">{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> payé en <strong className="uppercase">{transactionToCancel.moyen_paiement}</strong>. Cette action déduira l'argent de la commande et sera tracée dans votre caisse.
+                      Vous annulez <strong className="text-slate-900 dark:text-white">{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> payé en <strong className="uppercase">{transactionToCancel.moyen_paiement}</strong>. Cette action sera tracée dans votre caisse.
                   </p>
-
                   <form onSubmit={confirmAnnulerTransaction} className="space-y-4">
                       <div>
                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Motif de l'annulation <span className="text-red-500">*</span></label>
-                          <textarea 
-                              required
-                              value={cancelReason}
-                              onChange={(e) => setCancelReason(e.target.value)}
-                              placeholder="Ex: Erreur de saisie, rendu trop de monnaie..."
-                              className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:border-red-500 dark:text-white resize-none"
-                              rows="3"
-                          ></textarea>
-                          <p className="text-xs text-slate-400 mt-2">Cette justification est requise pour la comptabilité.</p>
+                          <textarea required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Ex: Erreur de frappe..." className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:border-red-500 dark:text-white resize-none" rows="3"></textarea>
                       </div>
-
                       <div className="flex gap-3 pt-2">
                           <button type="button" onClick={() => setShowCancelModal(false)} disabled={loadingCancel} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 transition-colors">Retour</button>
                           <button type="submit" disabled={loadingCancel || !cancelReason.trim()} className="flex-1 py-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 flex justify-center items-center gap-2 disabled:opacity-50 transition-all">
-                              {loadingCancel ? "Traitement..." : <>Confirmer l'annulation <FiTrash2 /></>}
+                              {loadingCancel ? "Traitement..." : <>Confirmer <FiTrash2 /></>}
                           </button>
                       </div>
                   </form>
@@ -571,7 +613,6 @@ export default function PriseEnCharge() {
           </div>
       )}
 
-      {/* ================= MODAL OUVERTURE CAISSE ================= */}
       {showOuvertureModal && (
           <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
@@ -592,7 +633,6 @@ export default function PriseEnCharge() {
           </div>
       )}
 
-      {/* ================= MODAL CLOTURE CAISSE ================= */}
       {showClotureModal && (
           <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -622,14 +662,12 @@ export default function PriseEnCharge() {
                               </div>
                           </div>
                       </div>
-
                       {((parseFloat(reelEspeces) * 100 || 0) !== theoriqueCaisse.especes || (parseFloat(reelCb) * 100 || 0) !== theoriqueCaisse.cb) && (
                           <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl mt-4">
                               <p className="text-orange-800 font-bold flex items-center gap-2 mb-2"><FiAlertTriangle /> Un écart a été détecté</p>
                               <textarea value={justification} onChange={(e) => setJustification(e.target.value)} required placeholder="Justifiez cet écart pour la comptabilité..." className="w-full p-3 border border-orange-200 rounded-lg text-sm outline-none focus:border-orange-500 bg-white" rows="2"></textarea>
                           </div>
                       )}
-
                       <div className="flex gap-3 pt-4">
                           <button type="button" onClick={() => setShowClotureModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200">Annuler</button>
                           <button type="submit" className="flex-1 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-black">Valider Clôture</button>
@@ -639,7 +677,6 @@ export default function PriseEnCharge() {
           </div>
       )}
 
-      {/* SCANNER CAMERA */}
       {showScanner && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
             <button onClick={() => setShowScanner(false)} className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20"><FiX className="text-3xl" /></button>

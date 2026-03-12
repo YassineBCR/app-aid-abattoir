@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-// --- MODIFICATION : Ajout de FiX pour la croix rouge ---
 import { FiMail, FiLock, FiUser, FiArrowRight, FiCheck, FiAlertCircle, FiChevronLeft, FiX } from "react-icons/fi";
 
 export default function Auth() {
@@ -19,7 +18,7 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
 
-  // --- NOUVEAU : Variables dynamiques pour la validation visuelle ---
+  // Variables dynamiques pour la validation visuelle
   const isLengthValid = password.length >= 12;
   const hasUppercase = /[A-Z]/.test(password);
 
@@ -44,7 +43,8 @@ export default function Auth() {
       setError("Email ou mot de passe incorrect.");
       setLoading(false);
     } else {
-      navigate("/dashboard");
+      // REDIRECTION VERS L'ACCUEIL ICI
+      navigate("/");
     }
   };
 
@@ -75,10 +75,14 @@ export default function Auth() {
 
     if (error) {
       setError(error.message);
+      setLoading(false);
     } else {
-      setMessage("Inscription réussie ! Veuillez vérifier vos emails pour confirmer.");
+      setMessage("Inscription réussie ! Vérifiez vos emails. Redirection en cours...");
+      // REDIRECTION VERS L'ACCUEIL APRES 3 SECONDES POUR LAISSER LE TEMPS DE LIRE
+      setTimeout(() => {
+        navigate("/");
+      }, 3000);
     }
-    setLoading(false);
   };
 
   // --- 3. MOT DE PASSE OUBLIÉ ---
@@ -181,7 +185,7 @@ export default function Auth() {
                   />
                 </div>
                 
-                {/* --- NOUVEAU : Indicateurs dynamiques (Rouge -> Vert) à l'inscription --- */}
+                {/* Indicateurs dynamiques (Rouge -> Vert) à l'inscription */}
                 {view === "register" && (
                   <div className="mt-3 ml-2 space-y-1.5">
                     <div className={`flex items-center text-xs transition-colors duration-300 ${isLengthValid ? 'text-green-500' : 'text-red-500 dark:text-red-400'}`}>
@@ -207,7 +211,7 @@ export default function Auth() {
 
             <button
               type="submit"
-              disabled={loading || (view === "register" && (!isLengthValid || !hasUppercase))} // NOUVEAU : on grise le bouton si le mot de passe n'est pas bon
+              disabled={loading || (view === "register" && (!isLengthValid || !hasUppercase))}
               className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-500/30 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 mt-2"
             >
               {loading ? (

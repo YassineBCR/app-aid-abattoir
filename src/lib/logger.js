@@ -1,41 +1,27 @@
 import { supabase } from "./supabase";
 
 /**
- * Enregistre une action dans les logs globaux pour surveillance.
- * @param {string} category - Ex: 'AUTH', 'CAISSE', 'STOCK', 'COMMANDE'
- * @param {string} action - Ex: 'CONNEXION', 'AJOUT', 'DELETE'
- * @param {string} details - Description humaine de l'action
- * @param {object} metadata - Données techniques optionnelles
+ * Fonction universelle pour enregistrer une action dans la base de données.
+ * @param {string} actionType - Le type d'action (ex: 'CREATION', 'MODIFICATION', 'SUPPRESSION', 'EXPORT')
+ * @param {string} entityType - L'élément touché (ex: 'COMMANDE', 'CAISSE', 'STOCK', 'SYSTEME')
+ * @param {object} details - Objet contenant les détails de l'action (ex: { ticket: 123, montant: 50 })
  */
-export async function logAction(category, action, details, metadata = {}) {
+export const logAction = async (actionType, entityType, details = {}) => {
   try {
-    // On essaie de récupérer l'utilisateur courant
+    // 1. On récupère l'utilisateur connecté
     const { data: { user } } = await supabase.auth.getUser();
-    
-    // On récupère son rôle pour l'historique
-    let userRole = 'inconnu';
-    if (user) {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-        if (profile) userRole = profile.role;
-    }
+    const userEmail = user?.email || 'Système / Anonyme';
 
-    // Insertion dans la table
-    await supabase.from("global_logs").insert({
-      user_id: user?.id || null,
-      user_email: user?.email || 'Système/Anonyme',
-      role: userRole,
-      category: category.toUpperCase(),
-      action: action.toUpperCase(),
-      details: details,
-      metadata: metadata
+    // 2. On insère la ligne dans la table action_logs
+    const { error } = await supabase.from('action_logs').insert({
+      user_email: userEmail,
+      action_type: actionType.toUpperCase(),
+      entity_type: entityType.toUpperCase(),
+      details: details
     });
 
+    if (error) throw error;
   } catch (err) {
-    // On affiche l'erreur en console mais on ne bloque pas l'appli
-    console.error("Erreur critique Logger :", err);
+    console.error("Erreur du Logger Interne :", err);
   }
-}
+};
