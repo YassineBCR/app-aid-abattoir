@@ -12,7 +12,7 @@ import UpdatePassword from "./pages/UpdatePassword";
 import Bouclage from "./pages/Bouclage";
 import Account from "./pages/Account";
 import Reservation from "./pages/Reservation";
-import Caisse from './pages/Caisse';
+
 import PaiementStripe from './pages/PaiementStripe';
 import PriseEnCharge from './pages/PriseEnCharge'; // Ajout de l'import manquant !
 
@@ -101,7 +101,7 @@ function AppRoutes() {
         
         {/* Les deux routes corrigées (Terrain et Guichet) */}
         <Route path="/prise-en-charge" element={<PriseEnCharge />} />
-        <Route path="/caisse" element={<Caisse />} />
+
       </Routes>
     </>
   );

@@ -28,24 +28,50 @@ export default function PaiementOk() {
         const sessionData = await response.json();
 
         if (sessionData.status === 'paid') {
-          // --- LA CORRECTION EST ICI ---
-          // On valide le statut ET on force la date à l'instant exact du paiement
-          await supabase.from("commandes").update({ 
-              statut: "acompte_paye",
-              created_at: new Date().toISOString() // La date sera maintenant toujours 100% exacte !
-          }).eq("id", commandeId);
-
+          
+          // 1. On récupère les infos du ticket
           const { data: finalTicket } = await supabase.from("commandes").select("*, creneaux_horaires(date, heure_debut)").eq("id", commandeId).single();
 
-          if (finalTicket && mounted) {
-            setCommande(finalTicket);
-            setStatus("success");
-            setMsg("Paiement validé avec succès ! ✅");
+          if (finalTicket) {
             
-            const emailAlreadySent = localStorage.getItem(`email_sent_${commandeId}`);
-            if (!emailAlreadySent) {
-                localStorage.setItem(`email_sent_${commandeId}`, "true");
-                sendResendEmail(finalTicket, mounted);
+            // 2. ANTI-DOUBLON : On vérifie si ce paiement Stripe n'est pas DÉJÀ dans l'historique
+            // (Au cas où le client rafraîchit la page web)
+            const { data: existingPayment } = await supabase
+              .from("historique_paiements")
+              .select("id")
+              .eq("reference_externe", sessionId)
+              .maybeSingle();
+
+            // 3. Si c'est un nouveau paiement, on l'ajoute à l'historique !
+            if (!existingPayment) {
+              await supabase.from("historique_paiements").insert({
+                commande_id: commandeId,
+                ticket_num: finalTicket.ticket_num,
+                montant_cents: finalTicket.acompte_cents || 5000,
+                moyen_paiement: 'stripe',
+                encaisse_par: 'Site Web (Stripe)',
+                reference_externe: sessionId // On utilise l'ID de session Stripe comme référence de sécurité
+              });
+            }
+
+            // 4. On met à jour la commande principale
+            // On initialise le montant_paye_cents pour que la Caisse sache que 50€ ont été donnés
+            await supabase.from("commandes").update({ 
+                statut: "acompte_paye",
+                montant_paye_cents: finalTicket.acompte_cents || 5000,
+                created_at: new Date().toISOString() 
+            }).eq("id", commandeId);
+
+            if (mounted) {
+              setCommande(finalTicket);
+              setStatus("success");
+              setMsg("Paiement validé avec succès ! ✅");
+              
+              const emailAlreadySent = localStorage.getItem(`email_sent_${commandeId}`);
+              if (!emailAlreadySent) {
+                  localStorage.setItem(`email_sent_${commandeId}`, "true");
+                  sendResendEmail(finalTicket, mounted);
+              }
             }
           }
         } else {
@@ -56,6 +82,7 @@ export default function PaiementOk() {
           }
         }
       } catch (err) {
+        console.error(err);
         if (mounted) { 
             setStatus("error"); 
             setMsg("Impossible de contacter le serveur de paiement."); 
