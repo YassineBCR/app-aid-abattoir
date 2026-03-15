@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { FiCheckCircle, FiArrowRight, FiDownload, FiLoader, FiMail, FiTag, FiCalendar, FiUser } from "react-icons/fi";
 import { supabase } from "../lib/supabase";
@@ -7,37 +7,95 @@ import { QRCodeCanvas } from "qrcode.react";
 export default function PaiementReussi() {
   const [searchParams] = useSearchParams();
   const panierId = searchParams.get('panier_id');
-  const sessionId = searchParams.get('session_id'); // NOUVEAU : on capte l'ID de session Stripe
+  const sessionId = searchParams.get('session_id'); 
   
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [emailsSent, setEmailsSent] = useState(false);
 
+  // 👉 LE BOUCLIER ANTI-DOUBLONS
+  const processedRef = useRef(false);
+
+  // 1. useEffect PRINCIPAL : Validation à toute épreuve
   useEffect(() => {
     const validateAndFetch = async () => {
-      if (!panierId || !sessionId) {
-          setLoading(false);
-          return;
-      }
-      try {
-        // NOUVEAU : On appelle notre backend pour qu'il valide avec la bonne référence !
-        await fetch("http://localhost:3000/valider-panier", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ panierId, sessionId })
-        });
+      // Si on a déjà lancé le processus, on s'arrête immédiatement !
+      if (processedRef.current) return;
+      processedRef.current = true; // On verrouille la porte
 
-        // Ensuite on charge les tickets pour l'affichage
-        const { data, error } = await supabase
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const user = authData?.user;
+
+        if (!user) {
+            setLoading(false);
+            return;
+        }
+
+        // ÉTAPE A : On récupère les tickets "en_attente"
+        const { data: ticketsToPay } = await supabase
+          .from('commandes')
+          .select('*')
+          .eq('client_id', user.id)
+          .eq('statut', 'en_attente');
+
+        if (ticketsToPay && ticketsToPay.length > 0) {
+            for (const ticket of ticketsToPay) {
+                const vraiMontantAcompte = ticket.acompte_cents || 5000; 
+
+                // 1. On passe le ticket en payé
+                await supabase
+                  .from('commandes')
+                  .update({ 
+                      statut: 'acompte_paye',
+                      montant_paye_cents: vraiMontantAcompte 
+                  }) 
+                  .eq('id', ticket.id);
+
+                // 2. On crée la ligne d'historique (Traçabilité)
+                const { data: existing } = await supabase
+                    .from('historique_paiements')
+                    .select('id')
+                    .eq('reference_externe', sessionId || `web_${ticket.id}`)
+                    .eq('commande_id', ticket.id)
+                    .maybeSingle();
+
+                if (!existing) {
+                    await supabase.from('historique_paiements').insert({
+                        commande_id: ticket.id,
+                        ticket_num: ticket.ticket_num,
+                        montant_cents: vraiMontantAcompte,
+                        moyen_paiement: 'stripe',
+                        encaisse_par: 'Site Web (Stripe)',
+                        reference_externe: sessionId || `web_${ticket.id}`
+                    });
+                }
+            }
+        }
+
+        if (panierId && sessionId) {
+            fetch("http://localhost:3000/valider-panier", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ panierId, sessionId })
+            }).catch(() => console.log("Backend injoignable."));
+        }
+
+        let query = supabase
           .from('commandes')
           .select('*, creneaux_horaires(date, heure_debut)')
-          .eq('panier_id', panierId)
+          .eq('client_id', user.id)
+          .eq('statut', 'acompte_paye')
           .order('ticket_num', { ascending: true });
 
+        if (panierId) query = query.eq('panier_id', panierId);
+
+        const { data, error } = await query;
         if (error) throw error;
+        
         setTickets(data || []);
       } catch (err) {
-        console.error("Erreur lors de la récupération des tickets:", err);
+        console.error("Erreur globale PaiementReussi:", err);
       } finally {
         setLoading(false);
       }
@@ -46,10 +104,13 @@ export default function PaiementReussi() {
     validateAndFetch();
   }, [panierId, sessionId]);
 
+  // 2. useEffect SECONDAIRE : Envoi des emails
   useEffect(() => {
       if (tickets.length > 0) {
           const envoyerEmails = async () => {
-              const alreadySent = sessionStorage.getItem(`emails_sent_${panierId}`);
+              const storageKey = panierId ? `emails_sent_${panierId}` : `emails_sent_last_order`;
+              const alreadySent = sessionStorage.getItem(storageKey);
+              
               if (alreadySent) {
                   setEmailsSent(true);
                   return;
@@ -78,12 +139,12 @@ export default function PaiementReussi() {
                           });
                           emailSentCount++;
                       } catch (err) {
-                          console.error(`Erreur d'envoi pour le ticket ${ticket.ticket_num}`, err);
+                          console.error(`Erreur email ticket ${ticket.ticket_num}`, err);
                       }
                   }
               }
 
-              sessionStorage.setItem(`emails_sent_${panierId}`, 'true');
+              sessionStorage.setItem(storageKey, 'true');
               if (emailSentCount > 0) setEmailsSent(true);
           };
 

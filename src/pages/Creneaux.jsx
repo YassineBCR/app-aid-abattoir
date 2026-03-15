@@ -3,24 +3,28 @@ import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiClock, FiUsers, FiEdit3, FiPlus, FiTrash2, FiPieChart, FiEye, FiSearch, FiPrinter, FiPhone, FiFileText, FiX, FiCalendar,
-  FiBox, FiTag, FiXCircle, FiCheck, FiLayers, FiUser, FiInfo, FiGrid
+  FiBox, FiTag, FiXCircle, FiCheck, FiLayers, FiUser, FiInfo, FiGrid, FiSettings
 } from "react-icons/fi";
-import { logAction } from "../lib/logger"; // <--- IMPORT DU LOGGER
+import { logAction } from "../lib/logger";
 
 // =========================================================
-// SOUS-COMPOSANT 1 : GESTION DES CRENEAUX (HORAIRES/QUOTA)
+// SOUS-COMPOSANT 1 : GESTION DES CRENEAUX
 // =========================================================
 function CreneauxManager() {
   const [creneaux, setCreneaux] = useState([]);
+  const [joursConfig, setJoursConfig] = useState([]);
   const [loading, setLoading] = useState(true);
   const { showNotification } = useNotification();
   
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({ 
-    date: new Date().toISOString().split('T')[0], heure_debut: "", heure_fin: "", capacite_max: 50 
+    date: "", heure_debut: "", heure_fin: "", capacite_max: 50 
   });
   
+  const [showDatesModal, setShowDatesModal] = useState(false);
+  const [editJours, setEditJours] = useState([]);
+
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [slotOrders, setSlotOrders] = useState([]);
@@ -31,6 +35,9 @@ function CreneauxManager() {
 
   const fetchCreneaux = async () => {
     try {
+      const { data: jours } = await supabase.from("jours_fete").select("*").order("numero", { ascending: true });
+      setJoursConfig(jours || []);
+
       const { data: slots, error } = await supabase.from("creneaux_horaires").select("*").order("date", { ascending: true }).order("heure_debut", { ascending: true });
       if (error) throw error;
 
@@ -70,25 +77,66 @@ function CreneauxManager() {
           setFormData({ date: creneau.date, heure_debut: creneau.heure_debut, heure_fin: creneau.heure_fin, capacite_max: creneau.capacite_max });
       } else {
           setEditingId(null);
-          setFormData({ date: new Date().toISOString().split('T')[0], heure_debut: "", heure_fin: "", capacite_max: 50 });
+          const defaultDate = joursConfig.length > 0 ? joursConfig[0].date_fete : "";
+          setFormData({ date: defaultDate, heure_debut: "", heure_fin: "", capacite_max: 50 });
       }
       setShowModal(true);
   };
 
+  const openDatesModal = () => {
+      setEditJours(joursConfig.map(j => ({ ...j })));
+      setShowDatesModal(true);
+  };
+
+  // 🟢 CORRECTION : On utilise .eq("numero", jour.numero) au lieu de l'ID
+  const handleSaveDates = async (e) => {
+      e.preventDefault();
+      try {
+          for (const jour of editJours) {
+              const original = joursConfig.find(j => j.numero === jour.numero);
+              
+              if (original && original.date_fete !== jour.date_fete && jour.date_fete) {
+                  // 1. Mettre à jour la table jours_fete
+                  const { error: errJours } = await supabase
+                      .from("jours_fete")
+                      .update({ date_fete: jour.date_fete })
+                      .eq("numero", jour.numero); // Utilisation du numéro comme clé
+                  
+                  if (errJours) throw errJours;
+
+                  // 2. Mettre à jour la table creneaux_horaires (décaler les créneaux)
+                  if (original.date_fete) {
+                      const { error: errCreneaux } = await supabase
+                          .from("creneaux_horaires")
+                          .update({ date: jour.date_fete })
+                          .eq("date", original.date_fete);
+                      
+                      if (errCreneaux) throw errCreneaux;
+                  }
+              }
+          }
+          showNotification("Les dates ont été mises à jour !", "success");
+          setShowDatesModal(false);
+          fetchCreneaux();
+      } catch (err) {
+          console.error("Erreur sauvegarde dates:", err);
+          showNotification("Erreur : " + err.message, "error");
+      }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!formData.date) return showNotification("Veuillez sélectionner un jour.", "error");
     if (formData.heure_debut >= formData.heure_fin) return showNotification("L'heure de fin doit être après l'heure de début.", "error");
     const payload = { ...formData, capacite_max: Number(formData.capacite_max) || 0 };
     try {
       if (editingId) { 
           await supabase.from("creneaux_horaires").update(payload).eq("id", editingId); 
           showNotification("Créneau mis à jour", "success"); 
-          logAction('MODIFICATION', 'SYSTEME', { action: 'Modification du créneau', id: editingId, ...payload });
       } 
       else { 
           await supabase.from("creneaux_horaires").insert([payload]); 
           showNotification("Créneau créé", "success"); 
-          logAction('CREATION', 'SYSTEME', { action: 'Création de créneau', ...payload });
       }
       setShowModal(false); fetchCreneaux();
     } catch (error) { showNotification("Erreur : " + (error.message || "Impossible d'enregistrer"), "error"); }
@@ -99,7 +147,6 @@ function CreneauxManager() {
       try {
           await supabase.from("creneaux_horaires").delete().eq("id", id);
           showNotification("Créneau supprimé", "success"); 
-          logAction('SUPPRESSION', 'SYSTEME', { action: 'Suppression du créneau', id: id });
           fetchCreneaux();
       } catch(err) { showNotification("Impossible de supprimer (Commandes actives ?)", "error"); }
   };
@@ -113,7 +160,7 @@ function CreneauxManager() {
   };
 
   const filteredOrders = slotOrders.filter(o => o.contact_last_name?.toLowerCase().includes(searchTerm.toLowerCase()) || o.ticket_num?.toString().includes(searchTerm));
-  const formatDateFr = (dateStr) => { if(!dateStr) return ""; const [y, m, d] = dateStr.split('-'); return `${d}/${m}`; };
+  const getJourLabel = (dateStr) => { const j = joursConfig.find(jd => jd.date_fete === dateStr); return j ? `Jour ${j.numero}` : `Jour Inconnu`; };
   const handleCapacityChange = (e) => { const val = e.target.value; setFormData({ ...formData, capacite_max: val === '' ? '' : parseInt(val) }); };
 
   return (
@@ -142,8 +189,12 @@ function CreneauxManager() {
           </div>
       </div>
 
-      <div className="flex justify-end print:hidden">
-          <button onClick={() => openModal()} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/30 flex items-center gap-2 transition-all transform hover:-translate-y-1 active:scale-95">
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
+          <button onClick={openDatesModal} className="w-full sm:w-auto px-5 py-3 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl font-bold shadow-sm flex items-center justify-center gap-2 transition-all">
+              <FiSettings className="text-xl text-slate-400" /> Modifier la date des jours
+          </button>
+
+          <button onClick={() => openModal()} className="w-full sm:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-1 active:scale-95">
               <FiPlus className="text-xl" /> Nouveau Créneau
           </button>
       </div>
@@ -158,7 +209,7 @@ function CreneauxManager() {
                 <div key={c.id} className="group bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col hover:shadow-2xl transition-all duration-300 relative">
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${statusColor}`}></div>
                     <div className="p-6 flex-1">
-                        <div className="mb-2 text-xs font-bold uppercase text-slate-400 flex items-center gap-1"><FiCalendar /> {formatDateFr(c.date)}</div>
+                        <div className="mb-2 text-xs font-bold uppercase text-slate-400 flex items-center gap-1"><FiCalendar /> {getJourLabel(c.date)}</div>
                         <div className="flex justify-between items-start mb-4"><h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{c.heure_debut.slice(0,5)} <span className="text-slate-300 mx-1 font-light">à</span> {c.heure_fin.slice(0,5)}</h3></div>
                         <div className="space-y-3">
                             <div className="flex justify-between items-end">
@@ -183,6 +234,48 @@ function CreneauxManager() {
         })}
       </div>
 
+      {showDatesModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in print:hidden">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                    <h2 className="text-xl font-bold flex items-center gap-2">Dates Officielles</h2>
+                    <button onClick={() => setShowDatesModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><FiX/></button>
+                </div>
+                <form onSubmit={handleSaveDates} className="p-6 space-y-6">
+                    <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
+                        Modifiez les dates. Tous les créneaux existants s'adapteront automatiquement.
+                    </p>
+                    
+                    <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
+                        {editJours.map((jour, index) => (
+                            <div key={index} className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
+                                    <FiCalendar /> Jour {jour.numero}
+                                </label>
+                                <input 
+                                    type="date" 
+                                    required 
+                                    value={jour.date_fete} 
+                                    onChange={e => {
+                                        const newJours = [...editJours];
+                                        newJours[index].date_fete = e.target.value;
+                                        setEditJours(newJours);
+                                    }} 
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex gap-3">
+                        <button type="button" onClick={() => setShowDatesModal(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors">Annuler</button>
+                        <button type="submit" className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30">Mettre à jour</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in print:hidden">
             <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -192,8 +285,13 @@ function CreneauxManager() {
                 </div>
                 <form onSubmit={handleSave} className="p-6 space-y-6">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase">Date du créneau</label>
-                        <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"/>
+                        <label className="text-xs font-bold text-slate-500 uppercase">Sélection du Jour</label>
+                        <select required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="" disabled>Choisir un jour</option>
+                            {joursConfig.map(j => (
+                                <option key={j.numero} value={j.date_fete}>Jour {j.numero} ({new Date(j.date_fete).toLocaleDateString('fr-FR')})</option>
+                            ))}
+                        </select>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -228,7 +326,7 @@ function CreneauxManager() {
                   <div className="p-6 bg-slate-900 text-white flex justify-between items-center print:hidden shrink-0">
                       <div>
                           <h2 className="text-2xl font-bold flex items-center gap-2"><FiFileText /> Liste du Créneau</h2>
-                          <p className="text-slate-400 font-mono text-lg">{formatDateFr(selectedSlot.date)} • {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p>
+                          <p className="text-slate-400 font-mono text-lg">{getJourLabel(selectedSlot.date)} • {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p>
                       </div>
                       <div className="flex gap-3">
                           <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg"><FiPrinter/> Imprimer</button>
@@ -269,7 +367,7 @@ function CreneauxManager() {
 }
 
 // =========================================================
-// SOUS-COMPOSANT 2 : GESTION DU STOCK (ATTRIBUTION TICKETS)
+// SOUS-COMPOSANT 2 : GESTION DU STOCK
 // =========================================================
 function StockManager() {
   const { showNotification } = useNotification();
@@ -359,7 +457,6 @@ function StockManager() {
         const { error } = await supabase.rpc("assigner_liste_tickets", { p_ticket_nums: selectedForAdd, p_creneau_id: selectedSlotId });
         if (error) throw error;
         
-        // LOG ACTION
         logAction('AJOUT', 'STOCK', { quantite: selectedForAdd.length, creneau: selectedSlotId, methode: 'grille_visuelle' });
 
         showNotification(`${selectedForAdd.length} tickets ajoutés au stock !`, "success");
@@ -387,7 +484,6 @@ function StockManager() {
       const { error } = await supabase.rpc("assigner_ticket_stock", { p_ticket_num: parseInt(numTicket), p_creneau_id: creneauId });
       if (error) throw error;
       
-      // LOG ACTION
       logAction('AJOUT', 'STOCK', { ticket: parseInt(numTicket), creneau: creneauId });
 
       showNotification(`Ticket #${numTicket} ajouté !`, "success");
@@ -401,7 +497,6 @@ function StockManager() {
       const { error } = await supabase.rpc("retirer_ticket_stock", { p_ticket_num: ticketNum });
       if (error) throw error;
       
-      // LOG ACTION
       logAction('RETRAIT', 'STOCK', { ticket: ticketNum });
 
       showNotification("Ticket retiré.", "info");
@@ -412,7 +507,7 @@ function StockManager() {
 
   const getJourLabel = (dateStr) => {
     const j = joursConfig.find(jd => jd.date_fete === dateStr);
-    return j ? `JOUR ${j.numero}` : dateStr;
+    return j ? `JOUR ${j.numero}` : `JOUR INCONNU`;
   };
 
   const groupedCreneaux = creneaux.reduce((acc, curr) => {

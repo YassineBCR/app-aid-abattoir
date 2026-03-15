@@ -35,43 +35,52 @@ app.use(express.json());
 
 // --- MODIFICATION ICI : On demande à Stripe de nous renvoyer l'ID de session {CHECKOUT_SESSION_ID} ---
 app.post("/create-checkout-session", async (req, res) => {
+  const { montantTotal, panierId, description, email } = req.body;
+
   try {
-    // Compatibilité : nouveau flux PANIER et ancien flux TICKET unique
-    const {
-      montantTotal,   // nouveau flux (panier)
-      panierId,       // nouveau flux (panier)
-      description,
-      email,
-      montant,        // ancien flux (PaiementStripe.jsx)
-      commandeId      // ancien flux (PaiementStripe.jsx)
-    } = req.body;
-
-    const amount = montantTotal ?? montant;
-    const metaPanierId = panierId ?? commandeId;
-
-    if (!amount || !metaPanierId) {
-      return res.status(400).json({ error: "Montant ou identifiant de panier/commande manquant." });
-    }
-
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      customer_email: email || undefined,
-      line_items: [{
-        price_data: {
-          currency: "eur",
-          product_data: { name: description || "Réservation Abattoir" },
-          unit_amount: amount
+      line_items: [
+        {
+          price_data: {
+            currency: "eur",
+            product_data: { 
+              // Le nom du produit qui apparaîtra sur la page de paiement du client
+              name: description 
+            },
+            unit_amount: montantTotal,
+          },
+          quantity: 1,
         },
-        quantity: 1
-      }],
+      ],
       mode: "payment",
-      metadata: { panierId: metaPanierId },
-      success_url: `http://localhost:5173/paiement-reussi?panier_id=${metaPanierId}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `http://localhost:5173/paiement-annule?panier_id=${metaPanierId}`,
+      
+      // Pré-remplit l'email du client sur la page Stripe
+      customer_email: email, 
+      
+      // Référence interne pour faire le lien facilement dans les exports Stripe
+      client_reference_id: panierId, 
+      
+      // 👉 LA MODIFICATION EST ICI :
+      // Cela force Stripe à afficher "Panier #..." dans la colonne Description de ton Dashboard
+      payment_intent_data: {
+        description: `Panier #${panierId.split('-')[0]} - ${description}`,
+      },
+
+      // Les métadonnées invisibles pour le client, mais utiles pour toi ou des webhooks
+      metadata: {
+        panier_id: panierId,
+        type_commande: "reservation_agneaux"
+      },
+
+      // Les URL de redirection après le paiement
+      success_url: `http://localhost:5173/paiement-reussi?session_id={CHECKOUT_SESSION_ID}&panier_id=${panierId}`,
+      cancel_url: `http://localhost:5173/reservation`,
     });
 
     res.json({ url: session.url });
   } catch (error) {
+    console.error("Erreur Stripe:", error);
     res.status(500).json({ error: error.message });
   }
 });

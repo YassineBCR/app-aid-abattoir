@@ -8,7 +8,6 @@ import {
   FiClock, FiArrowRight, FiArrowLeft, FiPhone, FiMail, FiCreditCard, 
   FiLoader, FiMapPin, FiShoppingCart, FiPlus, FiTrash2, FiAlertCircle, FiTag
 } from "react-icons/fi";
-import { FaMosque } from "react-icons/fa6";
 
 const customStyles = `
   @keyframes blob { 0% { transform: translate(0px, 0px) scale(1); } 33% { transform: translate(30px, -50px) scale(1.1); } 66% { transform: translate(-20px, 20px) scale(0.9); } 100% { transform: translate(0px, 0px) scale(1); } }
@@ -77,6 +76,12 @@ export default function Reservation() {
           const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
           const configPrix = prix || [];
           setTarifs(configPrix);
+          
+          if (configPrix.length > 0) {
+              setSelectedTarif(configPrix[0]);
+          } else {
+              setSelectedTarif({ categorie: '1', nom: 'Place Standard', prix_cents: 0, acompte_cents: 5000 });
+          }
 
           const { data: slots } = await supabase.rpc("get_creneaux_public");
           setCreneaux((slots || []).map(s => ({ ...s, places_disponibles: s.places_restantes })));
@@ -107,12 +112,13 @@ export default function Reservation() {
                   let creneauStr = "";
                   if (item.creneaux_horaires?.date) {
                       const j = configJours.find(jd => jd.date_fete === item.creneaux_horaires.date);
-                      const jourLabel = j ? `Jour ${j.numero}` : new Date(item.creneaux_horaires.date).toLocaleDateString('fr-FR');
+                      // 👉 CORRECTION ICI : On ne formate plus de date, on met "Jour Inconnu" si introuvable
+                      const jourLabel = j ? `Jour ${j.numero}` : 'Jour Inconnu';
                       creneauStr = `${jourLabel} à ${item.creneaux_horaires.heure_debut.slice(0,5)}`;
                   }
                   return {
                       id: item.id,
-                      ticket_num: item.ticket_num, // RECUPERATION DU TICKET ICI
+                      ticket_num: item.ticket_num, 
                       tarif: tarifName,
                       sacrifice: item.sacrifice_name,
                       creneau: creneauStr,
@@ -162,14 +168,19 @@ export default function Reservation() {
   };
 
   const handleLogout = async () => { await supabase.auth.signOut(); navigate("/"); };
-  const getJourLabel = (dateStr) => { const j = joursConfig.find(jd => jd.date_fete === dateStr); return j ? `Jour ${j.numero}` : new Date(dateStr).toLocaleDateString('fr-FR'); };
+  
+  // 👉 CORRECTION ICI : On ne formate plus la date, on affiche Jour X ou Jour Inconnu
+  const getJourLabel = (dateStr) => { 
+      const j = joursConfig.find(jd => jd.date_fete === dateStr); 
+      return j ? `Jour ${j.numero}` : 'Jour Inconnu'; 
+  };
 
   const handleNext = () => {
     if (step === 1) {
         if (!form.first_name || !form.last_name || !form.phone || !form.sacrifice_name) return showNotification("Veuillez remplir tous les champs.", "error");
         setStep(2);
     } else if (step === 2) {
-        if (!selectedTarif || !selectedCreneau) return showNotification("Veuillez choisir une catégorie et un créneau.", "error");
+        if (!selectedCreneau) return showNotification("Veuillez choisir un créneau.", "error");
         setStep(3);
     }
   };
@@ -203,7 +214,7 @@ export default function Reservation() {
 
           const newItem = {
               id: ticketData.id,
-              ticket_num: ticketData.ticket_num, // SAUVEGARDE DU TICKET
+              ticket_num: ticketData.ticket_num,
               tarif: selectedTarif.nom,
               sacrifice: form.sacrifice_name,
               creneau: `${getJourLabel(selectedCreneau.date)} à ${selectedCreneau.heure_debut.slice(0,5)}`,
@@ -216,10 +227,9 @@ export default function Reservation() {
               setExpireTime(new Date(ticketData.expire_le).getTime());
           }
 
-          showNotification(`Agneau ajouté au panier ! Plus que 1 minutes pour valider.`, "success");
+          showNotification(`Place ajoutée au panier ! Plus que 1 minutes pour valider.`, "success");
           
           setForm({ ...form, sacrifice_name: "" });
-          setSelectedTarif(null);
           setSelectedCreneau(null);
           setStep(1);
 
@@ -253,7 +263,7 @@ export default function Reservation() {
           const { data: slots } = await supabase.rpc("get_creneaux_public");
           setCreneaux((slots || []).map(s => ({ ...s, places_disponibles: s.places_restantes })));
 
-          showNotification("Agneau retiré du panier", "info");
+          showNotification("Place retirée du panier", "info");
       } catch(err) {
           showNotification("Erreur lors du retrait", "error");
       }
@@ -271,7 +281,7 @@ export default function Reservation() {
               body: JSON.stringify({
                   montantTotal: totalAcompteCents, 
                   panierId: panierId,
-                  description: `Réservation de ${panier.length} agneau(x)`,
+                  description: `Réservation de ${panier.length} place(s)`,
                   email: form.email
               }),
           });
@@ -336,13 +346,13 @@ export default function Reservation() {
                             {step === 1 && (
                                 <div className="space-y-6 animate-fade-in">
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">1</span> Vos Coordonnées</h2>
-                                    <p className="text-slate-500 text-sm">Veuillez indiquer pour qui est ce mouton (vous pourrez en ajouter d'autres après).</p>
+                                    <p className="text-slate-500 text-sm">Veuillez indiquer pour qui est cette réservation (vous pourrez en ajouter d'autres après).</p>
                                     <div className="grid gap-6 md:grid-cols-2">
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Prénom de l'acheteur" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Nom de l'acheteur" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
                                         <div className="relative"><FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Téléphone" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} /></div>
                                         <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
-                                        <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice de CE mouton (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
+                                        <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
                                     </div>
                                 </div>
                             )}
@@ -350,18 +360,7 @@ export default function Reservation() {
                             {step === 2 && (
                                 <div className="space-y-8 animate-fade-in">
                                     <div>
-                                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Catégorie</h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                            {tarifs.map((t) => (
-                                                <div key={t.categorie} onClick={() => setSelectedTarif(t)} className={`cursor-pointer p-5 rounded-2xl border-2 transition-all duration-200 ${selectedTarif?.categorie === t.categorie ? 'border-green-500 bg-green-50 dark:bg-green-900/20 transform scale-105 shadow-md' : 'border-slate-100 dark:border-slate-700 hover:border-green-300'}`}>
-                                                    <h4 className="font-bold">{t.nom}</h4>
-                                                    <div className="mt-4 text-right font-black text-green-600">{(t.prix_cents / 100).toFixed(0)} €</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">3</span> Créneau de retrait</h3>
+                                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Créneau de retrait</h3>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                             {creneaux.map((c) => {
                                                 const isFull = c.places_disponibles <= 0;
@@ -379,17 +378,19 @@ export default function Reservation() {
 
                             {step === 3 && (
                                 <div className="space-y-6 animate-fade-in">
-                                    <h2 className="text-2xl font-bold">Vérification de l'agneau</h2>
+                                    <h2 className="text-2xl font-bold">Vérification de la place</h2>
                                     <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 space-y-4">
                                         <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
-                                            <div><p className="font-bold text-lg">{selectedTarif?.nom}</p><p className="text-sm text-slate-500">Pour le sacrifice de : <span className="font-bold text-slate-800 dark:text-white">{form.sacrifice_name}</span></p></div>
-                                            <div className="text-right"><p className="text-xl font-bold">Prix: {(selectedTarif?.prix_cents / 100).toFixed(0)} €</p></div>
+                                            <div>
+                                                <p className="font-bold text-lg">Place Réservée</p>
+                                                <p className="text-sm text-slate-500">Pour le sacrifice de : <span className="font-bold text-slate-800 dark:text-white">{form.sacrifice_name}</span></p>
+                                            </div>
                                         </div>
                                         <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
                                             <div><p className="font-bold text-slate-700 dark:text-slate-200">Retrait le {selectedCreneau ? getJourLabel(selectedCreneau.date) : ""}</p><p className="text-sm text-slate-500">Heure prévue : {selectedCreneau?.heure_debut.slice(0,5)}</p></div>
                                         </div>
                                         <div className="flex justify-between items-center pt-2">
-                                            <span className="font-bold text-slate-700 dark:text-slate-300">Acompte lié à cet agneau :</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300">Acompte lié à cette place :</span>
                                             <span className="text-2xl font-black text-green-600">
                                                 {((selectedTarif?.acompte_cents || 5000) / 100).toFixed(2)} €
                                             </span>
@@ -397,7 +398,7 @@ export default function Reservation() {
                                     </div>
                                     <button onClick={ajouterAuPanier} disabled={addingToCart || !canAddToCart} className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-lg hover:scale-[1.02] shadow-xl transition-all">
                                         {addingToCart ? <FiLoader className="animate-spin text-xl" /> : <FiPlus className="text-xl" />}
-                                        {addingToCart ? "Ajout en cours..." : "Ajouter cet agneau au panier"}
+                                        {addingToCart ? "Ajout en cours..." : "Ajouter cette place au panier"}
                                     </button>
                                 </div>
                             )}
@@ -433,9 +434,8 @@ export default function Reservation() {
                                             <FiTrash2 />
                                         </button>
 
-                                        {/* AFFICHAGE DU NUMERO DE TICKET ICI */}
                                         <div className="flex items-center justify-between pl-3 pr-8 mb-2">
-                                            <p className="font-bold text-slate-800 dark:text-white">{item.tarif}</p>
+                                            <p className="font-bold text-slate-800 dark:text-white">Place Réservée</p>
                                             <span className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-black border border-indigo-200 dark:border-indigo-800 shadow-sm">
                                                 Ticket #{item.ticket_num}
                                             </span>
@@ -456,7 +456,6 @@ export default function Reservation() {
                         {panier.length > 0 && (
                             <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
                                 
-                                {/* ENCART RECAPITULATIF DES BILLETS */}
                                 <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-xl border border-green-100 dark:border-green-800/50 mb-4">
                                     <p className="text-xs font-bold text-green-800 dark:text-green-400 mb-1 flex items-center gap-1.5">
                                         <FiTag /> Numéros réservés pour vous :
@@ -472,7 +471,7 @@ export default function Reservation() {
                                 </div>
                                 <button onClick={validerPanierEtPayer} disabled={paying} className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-bold text-lg shadow-lg hover:scale-[1.02] transition-all">
                                     {paying ? <FiLoader className="animate-spin" /> : <FiCreditCard />} 
-                                    Payer {panier.length} agneau(x)
+                                    Payer {panier.length} place(s)
                                 </button>
                                 <p className="text-[10px] text-center text-slate-400 font-medium mt-3 flex items-center justify-center gap-1"><FiAlertCircle/> Le paiement valide l'intégralité du panier.</p>
                             </div>

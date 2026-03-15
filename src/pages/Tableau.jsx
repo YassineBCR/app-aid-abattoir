@@ -10,6 +10,7 @@ import { logAction } from "../lib/logger";
 export default function Tableau({ changeTab }) {
   const { showNotification } = useNotification();
   const [commandes, setCommandes] = useState([]);
+  const [joursConfig, setJoursConfig] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -27,6 +28,10 @@ export default function Tableau({ changeTab }) {
 
   async function fetchData() {
     try {
+      // Récupération de la configuration des jours
+      const { data: jours } = await supabase.from("jours_fete").select("*");
+      setJoursConfig(jours || []);
+
       const { data, error } = await supabase
         .from("commandes")
         .select(`*, creneaux_horaires ( date, heure_debut )`)
@@ -45,6 +50,12 @@ export default function Tableau({ changeTab }) {
       setLoading(false);
     }
   }
+
+  const getJourLabel = (dateStr) => { 
+      if (!dateStr) return "-";
+      const j = joursConfig.find(jd => jd.date_fete === dateStr); 
+      return j ? `Jour ${j.numero}` : 'Jour Inconnu'; 
+  };
 
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
@@ -74,8 +85,8 @@ export default function Tableau({ changeTab }) {
   const exportToCSV = () => {
     const headers = ["Ticket", "Client", "Téléphone", "Email", "Sacrifice", "Boucle", "Date Retrait", "Acompte", "Payé Total", "Reste à payer", "Statut", "Ref Stripe"];
     const rows = commandes.map(c => {
-      const dejaPaye = (c.montant_paye_cents || c.acompte_cents || 0) / 100;
-      const total = (c.montant_total_cents || 0) / 100;
+      const dejaPaye = (Number(c.montant_paye_cents) || 0) / 100;
+      const total = (Number(c.montant_total_cents) || 0) / 100;
       const reste = Math.max(0, total - dejaPaye);
       
       let statutFr = "En Attente";
@@ -91,7 +102,7 @@ export default function Tableau({ changeTab }) {
           c.contact_email,
           c.sacrifice_name,
           c.numero_boucle || c.ticket_num,
-          c.creneaux_horaires ? `${new Date(c.creneaux_horaires.date).toLocaleDateString('fr-FR')} à ${c.creneaux_horaires.heure_debut.slice(0,5)}` : "-",
+          c.creneaux_horaires ? `${getJourLabel(c.creneaux_horaires.date)} à ${c.creneaux_horaires.heure_debut.slice(0,5)}` : "-",
           `${(c.acompte_cents / 100).toFixed(2)} €`,
           `${dejaPaye.toFixed(2)} €`,
           `${reste.toFixed(2)} €`,
@@ -119,8 +130,8 @@ export default function Tableau({ changeTab }) {
   const renderStatut = (cmd) => {
     if (cmd.statut === 'annule') return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-2.5 py-1 rounded-lg border border-red-200"><FiAlertCircle /> Annulé</span>;
     if (cmd.statut === 'bouclee') return <span className="inline-flex items-center gap-1 text-xs font-bold text-white bg-emerald-600 px-2.5 py-1 rounded-lg shadow-sm"><FiTag /> Bouclée</span>;
-    const dejaPaye = (cmd.montant_paye_cents || cmd.acompte_cents || 0) / 100;
-    const total = (cmd.montant_total_cents || 0) / 100;
+    const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
+    const total = (Number(cmd.montant_total_cents) || 0) / 100;
     const reste = Math.max(0, total - dejaPaye);
     if (reste <= 0.05 && dejaPaye > 0) return <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200"><FiCheckCircle /> Payé</span>;
     if (dejaPaye > 0) return <span className="inline-flex items-center gap-1 text-xs font-bold text-orange-700 bg-orange-100 px-2.5 py-1 rounded-lg border border-orange-200"><FiCreditCard /> Réservé</span>;
@@ -163,7 +174,7 @@ export default function Tableau({ changeTab }) {
                 <th className="p-5 hidden sm:table-cell">Contact</th>
                 <th className="p-5 hidden md:table-cell">Retrait Prévu</th>
                 <th className="p-5">Boucle</th>
-                <th className="p-5 text-right">Reste</th>
+                <th className="p-5 text-right">Reste / Payé</th>
                 <th className="p-5 text-center">Statut</th>
               </tr>
             </thead>
@@ -174,8 +185,8 @@ export default function Tableau({ changeTab }) {
                 <tr><td colSpan="7" className="p-12 text-center text-slate-400">Aucune commande trouvée.</td></tr>
               ) : (
                 filteredCommandes.map(cmd => {
-                  const dejaPaye = (cmd.montant_paye_cents || cmd.acompte_cents || 0) / 100;
-                  const total = (cmd.montant_total_cents || 0) / 100;
+                  const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
+                  const total = (Number(cmd.montant_total_cents) || 0) / 100;
                   const reste = Math.max(0, total - dejaPaye);
 
                   return (
@@ -196,7 +207,7 @@ export default function Tableau({ changeTab }) {
                         <p className="text-xs text-slate-400 truncate max-w-[150px]">{cmd.contact_email}</p>
                       </td>
                       <td className="p-5 hidden md:table-cell">
-                        <p className="font-bold text-slate-700 dark:text-slate-200">{cmd.creneaux_horaires ? new Date(cmd.creneaux_horaires.date).toLocaleDateString('fr-FR') : "-"}</p>
+                        <p className="font-bold text-slate-700 dark:text-slate-200">{cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "-"}</p>
                         <p className="text-xs text-slate-500 mt-0.5">{cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0,5) : ""}</p>
                       </td>
                       <td className="p-5">
@@ -211,6 +222,9 @@ export default function Tableau({ changeTab }) {
                         )}
                       </td>
                       <td className="p-5 text-right font-black text-slate-800 dark:text-white text-base">
+                        {dejaPaye > 0 && reste > 0 && (
+                            <div className="text-[10px] text-emerald-600 font-black uppercase mb-1">Payé: {dejaPaye.toFixed(2)}€</div>
+                        )}
                         {reste > 0.05 ? <span className="text-slate-800 dark:text-white">{reste.toFixed(2)} €</span> : <span className="text-emerald-500">0.00 €</span>}
                       </td>
                       <td className="p-5 text-center">
@@ -255,49 +269,38 @@ export default function Tableau({ changeTab }) {
                               </div>
                           </div>
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-                              <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiTag/> Agneau & Retrait</h4>
+                              <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiTag/> Place & Retrait</h4>
                               <div>
                                   <p className="text-sm text-slate-500 mb-1">Pour : <strong className="text-slate-800 dark:text-white">{selectedOrder.sacrifice_name}</strong></p>
                                   <p className="text-sm text-slate-500 mb-2">Boucle : <strong className="text-emerald-600 font-black">{selectedOrder.numero_boucle || "En attente"}</strong></p>
                                   <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700 mt-3">
                                       <p className="text-xs font-bold text-slate-400 flex items-center gap-1 mb-1"><FiCalendar/> Créneau</p>
-                                      {selectedOrder.creneaux_horaires ? <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{new Date(selectedOrder.creneaux_horaires.date).toLocaleDateString('fr-FR')} <span className="text-slate-400 mx-1">à</span> {selectedOrder.creneaux_horaires.heure_debut.slice(0,5)}</p> : <p className="text-sm text-slate-400">Non défini</p>}
+                                      {selectedOrder.creneaux_horaires ? <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{getJourLabel(selectedOrder.creneaux_horaires.date)} <span className="text-slate-400 mx-1">à</span> {selectedOrder.creneaux_horaires.heure_debut.slice(0,5)}</p> : <p className="text-sm text-slate-400">Non défini</p>}
                                   </div>
                               </div>
                           </div>
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiDollarSign/> État Financier</h4>
                               <div className="space-y-2">
-                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span> <span className="font-bold dark:text-white">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span></div>
-                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total Net Encaissé:</span> <span className="font-bold text-emerald-600">{((selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0) / 100).toFixed(2)} €</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span> <span className="font-bold dark:text-white">{(Number(selectedOrder.montant_total_cents) / 100).toFixed(2)} €</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total Net Encaissé:</span> <span className="font-bold text-emerald-600">{(Number(selectedOrder.montant_paye_cents || 0) / 100).toFixed(2)} €</span></div>
                                   <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                                       <span className="text-xs font-bold text-slate-400 uppercase">Reste</span>
-                                      <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, ((selectedOrder.montant_total_cents || 0) - (selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0)) / 100).toFixed(2)} €</span>
+                                      <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, (Number(selectedOrder.montant_total_cents || 0) - Number(selectedOrder.montant_paye_cents || 0)) / 100).toFixed(2)} €</span>
                                   </div>
-
-                                  {/* AFFICHAGE DE LA REF STRIPE */}
-                                  {selectedOrder.stripe_ref && (
-                                      <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700">
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
-                                          <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 break-all select-all">
-                                              {selectedOrder.stripe_ref}
-                                          </p>
-                                      </div>
-                                  )}
-                                  
                               </div>
                           </div>
                       </div>
 
                       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                           <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700">
-                              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiClock className="text-indigo-500"/> Historique des paiements de ce ticket</h4>
+                              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiClock className="text-indigo-500"/> Historique des paiements</h4>
                           </div>
                           <div className="p-4">
                               {loadingHistory ? (
                                   <p className="text-center text-slate-400 text-sm py-4 animate-pulse">Recherche dans la comptabilité...</p>
                               ) : orderHistory.length === 0 ? (
-                                  <p className="text-center text-slate-400 text-sm py-4">Aucune trace de paiement guichet pour ce dossier.</p>
+                                  <p className="text-center text-slate-400 text-sm py-4">Aucun paiement enregistré pour ce dossier.</p>
                               ) : (
                                   <div className="space-y-3">
                                       {orderHistory.map(tx => (
@@ -308,7 +311,6 @@ export default function Tableau({ changeTab }) {
                                                       <span className="uppercase">{tx.moyen_paiement}</span>
                                                   </p>
                                                   <p className="text-xs text-slate-500 mt-1">Le {new Date(tx.date_paiement).toLocaleString('fr-FR')} par {tx.encaisse_par}</p>
-                                                  {tx.notes && <p className="text-xs text-red-600 font-bold mt-1 bg-white dark:bg-slate-900 inline-block px-2 py-1 rounded shadow-sm">Motif: {tx.notes}</p>}
                                               </div>
                                               <div className={`text-right font-black mt-2 sm:mt-0 text-lg ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{(Number(tx.montant_cents) / 100).toFixed(2)} €</div>
                                           </div>

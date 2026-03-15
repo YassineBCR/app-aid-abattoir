@@ -28,6 +28,8 @@ export default function PriseEnCharge() {
   const [commande, setCommande] = useState(null);
   const [searchResults, setSearchResults] = useState([]); 
   const [historique, setHistorique] = useState([]);
+  const [categorieChoisie, setCategorieChoisie] = useState("");
+  const [loadingCategorie, setLoadingCategorie] = useState(false);
   
   const [montantEncaisse, setMontantEncaisse] = useState("");
   const [modePaiement, setModePaiement] = useState("especes");
@@ -50,6 +52,18 @@ export default function PriseEnCharge() {
   useEffect(() => {
     checkActiveCaisse();
   }, []);
+
+  useEffect(() => {
+    const loadTarifs = async () => {
+      try {
+        const { data } = await supabase.from("tarifs").select("*").order("prix_cents");
+        setTarifs(data || []);
+      } catch (err) {
+        showNotification("Erreur de chargement des tarifs.", "error");
+      }
+    };
+    loadTarifs();
+  }, [showNotification]);
 
   const checkActiveCaisse = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -102,6 +116,7 @@ export default function PriseEnCharge() {
       setCommande(cmd); 
       setSearchInput(cmd.ticket_num?.toString() || ""); 
       setMontantEncaisse(""); 
+      setCategorieChoisie(cmd.categorie || "");
       loadHistorique(cmd.id);
   };
   
@@ -264,6 +279,38 @@ export default function PriseEnCharge() {
       } catch (err) { showNotification("Erreur d'encaissement.", "error"); } finally { setLoadingPaiement(false); }
   };
 
+  const appliquerCategorie = async () => {
+      if (!commande) return;
+      if (!categorieChoisie) return showNotification("Sélectionnez une catégorie.", "error");
+      const tarif = tarifs.find(t => t.categorie === categorieChoisie);
+      if (!tarif) return showNotification("Tarif introuvable pour cette catégorie.", "error");
+      setLoadingCategorie(true);
+      try {
+          const { error } = await supabase
+              .from("commandes")
+              .update({
+                  categorie: categorieChoisie,
+                  montant_total_cents: tarif.prix_cents
+              })
+              .eq("id", commande.id);
+          if (error) throw error;
+
+          logAction('MODIFICATION', 'COMMANDE', { 
+              ticket: commande.ticket_num, 
+              nouvelle_categorie: categorieChoisie, 
+              nouveau_montant_total: tarif.prix_cents / 100 
+          });
+
+          showNotification("Catégorie appliquée. Montant mis à jour.", "success");
+          const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
+          if (data) selectCommande(data);
+      } catch (err) {
+          showNotification("Erreur lors de l'application de la catégorie.", "error");
+      } finally {
+          setLoadingCategorie(false);
+      }
+  };
+
   const promptAnnulerTransaction = (transaction) => {
       if (!activeCaisse) return showNotification("Caisse fermée.", "error");
       if (transaction.moyen_paiement === 'stripe') return showNotification("Impossible d'annuler un paiement Stripe.", "error");
@@ -418,6 +465,42 @@ export default function PriseEnCharge() {
                                 <p className="text-slate-500 text-sm mt-1">{commande.contact_phone}</p>
                                 <span className="mt-3 inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase bg-indigo-50 text-indigo-600 border border-indigo-100">Sacrifice: {commande.sacrifice_name}</span>
                             </div>
+
+                            {!isPaye && (
+                              <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 space-y-3">
+                                  <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.14em]">
+                                      Catégorie finale du client
+                                  </p>
+                                  <select
+                                      value={categorieChoisie}
+                                      onChange={(e) => setCategorieChoisie(e.target.value)}
+                                      className="w-full p-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950/60 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/70 dark:text-white transition-all"
+                                  >
+                                      <option value="">Choisir une catégorie</option>
+                                      {tarifs.map(t => (
+                                          <option key={t.categorie} value={t.categorie}>
+                                              Cat. {t.categorie} - {t.nom} ({(t.prix_cents/100).toFixed(2)} €)
+                                          </option>
+                                      ))}
+                                  </select>
+                                  <button
+                                      type="button"
+                                      onClick={appliquerCategorie}
+                                      disabled={loadingCategorie || !categorieChoisie}
+                                      className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-indigo-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all"
+                                  >
+                                      {loadingCategorie ? "Application..." : "Appliquer"}
+                                  </button>
+                                  {commande.categorie && (
+                                      <p className="text-[11px] text-slate-500 dark:text-slate-300 flex items-center gap-1">
+                                          Catégorie actuelle :{" "}
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-[10px] font-black text-indigo-700 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-400">
+                                              CAT. {commande.categorie}
+                                          </span>
+                                      </p>
+                                  )}
+                              </div>
+                            )}
 
                             <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
                                 <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
