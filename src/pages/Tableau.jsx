@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { 
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
-  FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight
+  FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
-import { logAction } from "../lib/logger"; // <--- IMPORT DU LOGGER
+import { logAction } from "../lib/logger"; 
 
 export default function Tableau({ changeTab }) {
   const { showNotification } = useNotification();
@@ -72,7 +72,7 @@ export default function Tableau({ changeTab }) {
   };
 
   const exportToCSV = () => {
-    const headers = ["Ticket", "Client", "Téléphone", "Email", "Sacrifice", "Boucle", "Date Retrait", "Acompte", "Payé Total", "Reste à payer", "Statut"];
+    const headers = ["Ticket", "Client", "Téléphone", "Email", "Sacrifice", "Boucle", "Date Retrait", "Acompte", "Payé Total", "Reste à payer", "Statut", "Ref Stripe"];
     const rows = commandes.map(c => {
       const dejaPaye = (c.montant_paye_cents || c.acompte_cents || 0) / 100;
       const total = (c.montant_total_cents || 0) / 100;
@@ -95,7 +95,8 @@ export default function Tableau({ changeTab }) {
           `${(c.acompte_cents / 100).toFixed(2)} €`,
           `${dejaPaye.toFixed(2)} €`,
           `${reste.toFixed(2)} €`,
-          statutFr
+          statutFr,
+          c.stripe_ref || ""
       ]
     });
     
@@ -108,12 +109,11 @@ export default function Tableau({ changeTab }) {
     link.click();
     document.body.removeChild(link);
 
-    // LOG ACTION
     logAction('EXPORT', 'COMMANDE', { action: 'Export du registre complet des commandes' });
   };
 
   const filteredCommandes = commandes.filter(c => 
-    `${c.contact_last_name} ${c.contact_first_name} ${c.ticket_num} ${c.numero_boucle || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
+    `${c.contact_last_name} ${c.contact_first_name} ${c.ticket_num} ${c.numero_boucle || ''} ${c.stripe_ref || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const renderStatut = (cmd) => {
@@ -145,7 +145,7 @@ export default function Tableau({ changeTab }) {
         <div className="flex items-center gap-3 w-full md:w-auto">
           <div className="relative flex-1 md:w-72 group">
             <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors text-lg" />
-            <input type="text" placeholder="Chercher par nom, ticket..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" />
+            <input type="text" placeholder="Nom, ticket, réf stripe..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" />
           </div>
           <button onClick={exportToCSV} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
             <FiDownload /> Excel
@@ -269,11 +269,22 @@ export default function Tableau({ changeTab }) {
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiDollarSign/> État Financier</h4>
                               <div className="space-y-2">
                                   <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span> <span className="font-bold dark:text-white">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span></div>
-                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total encaissé:</span> <span className="font-bold text-emerald-600">-{((selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0) / 100).toFixed(2)} €</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total Net Encaissé:</span> <span className="font-bold text-emerald-600">{((selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0) / 100).toFixed(2)} €</span></div>
                                   <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                                       <span className="text-xs font-bold text-slate-400 uppercase">Reste</span>
                                       <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, ((selectedOrder.montant_total_cents || 0) - (selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0)) / 100).toFixed(2)} €</span>
                                   </div>
+
+                                  {/* AFFICHAGE DE LA REF STRIPE */}
+                                  {selectedOrder.stripe_ref && (
+                                      <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700">
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
+                                          <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 break-all select-all">
+                                              {selectedOrder.stripe_ref}
+                                          </p>
+                                      </div>
+                                  )}
+                                  
                               </div>
                           </div>
                       </div>
@@ -286,7 +297,7 @@ export default function Tableau({ changeTab }) {
                               {loadingHistory ? (
                                   <p className="text-center text-slate-400 text-sm py-4 animate-pulse">Recherche dans la comptabilité...</p>
                               ) : orderHistory.length === 0 ? (
-                                  <p className="text-center text-slate-400 text-sm py-4">Aucune trace de paiement pour ce dossier.</p>
+                                  <p className="text-center text-slate-400 text-sm py-4">Aucune trace de paiement guichet pour ce dossier.</p>
                               ) : (
                                   <div className="space-y-3">
                                       {orderHistory.map(tx => (

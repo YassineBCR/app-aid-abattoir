@@ -1,159 +1,104 @@
 import express from 'express';
 import cors from 'cors';
-import Stripe from 'stripe';
-import { Resend } from 'resend';
-import PDFDocument from 'pdfkit';
 import dotenv from 'dotenv';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
 const app = express();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const resend = new Resend(process.env.RESEND_API_KEY);
 
-app.use(cors({ origin: process.env.FRONT_ORIGIN || "http://localhost:5173" }));
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+  try { event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET); } 
+  catch (err) { return res.status(400).send(`Webhook Error: ${err.message}`); }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const panierId = session.metadata.panierId; 
+    const stripeRef = session.payment_intent; 
+    if (panierId) {
+      await supabase.rpc('valider_paiement_panier', { p_panier_id: panierId, p_stripe_ref: stripeRef });
+    }
+  }
+  res.json({ received: true });
+});
+
+app.use(cors());
 app.use(express.json());
 
-// --- 1. CRÉATION DU TERMINAL DE PAIEMENT STRIPE ---
-app.post('/create-checkout-session', async (req, res) => {
+// --- MODIFICATION ICI : On demande à Stripe de nous renvoyer l'ID de session {CHECKOUT_SESSION_ID} ---
+app.post("/create-checkout-session", async (req, res) => {
   try {
-    // ON RÉCUPÈRE MAINTENANT LE NUMÉRO DE TICKET (ticketNum)
-    const { montant, commandeId, ticketNum, description } = req.body;
-    if (!commandeId) return res.status(400).json({ error: "ID de commande manquant." });
+    // Compatibilité : nouveau flux PANIER et ancien flux TICKET unique
+    const {
+      montantTotal,   // nouveau flux (panier)
+      panierId,       // nouveau flux (panier)
+      description,
+      email,
+      montant,        // ancien flux (PaiementStripe.jsx)
+      commandeId      // ancien flux (PaiementStripe.jsx)
+    } = req.body;
+
+    const amount = montantTotal ?? montant;
+    const metaPanierId = panierId ?? commandeId;
+
+    if (!amount || !metaPanierId) {
+      return res.status(400).json({ error: "Montant ou identifiant de panier/commande manquant." });
+    }
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      payment_method_types: ["card"],
+      customer_email: email || undefined,
       line_items: [{
-        price_data: { currency: 'eur', product_data: { name: description || 'Acompte Réservation' }, unit_amount: montant },
-        quantity: 1,
+        price_data: {
+          currency: "eur",
+          product_data: { name: description || "Réservation Abattoir" },
+          unit_amount: amount
+        },
+        quantity: 1
       }],
-      mode: 'payment',
-      
-      // L'ASTUCE EST ICI : On force Stripe à nommer ce paiement avec le numéro de ticket !
-      client_reference_id: commandeId.toString(),
-      payment_intent_data: {
-        description: description, // S'affichera en gros dans le dashboard Stripe !
-        metadata: { commande_id: commandeId, ticket_num: ticketNum }
-      },
-
-      success_url: `${process.env.FRONT_ORIGIN || "http://localhost:5173"}/paiement-ok?session_id={CHECKOUT_SESSION_ID}&commande_id=${commandeId}`,
-      cancel_url: `${process.env.FRONT_ORIGIN || "http://localhost:5173"}/paiement-annule?commande_id=${commandeId}`,
+      mode: "payment",
+      metadata: { panierId: metaPanierId },
+      success_url: `http://localhost:5173/paiement-reussi?panier_id=${metaPanierId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `http://localhost:5173/paiement-annule?panier_id=${metaPanierId}`,
     });
 
     res.json({ url: session.url });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// --- 2. VÉRIFICATION DU PAIEMENT ---
-app.get('/verify-session/:sessionId', async (req, res) => {
+// --- NOUVELLE ROUTE : Pour récupérer la référence Stripe manuellement en local ---
+app.post("/valider-panier", async (req, res) => {
   try {
-    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-    res.json({ status: session.payment_status });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    const { panierId, sessionId } = req.body;
+    if (!panierId || !sessionId) return res.status(400).json({ error: "Manque d'informations" });
+
+    // On interroge Stripe pour obtenir le "pi_XXXX" (la vraie référence de paiement)
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const stripeRef = session.payment_intent; 
+
+    if (session.payment_status === 'paid') {
+        await supabase.rpc('valider_paiement_panier', { p_panier_id: panierId, p_stripe_ref: stripeRef });
+        res.json({ success: true, stripeRef });
+    } else {
+        res.status(400).json({ error: "Le paiement n'est pas terminé." });
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 3. ENVOI DU BILLET DESIGN PAR EMAIL + PDF ---
-app.post('/send-ticket-email', async (req, res) => {
-  try {
-    const { email, firstName, ticketNum, sacrificeName, dateCreneau, heureCreneau, qrData } = req.body;
-
-    const primaryGreen = '#0d5c38'; 
-    const darkText = '#1e293b';
-    const grayText = '#475569';
-
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
-    const qrResponse = await fetch(qrImageUrl);
-    const qrArrayBuffer = await qrResponse.arrayBuffer();
-    const qrBuffer = Buffer.from(qrArrayBuffer);
-
-    const doc = new PDFDocument({ size: 'A5', margin: 0 }); 
-    const buffers = [];
-    doc.on('data', buffers.push.bind(buffers));
-
-    doc.rect(0, 0, doc.page.width, doc.page.height).fill('#f1f5f9');
-    doc.rect(0, 0, doc.page.width, 90).fill(primaryGreen);
-    doc.fillColor('white').fontSize(16).font('Helvetica-Bold').text('ABATTOIR GRAMMONT', 0, 25, { align: 'center', tracking: 1 });
-    doc.fontSize(24).text('BILLET OFFICIEL', 0, 48, { align: 'center' });
-
-    const cardMargin = 20;
-    const cardWidth = doc.page.width - (cardMargin * 2);
-    doc.roundedRect(cardMargin, 110, cardWidth, 430, 10).fill('white');
-    doc.roundedRect(cardMargin, 110, cardWidth, 430, 10).lineWidth(1).stroke('#e2e8f0');
-
-    doc.fillColor(primaryGreen).fontSize(42).font('Helvetica-Bold').text(`N° ${ticketNum}`, 0, 140, { align: 'center' });
-
-    const labelX = 45;
-    const valueX = 160;
-    let currentY = 220;
-    const lineSpacing = 35;
-
-    doc.fillColor(grayText).fontSize(14).font('Helvetica').text('SACRIFICE:', labelX, currentY);
-    doc.fillColor(darkText).font('Helvetica-Bold').text(sacrificeName, valueX, currentY);
-    
-    currentY += lineSpacing;
-    doc.fillColor(grayText).font('Helvetica').text('DATE:', labelX, currentY);
-    doc.fillColor(darkText).font('Helvetica-Bold').text(dateCreneau, valueX, currentY);
-
-    currentY += lineSpacing;
-    doc.fillColor(grayText).font('Helvetica').text('HEURE:', labelX, currentY);
-    doc.fillColor(darkText).font('Helvetica-Bold').text(heureCreneau, valueX, currentY);
-
-    const qrSize = 150;
-    const qrX = (doc.page.width - qrSize) / 2;
-    const qrY = 320;
-    
-    doc.roundedRect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 10, 8).lineWidth(3).stroke(primaryGreen);
-    doc.image(qrBuffer, qrX, qrY, { width: qrSize });
-    doc.fillColor(darkText).fontSize(14).font('Helvetica').text("Scannez ce code à l'entrée", 0, qrY + qrSize + 15, { align: 'center' });
-    doc.fillColor(grayText).fontSize(10).font('Helvetica').text("Merci de votre confiance. www.abattoirgrammont.fr", 0, doc.page.height - 30, { align: 'center' });
-    doc.end();
-
-    const pdfBuffer = await new Promise((resolve) => {
-        doc.on('end', () => resolve(Buffer.concat(buffers)));
-    });
-
-    const htmlContent = `
-      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f1f5f9; padding: 40px 10px; text-align: center;">
-        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 10px 15px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
-          <div style="background-color: ${primaryGreen}; padding: 30px 20px; color: #ffffff;">
-            <p style="margin: 0; font-size: 14px; font-weight: bold; letter-spacing: 1px; opacity: 0.9;">ABATTOIR GRAMMONT</p>
-            <h1 style="margin: 5px 0 0; font-size: 28px; font-weight: 900; letter-spacing: 0.5px;">BILLET OFFICIEL</h1>
-          </div>
-          <div style="padding: 30px 20px 10px;">
-            <h2 style="margin: 0; font-size: 48px; color: ${primaryGreen}; font-weight: 900;">N° ${ticketNum}</h2>
-          </div>
-          <div style="padding: 20px 40px; text-align: left;">
-            <table style="width: 100%; font-size: 16px; border-collapse: separate; border-spacing: 0 12px;">
-              <tr><td style="color: ${grayText}; text-transform: uppercase; width: 35%;">Sacrifice:</td><td style="color: ${darkText}; font-weight: bold; font-size: 18px;">${sacrificeName}</td></tr>
-              <tr><td style="color: ${grayText}; text-transform: uppercase;">Date:</td><td style="color: ${darkText}; font-weight: bold; font-size: 17px; text-transform: capitalize;">${dateCreneau}</td></tr>
-              <tr><td style="color: ${grayText}; text-transform: uppercase;">Heure:</td><td style="color: ${darkText}; font-weight: bold; font-size: 17px;">${heureCreneau}</td></tr>
-            </table>
-          </div>
-          <div style="padding: 10px 20px 30px;">
-            <div style="display: inline-block; padding: 5px; border: 3px solid ${primaryGreen}; border-radius: 12px;">
-              <img src="${qrImageUrl}" alt="QR Code" style="width: 180px; height: 180px; display: block;" />
-            </div>
-            <p style="font-size: 15px; color: ${darkText}; margin: 15px 0 0;">Scannez ce code à l'entrée</p>
-          </div>
-        </div>
-        <p style="color: ${grayText}; font-size: 12px; margin-top: 30px;">
-          Merci de votre confiance. <a href="https://www.abattoirgrammont.fr" style="color: ${primaryGreen}; text-decoration: none;">www.abattoirgrammont.fr</a><br><br>
-          <em>Veuillez trouver la version PDF de ce billet en pièce jointe (à imprimer ou à conserver sur votre téléphone).</em>
-        </p>
-      </div>
-    `;
-
-    const data = await resend.emails.send({
-      from: 'Abattoir Grammont <contact@upyb.fr>',
-      to: email,
-      subject: `Votre Billet Officiel - Ticket N°${ticketNum}`,
-      html: htmlContent,
-      attachments: [{ filename: `Billet_Abattoir_Ticket_${ticketNum}.pdf`, content: pdfBuffer }]
-    });
-
-    res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+app.post("/send-ticket-email", async (req, res) => {
+    console.log(`Email envoyé virtuellement à ${req.body.email}`);
+    res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Serveur démarré sur le port ${PORT}`));
+app.listen(PORT, () => { console.log(`✅ Serveur démarré sur le port ${PORT}`); });
