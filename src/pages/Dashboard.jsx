@@ -5,12 +5,9 @@ import { useDarkMode } from "../contexts/DarkModeContext";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiPackage, FiClock, FiUser, FiLogOut, FiTarget, FiMail, FiSun, FiMoon, 
-  FiCamera, FiBell, FiActivity, FiDollarSign, FiTag, FiPlayCircle, FiX, 
-  FiLayers, FiHome, FiSettings, FiList, FiMenu, FiChevronRight
+  FiCamera, FiBell, FiActivity, FiDollarSign, FiTag, FiPieChart, FiX, 
+  FiLayers, FiHome, FiSettings, FiList, FiMenu, FiChevronRight, FiMessageSquare
 } from "react-icons/fi";
-
-import { driver } from "driver.js";
-import "driver.js/dist/driver.css";
 
 // IMPORT DES COMPOSANTS
 import Vendeur from "./Vendeur";
@@ -22,24 +19,29 @@ import AdminLogs from "./AdminLogs";
 import AdminCaisse from "./AdminCaisse";
 import Bouclage from "./Bouclage";
 import AdminSettings from "./AdminSettings";
+import Statistiques from "./Statistiques";
 
 // ---- CONFIGURATION DES RÔLES ET DE L'ORDRE D'AFFICHAGE ----
 const PERMS = {
   client: { sections: [] },
   vendeur: { sections: ["prise_en_charge", "tableau", "bouclage", "commandes"] },
-  admin_site: { sections: ["prise_en_charge", "tableau", "creneaux", "commandes"] },
-  admin_global: { sections: ["prise_en_charge", "tableau", "creneaux", "commandes", "bouclage", "finance", "sms", "logs", "settings"] },
+  admin_site: { sections: ["prise_en_charge", "tableau", "creneaux", "commandes", "statistiques"] },
+  admin_global: { sections: ["prise_en_charge", "tableau", "statistiques", "creneaux", "commandes", "bouclage", "finance", "sms", "logs", "settings"] },
 };
 
 // ---- CONFIGURATION DES ONGLETS ----
 const SECTIONS = {
   prise_en_charge: { label: "Guichet Unique", component: PriseEnCharge, Icon: FiCamera, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10", border: "border-emerald-500" },
   tableau: { label: "Registre Global", component: Tableau, Icon: FiList, color: "text-teal-500", bg: "bg-teal-50 dark:bg-teal-500/10", border: "border-teal-500" },
+  statistiques: { label: "Statistiques", component: Statistiques, Icon: FiPieChart, color: "text-rose-500", bg: "bg-rose-50 dark:bg-rose-500/10", border: "border-rose-500" },
   creneaux: { label: "Créneaux & Stock", component: Creneaux, Icon: FiClock, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-500/10", border: "border-blue-500" },
   commandes: { label: "Commandes Web", component: Vendeur, Icon: FiPackage, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10", border: "border-indigo-500" },
   bouclage: { label: "Bouclage", component: Bouclage, Icon: FiTag, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-500/10", border: "border-orange-500" },
   finance: { label: "Comptabilité", component: AdminCaisse, Icon: FiDollarSign, color: "text-yellow-500", bg: "bg-yellow-50 dark:bg-yellow-500/10", border: "border-yellow-500" },
-  sms: { label: "Marketing SMS", component: AdminSMS, Icon: FiMail, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", border: "border-purple-500" },
+  
+  // 👉 MODIFICATION ICI : On renomme "Marketing SMS" en "MARKETING"
+  sms: { label: "Marketing", component: AdminSMS, Icon: FiMessageSquare, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", border: "border-purple-500" },
+  
   logs: { label: "Traçabilité (Logs)", component: AdminLogs, Icon: FiActivity, color: "text-slate-500", bg: "bg-slate-100 dark:bg-slate-500/10", border: "border-slate-500" },
   settings: { label: "Paramètres", component: AdminSettings, Icon: FiSettings, color: "text-gray-500", bg: "bg-gray-50 dark:bg-gray-500/10", border: "border-gray-500" },
 };
@@ -52,7 +54,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [active, setActive] = useState(null);
-  const [showDemoMenu, setShowDemoMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   async function loadProfile() {
@@ -87,19 +88,6 @@ export default function Dashboard() {
 
   async function logout() { await supabase.auth.signOut(); }
 
-  const sendTestNotification = async () => {
-    const confirm = window.confirm("Envoyer une notification de test ?");
-    if (!confirm) return;
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await supabase.from('notifications_queue').insert({
-          user_id: user.id, title: "Test Réussi 🚀", body: "Le système fonctionne !", url: "/dashboard"
-      });
-      showNotification("Notification de test envoyée !", "success");
-    } catch (err) { showNotification("Erreur : " + err.message, "error"); }
-  };
-
   const handleNavClick = (key) => {
       setActive(key);
       setMobileMenuOpen(false);
@@ -120,7 +108,7 @@ export default function Dashboard() {
               </div>
               <div>
                   <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Pro Abattoir</h1>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">v2.0 Beta</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">v2.0</span>
               </div>
           </div>
 
@@ -224,7 +212,6 @@ export default function Dashboard() {
             <div className="max-w-7xl mx-auto">
                 {ActiveComponent ? (
                     <div className="animate-fade-in-up">
-                        {/* PASSAGE DE LA PROP ICI : */}
                         <ActiveComponent changeTab={setActive} />
                     </div>
                 ) : (

@@ -1,185 +1,257 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import { sendSms } from "../lib/smsService";
 import { useNotification } from "../contexts/NotificationContext";
-import { FiMail, FiSend, FiRefreshCw, FiMessageSquare } from "react-icons/fi";
+import { 
+  FiMessageSquare, FiSend, FiUsers, FiFilter, FiAlertCircle, FiLoader, 
+  FiCheckCircle, FiList, FiMail, FiCheckSquare, FiSquare, FiTag
+} from "react-icons/fi";
+import { logAction } from "../lib/logger";
 
 export default function AdminSMS() {
-  const { showAlert, showConfirm, showNotification } = useNotification();
-  const [clients, setClients] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const { showNotification } = useNotification();
+  
+  const [commandes, setCommandes] = useState([]);
+  const [creneaux, setCreneaux] = useState([]);
+  const [joursConfig, setJoursConfig] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
 
-  // Formulaire Campagne
-  const [message, setMessage] = useState("Bonjour, les réservations pour l'Aïd sont ouvertes ! Connectez-vous sur : https://bergerielanguedocienne.fr");
-  const [target, setTarget] = useState("all"); // 'all' ou 'specific'
+  // Filtres de ciblage
+  const [filterStatut, setFilterStatut] = useState("tous");
+  const [filterCreneau, setFilterCreneau] = useState("tous");
+
+  // Options d'envoi (Canaux)
+  const [sendSms, setSendSms] = useState(true);
+  const [sendEmail, setSendEmail] = useState(false);
+  
+  // Contenu du message
+  const [emailSubject, setEmailSubject] = useState("");
+  const [message, setMessage] = useState("");
+  
+  // État de l'envoi
+  const [sending, setSending] = useState(false);
+  const [sendProgress, setSendProgress] = useState(0);
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  async function fetchData() {
-    setLoading(true);
-    // 1. Récupérer les clients uniques (depuis les commandes)
-    // Astuce : on prend les numéros distincts dans la table commandes
-    const { data: dataClients } = await supabase
-      .from("commandes")
-      .select("contact_phone, contact_first_name, contact_last_name")
-      .not("contact_phone", "is", null);
+  const fetchData = async () => {
+    setLoadingData(true);
+    try {
+      const { data: joursData } = await supabase.from("jours_fete").select("*");
+      setJoursConfig(joursData || []);
 
-    // Dédoublonnage par téléphone
-    const uniqueClients = [];
-    const seenPhones = new Set();
+      const { data: slotsData } = await supabase.from("creneaux_horaires").select("*").order("date").order("heure_debut");
+      setCreneaux(slotsData || []);
+
+      const { data: cmdsData } = await supabase
+        .from("commandes")
+        .select("*, creneaux_horaires(date, heure_debut)")
+        .neq("statut", "disponible")
+        .neq("statut", "brouillon")
+        .neq("statut", "annule")
+        .order('ticket_num', { ascending: true });
+        
+      setCommandes(cmdsData || []);
+    } catch (err) {
+      showNotification("Erreur lors du chargement des données.", "error");
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  // 1. Appliquer les filtres sur CHAQUE ticket
+  const filteredDestinataires = commandes.filter(cmd => {
+    // Filtre par statut
+    if (filterStatut === 'paye' && cmd.statut !== 'paye_integralement' && cmd.statut !== 'validee') return false;
+    if (filterStatut === 'reserve' && cmd.statut !== 'acompte_paye') return false;
+    if (filterStatut === 'boucle' && cmd.statut !== 'bouclee') return false;
+    if (filterStatut === 'attente' && cmd.statut !== 'en_attente') return false;
     
-    (dataClients || []).forEach(c => {
-        if (!seenPhones.has(c.contact_phone)) {
-            seenPhones.add(c.contact_phone);
-            uniqueClients.push(c);
-        }
-    });
-    setClients(uniqueClients);
+    // Filtre par créneau
+    if (filterCreneau !== 'tous' && cmd.creneau_id !== filterCreneau) return false;
 
-    // 2. Récupérer l'historique des SMS
-    const { data: dataLogs } = await supabase
-      .from("sms_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-      
-    setLogs(dataLogs || []);
-    setLoading(false);
-  }
+    // Vérification des moyens de contact disponibles pour ce ticket
+    const canSms = sendSms && !!cmd.contact_phone;
+    const canEmail = sendEmail && !!cmd.contact_email;
 
-  async function handleSendCampaign() {
-    if (!message) return showNotification("Le message est vide !", "error");
-    const confirmed = await showConfirm(`Envoyer ce SMS à ${clients.length} clients (Simulation) ?`);
-    if (!confirmed) return;
+    if (!canSms && !canEmail) return false;
+
+    return true;
+  });
+
+  const getJourLabel = (dateStr) => {
+    const j = joursConfig.find(jd => jd.date_fete === dateStr);
+    return j ? `Jour ${j.numero}` : `Date inconnue`;
+  };
+
+  const handleSendMassMessage = async () => {
+    if (!sendSms && !sendEmail) return showNotification("Sélectionnez au moins un canal.", "error");
+    if (!message.trim()) return showNotification("Veuillez écrire un message.", "error");
+    if (sendEmail && !emailSubject.trim()) return showNotification("Veuillez saisir un objet pour l'e-mail.", "error");
+    if (filteredDestinataires.length === 0) return showNotification("Aucun ticket ne correspond.", "error");
+    
+    const confirm = window.confirm(`Envoyer ce message à ${filteredDestinataires.length} tickets ?`);
+    if (!confirm) return;
 
     setSending(true);
-    let count = 0;
+    setSendProgress(0);
+    
+    let successCount = 0;
+    let failCount = 0;
 
-    // Envoi en série (pour ne pas bloquer le navigateur)
-    for (const client of clients) {
-        await sendSms(client.contact_phone, message, "campagne");
-        count++;
+    for (let i = 0; i < filteredDestinataires.length; i++) {
+        const ticket = filteredDestinataires[i];
+        let ok = false;
+
+        // Envoi SMS pour ce ticket
+        if (sendSms && ticket.contact_phone) {
+            try {
+                const res = await fetch("http://localhost:3000/send-sms", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone: ticket.contact_phone, message: message })
+                });
+                if (res.ok) ok = true;
+            } catch (e) { console.error(e); }
+        }
+
+        // Envoi Email pour ce ticket
+        if (sendEmail && ticket.contact_email) {
+            try {
+                const res = await fetch("http://localhost:3000/send-custom-email", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: ticket.contact_email, subject: emailSubject, message: message })
+                });
+                if (res.ok) ok = true;
+            } catch (e) { console.error(e); }
+        }
+
+        if (ok) successCount++; else failCount++;
+        setSendProgress(Math.round(((i + 1) / filteredDestinataires.length) * 100));
     }
 
+    logAction('CONTACT', 'MARKETING', { action: 'Envoi masse par ticket', total: filteredDestinataires.length, reussis: successCount });
+
     setSending(false);
-    showNotification(`✅ Campagne terminée : ${count} SMS envoyés !`, "success");
-    fetchData(); // Rafraîchir les logs
-  }
+    setMessage("");
+    if (sendEmail) setEmailSubject("");
+    showNotification(`${successCount} messages envoyés avec succès !`, failCount === 0 ? "success" : "info");
+  };
+
+  const renderBadgeStatut = (statut) => {
+      if (statut === 'paye_integralement' || statut === 'validee') return <span className="bg-blue-100 text-blue-700 text-[10px] font-black uppercase px-2 py-1 rounded-lg">Payé</span>;
+      if (statut === 'acompte_paye') return <span className="bg-orange-100 text-orange-700 text-[10px] font-black uppercase px-2 py-1 rounded-lg">Acompte</span>;
+      if (statut === 'bouclee') return <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-lg">Bouclé</span>;
+      return <span className="bg-slate-200 text-slate-700 text-[10px] font-black uppercase px-2 py-1 rounded-lg">Attente</span>;
+  };
+
+  if (loadingData) return <div className="p-20 text-center animate-pulse text-purple-500 font-bold">Chargement des destinataires...</div>;
 
   return (
-    <div className="space-y-6 animate-fade-in p-6">
-      {/* En-tête */}
-      <div className="flex items-center gap-3">
-        <FiMail className="text-3xl text-indigo-600 dark:text-indigo-400" />
+    <div className="max-w-6xl mx-auto space-y-8 pb-20 animate-fade-in">
+      <div className="flex items-center gap-4">
+        <div className="p-3 bg-purple-600 rounded-xl text-white shadow-lg shadow-purple-500/30"><FiMessageSquare className="text-2xl" /></div>
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">Communication SMS</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">Gérer les campagnes SMS</p>
+          <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">Marketing Multicanal</h2>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Communication groupée par ticket individuel.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 1. LANCER UNE CAMPAGNE */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 space-y-5">
-          <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-3">
-            <FiSend className="text-indigo-600 dark:text-indigo-400" />
-            Nouvelle Campagne
-          </h2>
-            
-            <div>
-                <label className="text-sm font-bold text-gray-500 dark:text-gray-400">Destinataires</label>
-                <select 
-                    className="w-full border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 p-2 rounded mt-1 bg-gray-50"
-                    value={target}
-                    onChange={e => setTarget(e.target.value)}
-                >
-                    <option value="all">Tous les clients passés ({clients.length})</option>
-                    {/* On pourrait ajouter des filtres ici */}
-                </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          <div className="lg:col-span-1 space-y-6">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-100 dark:border-slate-700">
+                  <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2 mb-6 uppercase tracking-wider text-sm"><FiFilter className="text-purple-500" /> Ciblage</h3>
+                  <div className="space-y-5">
+                      <select value={filterStatut} onChange={(e) => setFilterStatut(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white p-3 rounded-xl font-medium outline-none focus:border-purple-500">
+                          <option value="tous">Tous les statuts</option>
+                          <option value="reserve">Réservés (Acompte payé)</option>
+                          <option value="paye">Totalement Payés</option>
+                          <option value="boucle">Bouclés (Prêts)</option>
+                          <option value="attente">En attente (Impayés)</option>
+                      </select>
+                      <select value={filterCreneau} onChange={(e) => setFilterCreneau(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white p-3 rounded-xl font-medium outline-none focus:border-purple-500">
+                          <option value="tous">Tous les créneaux</option>
+                          {creneaux.map(c => (
+                              <option key={c.id} value={c.id}>{getJourLabel(c.date)} - {c.heure_debut.slice(0,5)}</option>
+                          ))}
+                      </select>
+                  </div>
+              </div>
 
-            <div>
-                <label className="text-sm font-bold text-gray-500 dark:text-gray-400">Message (Max 160 car.)</label>
-                <textarea 
-                    className="w-full border dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 p-3 rounded-lg mt-1 h-32 text-sm"
-                    maxLength={160}
-                    value={message}
-                    onChange={e => setMessage(e.target.value)}
-                />
-                <div className="text-right text-xs text-gray-400 dark:text-gray-500">
-                    {message.length} / 160 caractères
-                </div>
-            </div>
+              <div className="bg-purple-600 rounded-3xl p-6 shadow-xl text-white relative overflow-hidden">
+                  <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                  <div className="relative z-10 flex flex-col items-center text-center">
+                      <FiTag className="text-4xl text-purple-200 mb-3" />
+                      <p className="text-sm font-bold text-purple-200 uppercase">Tickets ciblés</p>
+                      <h3 className="text-6xl font-black mt-2">{filteredDestinataires.length}</h3>
+                  </div>
+              </div>
 
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded text-xs text-yellow-800 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800">
-                ℹ️ <b>Mode Simulation :</b> Les SMS seront enregistrés dans la base de données mais pas envoyés réellement sur les téléphones.
-            </div>
-
-          <button 
-            onClick={handleSendCampaign}
-            disabled={sending || clients.length === 0}
-            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-          >
-            <FiSend className="text-lg" />
-            <span>{sending ? "Envoi en cours..." : "Envoyer la Campagne"}</span>
-          </button>
-        </div>
-
-        {/* 2. HISTORIQUE DES ENVOIS */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 flex flex-col h-full">
-          <div className="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-700 pb-3">
-            <h2 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <FiMessageSquare className="text-indigo-600 dark:text-indigo-400" />
-              Historique Récent
-            </h2>
-            <button 
-              onClick={fetchData}
-              disabled={loading}
-              className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold flex items-center gap-1 disabled:opacity-50"
-            >
-              <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
-              <span>Actualiser</span>
-            </button>
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-100 dark:border-slate-700 flex flex-col max-h-[30rem]">
+                  <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2 mb-4 uppercase tracking-wider text-sm shrink-0"><FiList className="text-purple-500" /> Liste des tickets</h3>
+                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1">
+                      {filteredDestinataires.length === 0 ? (
+                          <p className="text-sm text-slate-400 italic text-center py-6">Aucun destinataire.</p>
+                      ) : (
+                          filteredDestinataires.map(t => (
+                              <div key={t.id} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700">
+                                  <div className="flex justify-between items-start">
+                                      <p className="text-sm font-bold text-slate-800 dark:text-white truncate">
+                                          <span className="text-purple-600 mr-2">#{t.ticket_num}</span> 
+                                          {t.contact_last_name}
+                                      </p>
+                                      {renderBadgeStatut(t.statut)}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                      {sendSms && t.contact_phone && <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-1"><FiMessageSquare/> {t.contact_phone}</span>}
+                                      {sendEmail && t.contact_email && <span className="text-[9px] text-blue-600 font-bold flex items-center gap-1"><FiMail/> Email OK</span>}
+                                  </div>
+                              </div>
+                          ))
+                      )}
+                  </div>
+              </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto max-h-[400px] space-y-3 pr-2">
-            {loading ? (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
-                <p className="mt-3 text-slate-600 dark:text-slate-400 text-sm">Chargement...</p>
-              </div>
-            ) : logs.length === 0 ? (
-              <div className="text-center py-10 text-slate-500 dark:text-slate-400">
-                <FiMessageSquare className="text-3xl mx-auto mb-3 opacity-50" />
-                <p className="text-sm">Aucun SMS envoyé.</p>
-              </div>
-            ) : (
-              logs.map(log => (
-                <div key={log.id} className="p-4 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-sm hover:shadow-md transition-all">
-                  <div className="flex justify-between items-center font-bold text-slate-800 dark:text-slate-200 mb-2">
-                    <span className="flex items-center gap-2">
-                      <FiMail className="text-xs" />
-                      {log.destinataire}
-                    </span>
-                    <span className={`text-xs px-3 py-1 rounded-full font-bold ${
-                      log.statut === 'envoye' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                    }`}>
-                      {log.statut.toUpperCase()}
-                    </span>
+          <div className="lg:col-span-2">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-xl border border-slate-100 dark:border-slate-700 h-full flex flex-col">
+                  <div className="flex gap-4 mb-8">
+                      <button onClick={() => setSendSms(!sendSms)} className={`flex-1 flex items-center justify-center gap-3 py-3 rounded-xl font-bold border-2 transition-all ${sendSms ? 'bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-900/30' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                          {sendSms ? <FiCheckSquare/> : <FiSquare/>} SMS
+                      </button>
+                      <button onClick={() => setSendEmail(!sendEmail)} className={`flex-1 flex items-center justify-center gap-3 py-3 rounded-xl font-bold border-2 transition-all ${sendEmail ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/30' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                          {sendEmail ? <FiCheckSquare/> : <FiSquare/>} Email
+                      </button>
                   </div>
-                  <p className="text-slate-700 dark:text-slate-300 mb-2 italic">"{log.message}"</p>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 flex justify-between">
-                    <span>Type: {log.type}</span>
-                    <span>{new Date(log.created_at).toLocaleString()}</span>
+
+                  {sendEmail && (
+                      <div className="mb-6">
+                          <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Objet de l'email</label>
+                          <input type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Sujet..." className="w-full bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 p-4 rounded-xl font-medium outline-none focus:border-blue-500 dark:text-white" />
+                      </div>
+                  )}
+
+                  <div className="flex justify-between mb-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Votre Message</label>
+                      {sendSms && <span className="text-xs font-bold text-slate-400">{message.length}/160</span>}
                   </div>
-                </div>
-              ))
-            )}
+                  <textarea value={message} onChange={e => setMessage(e.target.value)} rows="10" placeholder="Rédigez votre message ici..." className="flex-1 w-full bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 p-5 rounded-2xl font-medium outline-none focus:border-purple-500 dark:text-white resize-none"></textarea>
+
+                  {sending && (
+                      <div className="mt-6 space-y-2">
+                          <div className="flex justify-between text-xs font-bold text-purple-600"><span>Progression...</span><span>{sendProgress}%</span></div>
+                          <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-purple-500 transition-all" style={{ width: `${sendProgress}%` }}></div></div>
+                      </div>
+                  )}
+
+                  <button onClick={handleSendMassMessage} disabled={sending || filteredDestinataires.length === 0 || !message.trim()} className="mt-6 w-full py-5 bg-purple-600 hover:bg-purple-700 text-white font-black text-lg rounded-2xl shadow-xl flex justify-center items-center gap-3 transition-all transform hover:-translate-y-1 active:scale-95 disabled:opacity-50">
+                      {sending ? <FiLoader className="animate-spin" /> : <FiSend />} ENVOYER À {filteredDestinataires.length} TICKETS
+                  </button>
+              </div>
           </div>
-        </div>
 
       </div>
     </div>

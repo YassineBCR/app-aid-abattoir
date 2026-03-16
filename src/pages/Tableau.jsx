@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { 
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
-  FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink
+  FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
+  FiMessageSquare, FiSend, FiLoader
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -17,6 +18,19 @@ export default function Tableau({ changeTab }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orderHistory, setOrderHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  const [sendingMail, setSendingMail] = useState(false);
+
+  // États pour la modale d'e-mail
+  const [showMailModal, setShowMailModal] = useState(false);
+  const [customMailSubject, setCustomMailSubject] = useState("");
+  const [customMailBody, setCustomMailBody] = useState("");
+  const [sendingCustomMail, setSendingCustomMail] = useState(false);
+
+  // 👉 NOUVEAU : États pour la modale de SMS
+  const [showSmsModal, setShowSmsModal] = useState(false);
+  const [customSmsBody, setCustomSmsBody] = useState("");
+  const [sendingCustomSms, setSendingCustomSms] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -28,7 +42,6 @@ export default function Tableau({ changeTab }) {
 
   async function fetchData() {
     try {
-      // Récupération de la configuration des jours
       const { data: jours } = await supabase.from("jours_fete").select("*");
       setJoursConfig(jours || []);
 
@@ -80,6 +93,106 @@ export default function Tableau({ changeTab }) {
   const handlePrendreEnCharge = () => {
     sessionStorage.setItem('pending_commande_id', selectedOrder.id);
     if (changeTab) changeTab('prise_en_charge');
+  };
+
+  const renvoyerBillet = async (cmd) => {
+      setSendingMail(true);
+      try {
+          const dateFormatee = cmd.creneaux_horaires?.date ? new Date(cmd.creneaux_horaires.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : "Date inconnue";
+          const heureFormatee = cmd.creneaux_horaires?.heure_debut ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
+          const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
+
+          const response = await fetch("http://localhost:3000/send-ticket-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  email: cmd.contact_email,
+                  firstName: cmd.contact_first_name,
+                  ticketNum: cmd.ticket_num,
+                  sacrificeName: cmd.sacrifice_name,
+                  dateCreneau: dateFormatee,
+                  heureCreneau: heureFormatee,
+                  qrData: qrData
+              })
+          });
+
+          if (response.ok) {
+              showNotification("Billet renvoyé avec succès par email !", "success");
+              logAction('MODIFICATION', 'COMMANDE', { action: 'Renvoi du billet par email', ticket: cmd.ticket_num });
+          } else {
+              throw new Error("Erreur serveur lors de l'envoi");
+          }
+      } catch (err) {
+          console.error(err);
+          showNotification("Impossible d'envoyer l'email. Vérifiez votre serveur.", "error");
+      } finally {
+          setSendingMail(false);
+      }
+  };
+
+  const handleSendCustomMail = async (e) => {
+      e.preventDefault();
+      if (!customMailSubject.trim() || !customMailBody.trim()) return showNotification("Veuillez remplir tous les champs.", "error");
+      
+      setSendingCustomMail(true);
+      try {
+          const response = await fetch("http://localhost:3000/send-custom-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  email: selectedOrder.contact_email,
+                  subject: customMailSubject,
+                  message: customMailBody
+              })
+          });
+
+          if (response.ok) {
+              showNotification("Email envoyé au client avec succès !", "success");
+              logAction('CONTACT', 'COMMANDE', { action: 'Email envoyé au client', ticket: selectedOrder.ticket_num, sujet: customMailSubject });
+              setShowMailModal(false);
+              setCustomMailSubject("");
+              setCustomMailBody("");
+          } else {
+              throw new Error("Erreur lors de l'envoi");
+          }
+      } catch (err) {
+          console.error(err);
+          showNotification("Impossible d'envoyer l'email. Vérifiez votre serveur.", "error");
+      } finally {
+          setSendingCustomMail(false);
+      }
+  };
+
+  // 👉 NOUVEAU : Fonction pour envoyer le SMS via OVH
+  const handleSendCustomSms = async (e) => {
+      e.preventDefault();
+      if (!customSmsBody.trim()) return showNotification("Le message ne peut pas être vide.", "error");
+      
+      setSendingCustomSms(true);
+      try {
+          const response = await fetch("http://localhost:3000/send-sms", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  phone: selectedOrder.contact_phone,
+                  message: customSmsBody
+              })
+          });
+
+          if (response.ok) {
+              showNotification("SMS envoyé au client avec succès !", "success");
+              logAction('CONTACT', 'COMMANDE', { action: 'SMS envoyé au client', ticket: selectedOrder.ticket_num });
+              setShowSmsModal(false);
+              setCustomSmsBody("");
+          } else {
+              throw new Error("Erreur lors de l'envoi du SMS");
+          }
+      } catch (err) {
+          console.error(err);
+          showNotification("Impossible d'envoyer le SMS. Vérifiez votre configuration OVH.", "error");
+      } finally {
+          setSendingCustomSms(false);
+      }
   };
 
   const exportToCSV = () => {
@@ -252,7 +365,7 @@ export default function Tableau({ changeTab }) {
                       </div>
                       <div className="flex items-center gap-3">
                           <button onClick={handlePrendreEnCharge} className="bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all flex items-center gap-2 hover:scale-105">
-                              Prendre en charge <FiArrowRight />
+                              Aller en caisse <FiArrowRight />
                           </button>
                           <button onClick={() => setSelectedOrder(null)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"><FiX className="text-xl"/></button>
                       </div>
@@ -260,6 +373,7 @@ export default function Tableau({ changeTab }) {
 
                   <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-50 dark:bg-slate-900/50">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                          
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiUser/> Client</h4>
                               <div>
@@ -267,40 +381,90 @@ export default function Tableau({ changeTab }) {
                                   <p className="text-slate-600 dark:text-slate-300 flex items-center gap-2 text-sm"><FiPhone className="text-slate-400"/> {selectedOrder.contact_phone}</p>
                                   <p className="text-slate-600 dark:text-slate-300 flex items-center gap-2 text-sm mt-1 truncate" title={selectedOrder.contact_email}><FiMail className="text-slate-400 shrink-0"/> {selectedOrder.contact_email || "Non renseigné"}</p>
                               </div>
+
+                              <div className="flex flex-wrap gap-2 pt-4 mt-2 border-t border-slate-100 dark:border-slate-700">
+                                  {selectedOrder.contact_email && (
+                                      <button 
+                                          onClick={() => setShowMailModal(true)} 
+                                          className="flex-1 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                                      >
+                                          <FiMail className="text-sm" /> Écrire
+                                      </button>
+                                  )}
+                                  
+                                  {/* 👉 NOUVEAU BOUTON SMS: Ouvre la modale pour OVH */}
+                                  {selectedOrder.contact_phone && (
+                                      <button 
+                                          onClick={() => setShowSmsModal(true)} 
+                                          className="flex-1 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                                      >
+                                          <FiMessageSquare className="text-sm" /> SMS
+                                      </button>
+                                  )}
+
+                                  {selectedOrder.contact_email && selectedOrder.statut !== 'en_attente' && selectedOrder.statut !== 'annule' && (
+                                      <button 
+                                          onClick={() => renvoyerBillet(selectedOrder)} 
+                                          disabled={sendingMail} 
+                                          className="w-full py-2 mt-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                                      >
+                                          {sendingMail ? <FiLoader className="animate-spin text-sm" /> : <FiSend className="text-sm" />} 
+                                          {sendingMail ? "Envoi en cours..." : "Renvoyer le Billet"}
+                                      </button>
+                                  )}
+                              </div>
                           </div>
+
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-                              <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiTag/> Place & Retrait</h4>
+                              <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiTag/> Agneau & Retrait</h4>
                               <div>
                                   <p className="text-sm text-slate-500 mb-1">Pour : <strong className="text-slate-800 dark:text-white">{selectedOrder.sacrifice_name}</strong></p>
                                   <p className="text-sm text-slate-500 mb-2">Boucle : <strong className="text-emerald-600 font-black">{selectedOrder.numero_boucle || "En attente"}</strong></p>
                                   <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700 mt-3">
                                       <p className="text-xs font-bold text-slate-400 flex items-center gap-1 mb-1"><FiCalendar/> Créneau</p>
-                                      {selectedOrder.creneaux_horaires ? <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{getJourLabel(selectedOrder.creneaux_horaires.date)} <span className="text-slate-400 mx-1">à</span> {selectedOrder.creneaux_horaires.heure_debut.slice(0,5)}</p> : <p className="text-sm text-slate-400">Non défini</p>}
+                                      {selectedOrder.creneaux_horaires ? (
+                                          <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                                              {getJourLabel(selectedOrder.creneaux_horaires.date)} <span className="text-slate-400 mx-1">à</span> {selectedOrder.creneaux_horaires.heure_debut.slice(0,5)}
+                                          </p>
+                                      ) : (
+                                          <p className="text-sm text-slate-400">Non défini</p>
+                                      )}
                                   </div>
                               </div>
                           </div>
+
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiDollarSign/> État Financier</h4>
                               <div className="space-y-2">
-                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span> <span className="font-bold dark:text-white">{(Number(selectedOrder.montant_total_cents) / 100).toFixed(2)} €</span></div>
-                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total Net Encaissé:</span> <span className="font-bold text-emerald-600">{(Number(selectedOrder.montant_paye_cents || 0) / 100).toFixed(2)} €</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span> <span className="font-bold dark:text-white">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span></div>
+                                  <div className="flex justify-between text-sm"><span className="text-slate-500">Total Net Encaissé:</span> <span className="font-bold text-emerald-600">{((selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0) / 100).toFixed(2)} €</span></div>
                                   <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                                       <span className="text-xs font-bold text-slate-400 uppercase">Reste</span>
-                                      <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, (Number(selectedOrder.montant_total_cents || 0) - Number(selectedOrder.montant_paye_cents || 0)) / 100).toFixed(2)} €</span>
+                                      <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, ((selectedOrder.montant_total_cents || 0) - (selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0)) / 100).toFixed(2)} €</span>
                                   </div>
+
+                                  {selectedOrder.stripe_ref && (
+                                      <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700">
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
+                                          <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 break-all select-all">
+                                              {selectedOrder.stripe_ref}
+                                          </p>
+                                      </div>
+                                  )}
+                                  
                               </div>
                           </div>
                       </div>
 
                       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                           <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700">
-                              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiClock className="text-indigo-500"/> Historique des paiements</h4>
+                              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiClock className="text-indigo-500"/> Historique des paiements de ce ticket</h4>
                           </div>
                           <div className="p-4">
                               {loadingHistory ? (
                                   <p className="text-center text-slate-400 text-sm py-4 animate-pulse">Recherche dans la comptabilité...</p>
                               ) : orderHistory.length === 0 ? (
-                                  <p className="text-center text-slate-400 text-sm py-4">Aucun paiement enregistré pour ce dossier.</p>
+                                  <p className="text-center text-slate-400 text-sm py-4">Aucune trace de paiement guichet pour ce dossier.</p>
                               ) : (
                                   <div className="space-y-3">
                                       {orderHistory.map(tx => (
@@ -311,6 +475,7 @@ export default function Tableau({ changeTab }) {
                                                       <span className="uppercase">{tx.moyen_paiement}</span>
                                                   </p>
                                                   <p className="text-xs text-slate-500 mt-1">Le {new Date(tx.date_paiement).toLocaleString('fr-FR')} par {tx.encaisse_par}</p>
+                                                  {tx.notes && <p className="text-xs text-red-600 font-bold mt-1 bg-white dark:bg-slate-900 inline-block px-2 py-1 rounded shadow-sm">Motif: {tx.notes}</p>}
                                               </div>
                                               <div className={`text-right font-black mt-2 sm:mt-0 text-lg ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{(Number(tx.montant_cents) / 100).toFixed(2)} €</div>
                                           </div>
@@ -320,6 +485,105 @@ export default function Tableau({ changeTab }) {
                           </div>
                       </div>
                   </div>
+              </div>
+          </div>
+      )}
+
+      {/* MODALE : ENVOI D'UN EMAIL PERSONNALISÉ */}
+      {showMailModal && selectedOrder && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
+              <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                          <FiMail className="text-blue-500" /> Écrire au client
+                      </h3>
+                      <button onClick={() => setShowMailModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
+                  </div>
+                  
+                  <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
+                      <p className="text-sm text-slate-500">Destinataire :</p>
+                      <p className="font-bold text-slate-800 dark:text-white">{selectedOrder.contact_first_name} {selectedOrder.contact_last_name} ({selectedOrder.contact_email})</p>
+                  </div>
+
+                  <form onSubmit={handleSendCustomMail} className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Sujet de l'e-mail <span className="text-red-500">*</span></label>
+                          <input 
+                              required 
+                              type="text" 
+                              value={customMailSubject} 
+                              onChange={(e) => setCustomMailSubject(e.target.value)} 
+                              placeholder="Ex: Information concernant votre commande"
+                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white" 
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Votre message <span className="text-red-500">*</span></label>
+                          <textarea 
+                              required 
+                              rows="6"
+                              value={customMailBody} 
+                              onChange={(e) => setCustomMailBody(e.target.value)} 
+                              placeholder="Rédigez votre message ici..."
+                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white resize-none" 
+                          ></textarea>
+                      </div>
+                      <div className="flex gap-3 pt-4">
+                          <button type="button" onClick={() => setShowMailModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
+                          <button type="submit" disabled={sendingCustomMail} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                              {sendingCustomMail ? <FiLoader className="animate-spin" /> : <FiSend />} 
+                              {sendingCustomMail ? "Envoi..." : "Envoyer l'e-mail"}
+                          </button>
+                      </div>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* 👉 NOUVELLE MODALE : ENVOI D'UN SMS (OVH) */}
+      {showSmsModal && selectedOrder && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
+              <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                          <FiMessageSquare className="text-emerald-500" /> Envoyer un SMS
+                      </h3>
+                      <button onClick={() => setShowSmsModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
+                  </div>
+                  
+                  <div className="mb-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+                      <p className="text-sm text-emerald-700 dark:text-emerald-400">Numéro du client :</p>
+                      <p className="font-bold text-emerald-800 dark:text-emerald-300">{selectedOrder.contact_first_name} {selectedOrder.contact_last_name} ({selectedOrder.contact_phone})</p>
+                  </div>
+
+                  <form onSubmit={handleSendCustomSms} className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between">
+                              <span>Votre message (SMS) <span className="text-red-500">*</span></span>
+                              <span className={`text-xs ${customSmsBody.length > 160 ? 'text-red-500' : 'text-slate-400'}`}>
+                                  {customSmsBody.length}/160 caractères
+                              </span>
+                          </label>
+                          <textarea 
+                              required 
+                              rows="4"
+                              value={customSmsBody} 
+                              onChange={(e) => setCustomSmsBody(e.target.value)} 
+                              placeholder="Bonjour, votre commande est prête..."
+                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-emerald-500 dark:text-white resize-none" 
+                          ></textarea>
+                          {customSmsBody.length > 160 && (
+                              <p className="text-xs text-red-500 mt-1"><FiAlertCircle className="inline" /> Attention, ce message sera facturé comme 2 SMS par OVH.</p>
+                          )}
+                      </div>
+                      <div className="flex gap-3 pt-4">
+                          <button type="button" onClick={() => setShowSmsModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
+                          <button type="submit" disabled={sendingCustomSms || !customSmsBody.trim()} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                              {sendingCustomSms ? <FiLoader className="animate-spin" /> : <FiSend />} 
+                              {sendingCustomSms ? "Envoi en cours..." : "Envoyer le SMS"}
+                          </button>
+                      </div>
+                  </form>
               </div>
           </div>
       )}

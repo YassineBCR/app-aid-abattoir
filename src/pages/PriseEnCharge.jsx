@@ -5,9 +5,9 @@ import { Scanner } from "@yudiel/react-qr-scanner";
 import { 
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
-  FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus
+  FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus, FiPrinter
 } from "react-icons/fi";
-import { logAction } from "../lib/logger"; // <--- IMPORT DU LOGGER
+import { logAction } from "../lib/logger";
 
 export default function PriseEnCharge() {
   const { showNotification } = useNotification();
@@ -31,6 +31,8 @@ export default function PriseEnCharge() {
   const [categorieChoisie, setCategorieChoisie] = useState("");
   const [loadingCategorie, setLoadingCategorie] = useState(false);
   
+  const [joursConfig, setJoursConfig] = useState([]);
+
   const [montantEncaisse, setMontantEncaisse] = useState("");
   const [modePaiement, setModePaiement] = useState("especes");
   const [loadingPaiement, setLoadingPaiement] = useState(false);
@@ -54,15 +56,18 @@ export default function PriseEnCharge() {
   }, []);
 
   useEffect(() => {
-    const loadTarifs = async () => {
+    const fetchInitialData = async () => {
       try {
-        const { data } = await supabase.from("tarifs").select("*").order("prix_cents");
-        setTarifs(data || []);
+        const { data: tarifsData } = await supabase.from("tarifs").select("*").order("prix_cents");
+        setTarifs(tarifsData || []);
+        
+        const { data: joursData } = await supabase.from("jours_fete").select("*");
+        setJoursConfig(joursData || []);
       } catch (err) {
-        showNotification("Erreur de chargement des tarifs.", "error");
+        showNotification("Erreur de chargement des configurations.", "error");
       }
     };
-    loadTarifs();
+    fetchInitialData();
   }, [showNotification]);
 
   const checkActiveCaisse = async () => {
@@ -155,10 +160,7 @@ export default function PriseEnCharge() {
       setActiveCaisse(data);
       setShowOuvertureModal(false);
       showNotification("Caisse ouverte avec succès.", "success");
-      
-      // LOG ACTION
       logAction('CREATION', 'CAISSE', { action: 'Ouverture de caisse', fond_initial: fondCents / 100 });
-      
     } catch (err) { showNotification("Erreur lors de l'ouverture de caisse.", "error"); }
   };
 
@@ -194,24 +196,10 @@ export default function PriseEnCharge() {
       }).eq('id', activeCaisse.id);
       if (error) throw error;
       
-      // LOG ACTION
       logAction('MODIFICATION', 'CAISSE', { action: 'Clôture de caisse', ecart_especes: ecartEspeces/100, ecart_cb: ecartCb/100, justification: justification });
 
       setActiveCaisse(null); setShowClotureModal(false); showNotification("Caisse clôturée.", "success"); setCommande(null);
     } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
-  };
-
-  const sendTicketEmail = async (cmd) => {
-      if (!cmd.contact_email || cmd.contact_email.includes('surplace@abattoir.local')) return;
-      try {
-          const dateFormatee = new Date(cmd.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-          const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
-          await fetch("http://localhost:3000/send-ticket-email", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ email: cmd.contact_email, firstName: cmd.contact_first_name, ticketNum: cmd.ticket_num, sacrificeName: cmd.sacrifice_name, dateCreneau: dateFormatee, heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5), qrData: qrData })
-          });
-          showNotification("Billet envoyé par email au client.", "info");
-      } catch (err) { console.error("Erreur envoi email :", err); }
   };
 
   const openCreateModal = async () => {
@@ -239,13 +227,12 @@ export default function PriseEnCharge() {
           });
           if (error) throw error;
           
-          // LOG ACTION
           logAction('CREATION', 'COMMANDE', { ticket: data.ticket_num, source: 'guichet_sur_place', client: `${newResaForm.first_name} ${newResaForm.last_name}` });
 
           showNotification(`Réservation créée ! Ticket N°${data.ticket_num}`, "success");
           setShowCreateModal(false);
           const { data: fullCmd } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", data.commande_id).single();
-          if(fullCmd) { selectCommande(fullCmd); if (newResaForm.email) sendTicketEmail(fullCmd); }
+          if(fullCmd) selectCommande(fullCmd);
       } catch (err) { showNotification("Erreur lors de la création.", "error"); } finally { setLoadingCreate(false); }
   };
 
@@ -270,7 +257,6 @@ export default function PriseEnCharge() {
           else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) { nouveauStatut = 'acompte_paye'; }
           await supabase.from('commandes').update({ montant_paye_cents: nouveauTotalPayeCents, statut: nouveauStatut }).eq('id', commande.id);
           
-          // LOG ACTION
           logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant_encaisse: montantAsaisi, moyen: modePaiement });
 
           showNotification("Paiement encaissé avec succès.", "success");
@@ -335,12 +321,28 @@ export default function PriseEnCharge() {
           if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') { nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente'; }
           await supabase.from('commandes').update({ montant_paye_cents: nouveauPayeCents, statut: nouveauStatut }).eq('id', commande.id);
           
-          // LOG ACTION
           logAction('SUPPRESSION', 'CAISSE', { ticket: commande.ticket_num, montant_annule: (transactionToCancel.montant_cents / 100), motif: cancelReason });
 
           showNotification("Annulation tracée.", "success");
           setShowCancelModal(false); setTransactionToCancel(null); loadCommandeById(commande.id);
       } catch (err) { showNotification("Erreur d'annulation.", "error"); } finally { setLoadingCancel(false); }
+  };
+
+  const getJourLabel = (dateStr) => {
+    if (!dateStr) return "SANS CRÉNEAU";
+    const j = joursConfig.find(jd => jd.date_fete === dateStr);
+    return j ? `JOUR ${j.numero}` : `JOUR INCONNU`;
+  };
+
+  const formatHeure = (heureStr) => {
+      if (!heureStr) return "";
+      const h = heureStr.slice(0, 2);
+      const m = heureStr.slice(3, 5);
+      return m === "00" ? `${h}H` : `${h}H${m}`;
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const total = commande ? (commande.montant_total_cents / 100) : 0;
@@ -354,249 +356,335 @@ export default function PriseEnCharge() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 min-h-screen">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 pt-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
-             <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
-             Caisse & Encaissement
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement et création de réservations sur place.</p>
-        </div>
-        
-        <div>
-            {activeCaisse ? (
-                <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/30 p-2 pr-4 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
-                    <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white"><FiUnlock className="text-lg" /></div>
-                    <div>
-                        <p className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase">Caisse Ouverte</p>
-                        <p className="text-xs text-emerald-600 dark:text-emerald-500">Depuis {new Date(activeCaisse.created_at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</p>
+    <div className="max-w-7xl mx-auto space-y-8 min-h-screen relative">
+      
+      {/* ========================================================= */}
+      {/* 👉 CSS D'IMPRESSION (Bugs Flexbox corrigés pour Chrome) */}
+      {/* ========================================================= */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: 102mm 76mm; /* Format Paysage exact du rouleau Zebra */
+            margin: 0;
+          }
+          body * {
+            visibility: hidden;
+          }
+          #ticket-zebra, #ticket-zebra * {
+            visibility: visible;
+          }
+          #ticket-zebra {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 102mm;
+            height: 76mm;
+            padding: 3mm 4mm;
+            /* Utilisation de block + absolute au lieu de flex pour éviter les bugs d'écrasement de Chrome */
+            display: block !important; 
+            background: white !important;
+            color: black !important;
+            font-family: Arial, Helvetica, sans-serif;
+            box-sizing: border-box;
+            text-align: center;
+            overflow: hidden;
+          }
+          .no-print { display: none !important; }
+        }
+      `}} />
+
+      {/* INTERFACE NORMALE */}
+      <div className="print:hidden">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 pt-4">
+            <div>
+              <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
+                 <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
+                 Caisse & Encaissement
+              </h1>
+              <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement et impression des tickets.</p>
+            </div>
+            
+            <div>
+                {activeCaisse ? (
+                    <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/30 p-2 pr-4 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
+                        <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white"><FiUnlock className="text-lg" /></div>
+                        <div>
+                            <p className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase">Caisse Ouverte</p>
+                            <p className="text-xs text-emerald-600 dark:text-emerald-500">Depuis {new Date(activeCaisse.created_at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</p>
+                        </div>
+                        <button onClick={preparerCloture} className="ml-2 px-4 py-1.5 bg-white text-emerald-700 text-xs font-bold rounded-full shadow-sm hover:bg-emerald-100 transition-colors">Clôturer</button>
                     </div>
-                    <button onClick={preparerCloture} className="ml-2 px-4 py-1.5 bg-white text-emerald-700 text-xs font-bold rounded-full shadow-sm hover:bg-emerald-100 transition-colors">Clôturer</button>
-                </div>
-            ) : (
-                <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 p-2 pr-4 rounded-full border border-slate-200 dark:border-slate-700">
-                    <div className="w-10 h-10 bg-slate-400 rounded-full flex items-center justify-center text-white"><FiLock className="text-lg" /></div>
-                    <div>
-                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Caisse Fermée</p>
-                        <p className="text-xs text-slate-500">Encaissement bloqué</p>
+                ) : (
+                    <div className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 p-2 pr-4 rounded-full border border-slate-200 dark:border-slate-700">
+                        <div className="w-10 h-10 bg-slate-400 rounded-full flex items-center justify-center text-white"><FiLock className="text-lg" /></div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Caisse Fermée</p>
+                            <p className="text-xs text-slate-500">Encaissement bloqué</p>
+                        </div>
+                        <button onClick={() => setShowOuvertureModal(true)} className="ml-2 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full shadow-sm hover:bg-indigo-700 transition-colors">Ouvrir</button>
                     </div>
-                    <button onClick={() => setShowOuvertureModal(true)} className="ml-2 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full shadow-sm hover:bg-indigo-700 transition-colors">Ouvrir</button>
+                )}
+            </div>
+          </div>
+
+          {!activeCaisse ? (
+              <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 animate-fade-in mt-8">
+                  <div className="w-24 h-24 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6"><FiLock className="text-5xl text-slate-400" /></div>
+                  <h2 className="text-2xl font-black text-slate-800 dark:text-white">Votre caisse est fermée</h2>
+                  <p className="text-slate-500 mt-2 max-w-md text-center">Déclarez votre fond de caisse (monnaie) pour commencer à encaisser.</p>
+                  <button onClick={() => setShowOuvertureModal(true)} className="mt-8 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all"><FiUnlock /> Ouvrir ma caisse</button>
+              </div>
+          ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in mt-8">
+                <div className="xl:col-span-1 space-y-6">
+                  <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
+                      <div className="p-5 space-y-5">
+                        <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => setShowScanner(true)} className="group w-full py-4 bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 text-white rounded-2xl shadow-lg shadow-indigo-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
+                                <div className="bg-white/20 p-2.5 rounded-full"><FiCamera className="text-xl" /></div>
+                                <span className="font-bold text-sm tracking-wide">Scanner</span>
+                            </button>
+                            <button onClick={openCreateModal} className="group w-full py-4 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl shadow-lg shadow-emerald-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
+                                <div className="bg-white/20 p-2.5 rounded-full"><FiPlus className="text-xl" /></div>
+                                <span className="font-bold text-sm tracking-wide">Nouvelle Résa</span>
+                            </button>
+                        </div>
+
+                        <div className="relative group">
+                            <form onSubmit={(e) => handleSearch(e)} className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><FiSearch className="text-slate-400 text-xl" /></div>
+                                <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="N° Ticket, Nom, Tél..." className="block w-full pl-12 pr-16 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-base font-bold outline-none focus:border-indigo-500 transition-all dark:text-white" />
+                                <button type="submit" disabled={loading || !searchInput} className="absolute right-2 top-2 bottom-2 aspect-square bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center"><FiSearch className="text-xl" /></button>
+                            </form>
+                        </div>
+                      </div>
+                  </div>
+
+                  {!commande && searchResults.length > 0 && (
+                     <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden"> 
+                        <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800">
+                            <h3 className="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2"><FiList /> Résultats ({searchResults.length})</h3>
+                        </div>
+                        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                            {searchResults.map(res => (
+                                <button key={res.id} onClick={() => selectCommande(res)} className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex justify-between items-center group">
+                                    <div>
+                                        <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-bold">#{res.ticket_num}</span>
+                                        <div className="text-sm font-medium text-slate-800 dark:text-white mt-1">{res.contact_last_name} {res.contact_first_name}</div>
+                                    </div>
+                                    <FiArrowRight className="text-slate-300 group-hover:text-indigo-500 text-xl" />
+                                </button>
+                            ))}
+                        </div>
+                     </div>
+                  )}
                 </div>
-            )}
-        </div>
+
+                <div className="xl:col-span-2">
+                  {commande ? (
+                    <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
+                        
+                        <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
+                                <h3 className="font-bold text-slate-700 dark:text-slate-200 text-xl">Dossier N°{commande.ticket_num}</h3>
+                            </div>
+                            {isPaye ? (
+                                <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
+                            ) : (
+                                <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
+                            )}
+                        </div>
+                        
+                        <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
+                            
+                            <div className="lg:w-1/3 space-y-6">
+                                <div className="text-center lg:text-left">
+                                    <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto lg:mx-0 mb-3 text-2xl text-slate-400"><FiUser /></div>
+                                    <h2 className="text-xl font-bold text-slate-800 dark:text-white">{commande.contact_last_name} {commande.contact_first_name}</h2>
+                                    <p className="text-slate-500 text-sm mt-1">{commande.contact_phone}</p>
+                                    <span className="mt-3 inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase bg-indigo-50 text-indigo-600 border border-indigo-100">Sacrifice: {commande.sacrifice_name}</span>
+                                </div>
+
+                                {!isPaye && (
+                                  <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 space-y-3">
+                                      <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.14em]">
+                                          Catégorie
+                                      </p>
+                                      <select
+                                          value={categorieChoisie}
+                                          onChange={(e) => setCategorieChoisie(e.target.value)}
+                                          className="w-full p-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950/60 text-sm font-semibold outline-none focus:border-indigo-500 transition-all"
+                                      >
+                                          <option value="">Choisir une catégorie</option>
+                                          {tarifs.map(t => (
+                                              <option key={t.categorie} value={t.categorie}>
+                                                  Cat. {t.categorie} ({(t.prix_cents/100).toFixed(2)} €)
+                                              </option>
+                                          ))}
+                                      </select>
+                                      <button
+                                          type="button"
+                                          onClick={appliquerCategorie}
+                                          disabled={loadingCategorie || !categorieChoisie}
+                                          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all"
+                                      >
+                                          {loadingCategorie ? "Application..." : "Appliquer"}
+                                      </button>
+                                  </div>
+                                )}
+
+                                <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
+                                    <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
+                                    <div className="flex justify-between text-sm items-center">
+                                        <span className="text-slate-500">Total Payé</span>
+                                        <span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span>
+                                    </div>
+                                    <div className="flex justify-between text-base pt-2 border-t border-slate-100 dark:border-slate-700">
+                                        <span className="font-bold text-slate-700 dark:text-slate-300">Reste à payer</span>
+                                        <span className={`font-black ${resteAPayer < 0.05 ? 'text-emerald-500' : 'text-slate-900 dark:text-white'}`}>{resteAPayer < 0.05 ? "0.00 €" : `${resteAPayer.toFixed(2)} €`}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="lg:w-2/3 flex flex-col gap-6">
+                                
+                                {!isPaye ? (
+                                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
+                                        <form onSubmit={validerPaiement} className="space-y-4">
+                                            <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"><FiCreditCard className="text-indigo-500" /> Nouvel Encaissement</label>
+                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                {['especes', 'cb'].map(mode => (
+                                                    <button key={mode} type="button" onClick={() => setModePaiement(mode)} className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${modePaiement === mode ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200" : "border-slate-200 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50"}`}>
+                                                        <div className="text-2xl">{getPaymentIcon(mode)}</div><span className="text-sm font-bold uppercase">{mode === 'cb' ? 'Carte Bancaire' : 'Espèces'}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="relative">
+                                                <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"><span className="text-slate-400 text-xl font-bold">€</span></div>
+                                                <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
+                                                <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
+                                            </div>
+                                            <button type="submit" disabled={loadingPaiement || !montantEncaisse} className="w-full py-5 mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg rounded-xl shadow-lg shadow-indigo-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                                                {loadingPaiement ? "Encaissement..." : <>Encaisser ce montant <FiCheckCircle /></>}
+                                            </button>
+                                        </form>
+                                    </div>
+                                ) : (
+                                    <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center animate-fade-in shadow-inner">
+                                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><FiCheckCircle className="text-3xl" /></div>
+                                        <h3 className="text-2xl font-bold text-emerald-800 dark:text-emerald-400">Paiement Terminé</h3>
+                                        <p className="text-emerald-600 dark:text-emerald-500 mt-1 mb-6 font-medium">Le client a réglé la totalité de sa commande.</p>
+                                        
+                                        <button 
+                                            onClick={handlePrint}
+                                            className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-lg shadow-xl shadow-slate-900/30 flex items-center justify-center gap-3 transition-all transform hover:-translate-y-1 active:scale-95"
+                                        >
+                                            <FiPrinter className="text-2xl" />
+                                            IMPRIMER LE TICKET ZEBRA
+                                        </button>
+                                        
+                                        {/* PETIT RAPPEL IMPORTANT POUR TOI */}
+                                        <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">
+                                            IMPORTANT : Lors de l'impression, choisis "Format de papier : 102x76mm" et non "A4".
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
+                                    <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                                        <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique des paiements de ce ticket</h4>
+                                    </div>
+                                    <div className="p-4 max-h-64 overflow-y-auto">
+                                        {historique.length === 0 ? (
+                                            <p className="text-center text-slate-400 text-sm py-4">Aucun encaissement enregistré.</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {historique.map(tx => (
+                                                    <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'} dark:bg-slate-800 dark:border-slate-700 shadow-sm`}>
+                                                        <div>
+                                                            <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm">
+                                                                {Number(tx.montant_cents) < 0 ? <FiAlertTriangle className="text-red-500"/> : getPaymentIcon(tx.moyen_paiement)}
+                                                                {tx.moyen_paiement.toUpperCase()}
+                                                            </p>
+                                                            <p className="text-[11px] text-slate-500 mt-0.5">{new Date(tx.date_paiement).toLocaleString('fr-FR')} • {tx.encaisse_par.split('@')[0]}</p>
+                                                            {tx.notes && <p className="text-[11px] text-red-500 font-bold mt-0.5">{tx.notes}</p>}
+                                                        </div>
+                                                        <div className="text-right flex items-center gap-3">
+                                                            <span className={`font-black ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                                {(Number(tx.montant_cents) / 100).toFixed(2)} €
+                                                            </span>
+                                                            {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe' && (
+                                                                <button onClick={() => promptAnnulerTransaction(tx)} title="Annuler cette erreur de caisse" className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
+                                                                    <FiTrash2 className="text-base" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                  ) : (
+                    <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70 animate-fade-in">
+                        <div className="w-24 h-24 bg-indigo-50 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6 text-indigo-300 dark:text-slate-500"><FiCreditCard className="text-5xl" /></div>
+                        <h3 className="text-xl font-bold text-slate-400">Guichet Caisse Prêt</h3>
+                        <p className="text-slate-400 mt-2 max-w-sm mx-auto">Scannez un ticket ou créez une réservation pour encaisser.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+          )}
       </div>
 
-      {!activeCaisse ? (
-          <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 animate-fade-in">
-              <div className="w-24 h-24 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6"><FiLock className="text-5xl text-slate-400" /></div>
-              <h2 className="text-2xl font-black text-slate-800 dark:text-white">Votre caisse est fermée</h2>
-              <p className="text-slate-500 mt-2 max-w-md text-center">Déclarez votre fond de caisse (monnaie) pour commencer à encaisser.</p>
-              <button onClick={() => setShowOuvertureModal(true)} className="mt-8 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 flex items-center gap-2 transition-all"><FiUnlock /> Ouvrir ma caisse</button>
-          </div>
-      ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in">
-            <div className="xl:col-span-1 space-y-6">
-              <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
-                  <div className="p-5 space-y-5">
-                    <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => setShowScanner(true)} className="group w-full py-4 bg-gradient-to-br from-indigo-500 to-indigo-700 hover:from-indigo-600 hover:to-indigo-800 text-white rounded-2xl shadow-lg shadow-indigo-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
-                            <div className="bg-white/20 p-2.5 rounded-full"><FiCamera className="text-xl" /></div>
-                            <span className="font-bold text-sm tracking-wide">Scanner</span>
-                        </button>
-                        <button onClick={openCreateModal} className="group w-full py-4 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl shadow-lg shadow-emerald-500/25 flex flex-col items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-95">
-                            <div className="bg-white/20 p-2.5 rounded-full"><FiPlus className="text-xl" /></div>
-                            <span className="font-bold text-sm tracking-wide">Nouvelle Résa</span>
-                        </button>
-                    </div>
+      {/* ========================================================= */}
+      {/* 👉 LE TICKET ZEBRA (Résistant aux bugs Chrome Flexbox)    */}
+      {/* ========================================================= */}
+      {commande && (
+          <div id="ticket-zebra" style={{ display: 'none' }}>
+              
+              {/* EN-TÊTE EN PETIT */}
+              <div style={{ width: '100%', borderBottom: '2px solid black', paddingBottom: '2mm', marginBottom: '2mm' }}>
+                  <h1 style={{ fontSize: '13pt', fontWeight: '900', margin: 0, letterSpacing: '0.5px' }}>AÏD AL ADHA 2026</h1>
+              </div>
 
-                    <div className="relative group">
-                        <form onSubmit={(e) => handleSearch(e)} className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><FiSearch className="text-slate-400 text-xl" /></div>
-                            <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="N° Ticket, Nom, Tél..." className="block w-full pl-12 pr-16 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-base font-bold outline-none focus:border-indigo-500 transition-all dark:text-white" />
-                            <button type="submit" disabled={loading || !searchInput} className="absolute right-2 top-2 bottom-2 aspect-square bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center"><FiSearch className="text-xl" /></button>
-                        </form>
-                    </div>
+              {/* CORPS DU TICKET (Positionné avec Display Block au lieu de Flex pour éviter l'écrasement) */}
+              <div style={{ display: 'block', width: '100%', marginTop: '4mm' }}>
+                  <p style={{ fontSize: '16pt', fontWeight: 'bold', margin: '0 0 1mm 0' }}>Ticket :</p>
+                  
+                  <div style={{ fontSize: '65pt', fontWeight: '900', lineHeight: 1, margin: '0 0 4mm 0' }}>
+                      {commande.ticket_num}
+                  </div>
+                  
+                  <div style={{ fontSize: '20pt', fontWeight: 'bold', margin: '0 0 2mm 0', textTransform: 'uppercase' }}>
+                      {commande.creneaux_horaires ? `${getJourLabel(commande.creneaux_horaires.date)} - ${formatHeure(commande.creneaux_horaires.heure_debut)}` : "SANS CRÉNEAU"}
+                  </div>
+                  
+                  <div style={{ fontSize: '16pt', fontWeight: 'bold', margin: 0 }}>
+                      Catégorie {commande.categorie}
                   </div>
               </div>
 
-              {!commande && searchResults.length > 0 && (
-                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden"> 
-                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800">
-                        <h3 className="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2"><FiList /> Résultats ({searchResults.length})</h3>
-                    </div>
-                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
-                        {searchResults.map(res => (
-                            <button key={res.id} onClick={() => selectCommande(res)} className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex justify-between items-center group">
-                                <div>
-                                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-bold">#{res.ticket_num}</span>
-                                    <div className="text-sm font-medium text-slate-800 dark:text-white mt-1">{res.contact_last_name} {res.contact_first_name}</div>
-                                </div>
-                                <FiArrowRight className="text-slate-300 group-hover:text-indigo-500 text-xl" />
-                            </button>
-                        ))}
-                    </div>
-                 </div>
-              )}
-            </div>
-
-            <div className="xl:col-span-2">
-              {commande ? (
-                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
-                    
-                    <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
-                            <h3 className="font-bold text-slate-700 dark:text-slate-200 text-xl">Dossier N°{commande.ticket_num}</h3>
-                        </div>
-                        {isPaye ? (
-                            <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
-                        ) : (
-                            <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
-                        )}
-                    </div>
-                    
-                    <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
-                        
-                        <div className="lg:w-1/3 space-y-6">
-                            <div className="text-center lg:text-left">
-                                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto lg:mx-0 mb-3 text-2xl text-slate-400"><FiUser /></div>
-                                <h2 className="text-xl font-bold text-slate-800 dark:text-white">{commande.contact_last_name} {commande.contact_first_name}</h2>
-                                <p className="text-slate-500 text-sm mt-1">{commande.contact_phone}</p>
-                                <span className="mt-3 inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase bg-indigo-50 text-indigo-600 border border-indigo-100">Sacrifice: {commande.sacrifice_name}</span>
-                            </div>
-
-                            {!isPaye && (
-                              <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 space-y-3">
-                                  <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.14em]">
-                                      Catégorie finale du client
-                                  </p>
-                                  <select
-                                      value={categorieChoisie}
-                                      onChange={(e) => setCategorieChoisie(e.target.value)}
-                                      className="w-full p-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950/60 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200/70 dark:text-white transition-all"
-                                  >
-                                      <option value="">Choisir une catégorie</option>
-                                      {tarifs.map(t => (
-                                          <option key={t.categorie} value={t.categorie}>
-                                              Cat. {t.categorie} - {t.nom} ({(t.prix_cents/100).toFixed(2)} €)
-                                          </option>
-                                      ))}
-                                  </select>
-                                  <button
-                                      type="button"
-                                      onClick={appliquerCategorie}
-                                      disabled={loadingCategorie || !categorieChoisie}
-                                      className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-indigo-700 disabled:opacity-50 shadow-sm hover:shadow-md transition-all"
-                                  >
-                                      {loadingCategorie ? "Application..." : "Appliquer"}
-                                  </button>
-                                  {commande.categorie && (
-                                      <p className="text-[11px] text-slate-500 dark:text-slate-300 flex items-center gap-1">
-                                          Catégorie actuelle :{" "}
-                                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-[10px] font-black text-indigo-700 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-400">
-                                              CAT. {commande.categorie}
-                                          </span>
-                                      </p>
-                                  )}
-                              </div>
-                            )}
-
-                            <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
-                                <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
-                                <div className="flex justify-between text-sm items-center">
-                                    <span className="text-slate-500">Total Payé</span>
-                                    <span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span>
-                                </div>
-                                <div className="flex justify-between text-base pt-2 border-t border-slate-100 dark:border-slate-700">
-                                    <span className="font-bold text-slate-700 dark:text-slate-300">Reste à payer</span>
-                                    <span className={`font-black ${resteAPayer < 0.05 ? 'text-emerald-500' : 'text-slate-900 dark:text-white'}`}>{resteAPayer < 0.05 ? "0.00 €" : `${resteAPayer.toFixed(2)} €`}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="lg:w-2/3 flex flex-col gap-6">
-                            
-                            {!isPaye ? (
-                                <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
-                                    <form onSubmit={validerPaiement} className="space-y-4">
-                                        <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"><FiCreditCard className="text-indigo-500" /> Nouvel Encaissement</label>
-                                        <div className="grid grid-cols-2 gap-3 mb-4">
-                                            {['especes', 'cb'].map(mode => (
-                                                <button key={mode} type="button" onClick={() => setModePaiement(mode)} className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${modePaiement === mode ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200" : "border-slate-200 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50"}`}>
-                                                    <div className="text-2xl">{getPaymentIcon(mode)}</div><span className="text-sm font-bold uppercase">{mode === 'cb' ? 'Carte Bancaire' : 'Espèces'}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <div className="relative">
-                                            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"><span className="text-slate-400 text-xl font-bold">€</span></div>
-                                            <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
-                                            <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
-                                        </div>
-                                        <button type="submit" disabled={loadingPaiement || !montantEncaisse} className="w-full py-5 mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg rounded-xl shadow-lg shadow-indigo-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
-                                            {loadingPaiement ? "Encaissement..." : <>Encaisser ce montant <FiCheckCircle /></>}
-                                        </button>
-                                    </form>
-                                </div>
-                            ) : (
-                                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center">
-                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><FiCheckCircle className="text-3xl" /></div>
-                                    <h3 className="text-2xl font-bold text-emerald-800 dark:text-emerald-400">Paiement Terminé</h3>
-                                    <p className="text-emerald-600 dark:text-emerald-500 mt-1">Le client a réglé la totalité de sa commande.</p>
-                                </div>
-                            )}
-
-                            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
-                                <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                                    <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique des paiements de ce ticket</h4>
-                                </div>
-                                <div className="p-4 max-h-64 overflow-y-auto">
-                                    {historique.length === 0 ? (
-                                        <p className="text-center text-slate-400 text-sm py-4">Aucun encaissement enregistré.</p>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {historique.map(tx => (
-                                                <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'} dark:bg-slate-800 dark:border-slate-700 shadow-sm`}>
-                                                    <div>
-                                                        <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm">
-                                                            {Number(tx.montant_cents) < 0 ? <FiAlertTriangle className="text-red-500"/> : getPaymentIcon(tx.moyen_paiement)}
-                                                            {tx.moyen_paiement.toUpperCase()}
-                                                        </p>
-                                                        <p className="text-[11px] text-slate-500 mt-0.5">{new Date(tx.date_paiement).toLocaleString('fr-FR')} • {tx.encaisse_par.split('@')[0]}</p>
-                                                        {tx.notes && <p className="text-[11px] text-red-500 font-bold mt-0.5">{tx.notes}</p>}
-                                                    </div>
-                                                    <div className="text-right flex items-center gap-3">
-                                                        <span className={`font-black ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                                            {(Number(tx.montant_cents) / 100).toFixed(2)} €
-                                                        </span>
-                                                        {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe' && (
-                                                            <button onClick={() => promptAnnulerTransaction(tx)} title="Annuler cette erreur de caisse" className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
-                                                                <FiTrash2 className="text-base" />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-              ) : (
-                <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70 animate-fade-in">
-                    <div className="w-24 h-24 bg-indigo-50 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6 text-indigo-300 dark:text-slate-500"><FiCreditCard className="text-5xl" /></div>
-                    <h3 className="text-xl font-bold text-slate-400">Guichet Caisse Prêt</h3>
-                    <p className="text-slate-400 mt-2 max-w-sm mx-auto">Scannez un ticket ou créez une réservation pour encaisser.</p>
-                </div>
-              )}
-            </div>
+              {/* PIED DE PAGE EN PETIT (Position Fixée en Absolu en bas pour qu'il ne remonte jamais) */}
+              <div style={{ position: 'absolute', bottom: '3mm', left: '3mm', right: '3mm', borderTop: '2px dashed black', paddingTop: '2mm' }}>
+                  <p style={{ fontSize: '8pt', fontWeight: 'bold', margin: '0 0 1mm 0', lineHeight: 1.1 }}>
+                      Aucun remboursement en cas de retard ou de saisie par la DDPP.
+                  </p>
+                  <p style={{ fontSize: '7pt', fontWeight: 'bold', margin: 0, lineHeight: 1.1 }}>
+                      Interdiction au sac poubelle, merci de respecter les règles d'hygiène.
+                  </p>
+              </div>
+              
           </div>
       )}
 
+      {/* MODALES CLASSIQUES */}
       {showCreateModal && (
-          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
                     <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
@@ -613,7 +701,7 @@ export default function PriseEnCharge() {
                                 <option value="">-- Choisir un créneau --</option>
                                 {creneauxDispo.map(c => (
                                     <option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>
-                                        {new Date(c.date).toLocaleDateString('fr-FR')} à {c.heure_debut.slice(0,5)} ({c.places_restantes} dispo)
+                                        {getJourLabel(c.date)} à {c.heure_debut.slice(0,5)} ({c.places_restantes} dispo)
                                     </option>
                                 ))}
                             </select>
@@ -645,7 +733,7 @@ export default function PriseEnCharge() {
                             <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({...newResaForm, phone: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Pour envoi QR Code)</label>
+                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Optionnel)</label>
                             <input type="email" placeholder="client@email.com" value={newResaForm.email} onChange={e => setNewResaForm({...newResaForm, email: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                         </div>
                         <div className="md:col-span-2">
@@ -671,7 +759,7 @@ export default function PriseEnCharge() {
       )}
 
       {showCancelModal && transactionToCancel && (
-          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
                   <div className="flex items-center gap-4 mb-4">
                       <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0"><FiAlertTriangle className="text-2xl" /></div>
@@ -697,7 +785,7 @@ export default function PriseEnCharge() {
       )}
 
       {showOuvertureModal && (
-          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Ouverture de Caisse</h3>
                   <p className="text-slate-500 mb-6 text-sm">Déclarez la monnaie en espèces présente dans votre tiroir-caisse ce matin.</p>
@@ -717,7 +805,7 @@ export default function PriseEnCharge() {
       )}
 
       {showClotureModal && (
-          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2 flex items-center gap-2"><FiArchive /> Clôture de Caisse</h3>
                   <p className="text-slate-500 mb-6 text-sm">Fin de journée. Comptez physiquement votre caisse et vos tickets TPE.</p>
@@ -761,7 +849,7 @@ export default function PriseEnCharge() {
       )}
 
       {showScanner && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4 print:hidden">
             <button onClick={() => setShowScanner(false)} className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20"><FiX className="text-3xl" /></button>
             <div className="w-full max-w-md bg-black rounded-3xl overflow-hidden border-4 border-indigo-500 shadow-2xl relative aspect-square"><Scanner onScan={handleScan} /></div>
         </div>
