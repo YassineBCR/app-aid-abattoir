@@ -84,7 +84,7 @@ export default function Reservation() {
           }
 
           const { data: slots } = await supabase.rpc("get_creneaux_public");
-          // 👉 SÉCURITÉ : On filtre les créneaux qui ne sont pas en ligne (is_online !== false)
+          // SÉCURITÉ : On filtre les créneaux qui ne sont pas en ligne (is_online !== false)
           const filteredSlots = (slots || []).filter(s => s.is_online !== false);
           setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
 
@@ -137,6 +137,19 @@ export default function Reservation() {
     init();
   }, [navigate, showNotification]);
 
+  // LOGIQUE DE REGROUPEMENT DES CRENEAUX PAR JOUR
+  const groupedCreneaux = useMemo(() => {
+    const groups = {};
+    creneaux.forEach(slot => {
+        const j = joursConfig.find(jd => jd.date_fete === slot.date);
+        const label = j ? `JOUR ${j.numero}` : 'JOUR INCONNU';
+        if (!groups[label]) groups[label] = { label, date: slot.date, slots: [] };
+        groups[label].slots.push(slot);
+    });
+    // On trie les jours chronologiquement
+    return Object.values(groups).sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [creneaux, joursConfig]);
+
   useEffect(() => {
     if (!expireTime) return;
 
@@ -165,7 +178,6 @@ export default function Reservation() {
       setStep(1);
       await supabase.rpc('nettoyer_paniers_expires');
       const { data: slots } = await supabase.rpc("get_creneaux_public");
-      // 👉 FILTRE ICI AUSSI
       const filteredSlots = (slots || []).filter(s => s.is_online !== false);
       setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
   };
@@ -340,7 +352,7 @@ export default function Reservation() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 
-                {/* COLONNE GAUCHE : FORMULAIRE */}
+                {/* COLONNE GAUCHE : FORMULAIRE / CRENEAUX */}
                 <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 md:p-10 min-h-[400px]">
                     {loading ? (
                         <div className="flex justify-center items-center h-64"><FiLoader className="w-8 h-8 animate-spin text-green-500" /></div>
@@ -357,24 +369,77 @@ export default function Reservation() {
                                         <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
                                         <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
                                     </div>
+                                    
+                                    <div className="flex justify-end mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
+                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Suivant <FiArrowRight /></button>
+                                    </div>
                                 </div>
                             )}
 
                             {step === 2 && (
                                 <div className="space-y-8 animate-fade-in">
-                                    <div>
-                                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Créneau de retrait</h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                            {creneaux.map((c) => {
-                                                const isFull = c.places_disponibles <= 0;
-                                                return (
-                                                    <button key={c.id} onClick={() => !isFull && setSelectedCreneau(c)} disabled={isFull} className={`p-3 rounded-xl border-2 text-left transition-all duration-200 ${selectedCreneau?.id === c.id ? 'bg-blue-500 border-blue-500 text-white transform scale-105 shadow-md' : isFull ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 opacity-60 cursor-not-allowed' : 'bg-white dark:bg-slate-900 border-slate-200 hover:border-blue-300'}`}>
-                                                        <div className="font-bold">{getJourLabel(c.date)} - {c.heure_debut.slice(0,5)}</div>
-                                                        <div className="text-xs uppercase">{isFull ? "Complet" : `${c.places_disponibles} places`}</div>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
+                                        <h3 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Créneau de retrait</h3>
+                                    </div>
+                                    
+                                    {/* 👉 NOUVEAU DESIGN EN COLONNES (JOUR 1 / JOUR 2) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        {groupedCreneaux.map((group) => (
+                                            <div key={group.label} className="space-y-4">
+                                                {/* En-tête coloré pour chaque jour */}
+                                                <div className="bg-gradient-to-r from-emerald-500 to-green-600 text-white p-4 rounded-2xl text-center shadow-md">
+                                                    <h4 className="text-xl font-black uppercase tracking-wider">{group.label}</h4>
+                                                    <p className="text-xs font-medium opacity-90 mt-1">
+                                                        {new Date(group.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                                    </p>
+                                                </div>
+                                                
+                                                {/* Liste des créneaux pour ce jour précis */}
+                                                <div className="grid grid-cols-1 gap-3">
+                                                    {group.slots.map((c) => {
+                                                        const isFull = c.places_disponibles <= 0;
+                                                        const isSelected = selectedCreneau?.id === c.id;
+                                                        
+                                                        return (
+                                                            <button 
+                                                              key={c.id} 
+                                                              onClick={() => !isFull && setSelectedCreneau(c)} 
+                                                              disabled={isFull} 
+                                                              className={`relative p-4 rounded-xl border-2 text-left transition-all duration-200 ${
+                                                                  isSelected 
+                                                                  ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 shadow-md ring-2 ring-blue-500/20 translate-x-1' 
+                                                                  : isFull 
+                                                                    ? 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800 opacity-50 cursor-not-allowed grayscale' 
+                                                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-emerald-50/50'
+                                                              }`}
+                                                            >
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <FiClock className={`text-2xl ${isSelected ? 'text-blue-500' : isFull ? 'text-slate-400' : 'text-emerald-500'}`} />
+                                                                        <div>
+                                                                            <div className="font-black text-xl leading-tight">{c.heure_debut.slice(0,5)}</div>
+                                                                            <div className="text-xs text-slate-500">à {c.heure_fin.slice(0,5)}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        {isFull ? (
+                                                                            <span className="bg-red-500 text-white px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider">Complet</span>
+                                                                        ) : (
+                                                                            <div className={`text-sm font-black ${isSelected ? 'text-blue-600' : 'text-emerald-600'}`}>{c.places_disponibles} places</div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
+                                        <button onClick={handleBack} className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"><FiArrowLeft /> Retour</button>
+                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Suivant <FiArrowRight /></button>
                                     </div>
                                 </div>
                             )}
@@ -403,13 +468,13 @@ export default function Reservation() {
                                         {addingToCart ? <FiLoader className="animate-spin" /> : <FiPlus />}
                                         {addingToCart ? "Ajout..." : "Ajouter au panier"}
                                     </button>
+                                    
+                                    <div className="flex justify-between items-center mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
+                                        <button onClick={handleBack} className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"><FiArrowLeft /> Retour</button>
+                                        <div></div>
+                                    </div>
                                 </div>
                             )}
-
-                            <div className="flex justify-between items-center mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
-                                {step > 1 ? <button onClick={handleBack} className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"><FiArrowLeft /> Retour</button> : <div></div>}
-                                {step < 3 && <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Suivant <FiArrowRight /></button>}
-                            </div>
                         </>
                     )}
                 </div>
