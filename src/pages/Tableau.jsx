@@ -3,12 +3,12 @@ import { supabase } from "../lib/supabase";
 import { 
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
-  FiMessageSquare, FiSend, FiLoader
+  FiMessageSquare, FiSend, FiLoader, FiTrash2
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
 
-export default function Tableau({ changeTab }) {
+export default function Tableau({ changeTab, userRole }) {
   const { showNotification } = useNotification();
   const [commandes, setCommandes] = useState([]);
   const [joursConfig, setJoursConfig] = useState([]);
@@ -20,6 +20,7 @@ export default function Tableau({ changeTab }) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   
   const [sendingMail, setSendingMail] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // États pour la modale d'e-mail
   const [showMailModal, setShowMailModal] = useState(false);
@@ -27,7 +28,7 @@ export default function Tableau({ changeTab }) {
   const [customMailBody, setCustomMailBody] = useState("");
   const [sendingCustomMail, setSendingCustomMail] = useState(false);
 
-  // 👉 NOUVEAU : États pour la modale de SMS
+  // États pour la modale de SMS
   const [showSmsModal, setShowSmsModal] = useState(false);
   const [customSmsBody, setCustomSmsBody] = useState("");
   const [sendingCustomSms, setSendingCustomSms] = useState(false);
@@ -163,7 +164,6 @@ export default function Tableau({ changeTab }) {
       }
   };
 
-  // 👉 NOUVEAU : Fonction pour envoyer le SMS via OVH
   const handleSendCustomSms = async (e) => {
       e.preventDefault();
       if (!customSmsBody.trim()) return showNotification("Le message ne peut pas être vide.", "error");
@@ -193,6 +193,31 @@ export default function Tableau({ changeTab }) {
       } finally {
           setSendingCustomSms(false);
       }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!window.confirm(`⚠️ Êtes-vous sûr de vouloir supprimer DÉFINITIVEMENT le dossier #${selectedOrder.ticket_num} ?\nCette action est irréversible et supprimera la commande.`)) {
+        return;
+    }
+    
+    setIsDeleting(true);
+    try {
+        const { error } = await supabase
+            .from('commandes')
+            .delete()
+            .eq('id', selectedOrder.id);
+            
+        if (error) throw error;
+        
+        showNotification("Réservation supprimée avec succès", "success");
+        logAction('SUPPRESSION', 'COMMANDE', { action: 'Suppression définitive', ticket: selectedOrder.ticket_num });
+        setSelectedOrder(null);
+    } catch (err) {
+        console.error(err);
+        showNotification("Erreur lors de la suppression de la commande", "error");
+    } finally {
+        setIsDeleting(false);
+    }
   };
 
   const exportToCSV = () => {
@@ -364,6 +389,17 @@ export default function Tableau({ changeTab }) {
                           <p className="text-slate-400 text-sm font-medium">Créé le {new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</p>
                       </div>
                       <div className="flex items-center gap-3">
+                          {userRole === 'admin_global' && (
+                              <button 
+                                  onClick={handleDeleteOrder} 
+                                  disabled={isDeleting}
+                                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-red-500/30 transition-all flex items-center gap-2"
+                                  title="Supprimer définitivement"
+                              >
+                                  {isDeleting ? <FiLoader className="animate-spin text-lg" /> : <FiTrash2 className="text-lg" />}
+                                  <span className="hidden sm:inline">Supprimer</span>
+                              </button>
+                          )}
                           <button onClick={handlePrendreEnCharge} className="bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all flex items-center gap-2 hover:scale-105">
                               Aller en caisse <FiArrowRight />
                           </button>
@@ -392,7 +428,6 @@ export default function Tableau({ changeTab }) {
                                       </button>
                                   )}
                                   
-                                  {/* 👉 NOUVEAU BOUTON SMS: Ouvre la modale pour OVH */}
                                   {selectedOrder.contact_phone && (
                                       <button 
                                           onClick={() => setShowSmsModal(true)} 
@@ -540,7 +575,7 @@ export default function Tableau({ changeTab }) {
           </div>
       )}
 
-      {/* 👉 NOUVELLE MODALE : ENVOI D'UN SMS (OVH) */}
+      {/* MODALE : ENVOI D'UN SMS (OVH) */}
       {showSmsModal && selectedOrder && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
               <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">

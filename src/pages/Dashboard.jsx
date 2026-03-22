@@ -38,10 +38,7 @@ const SECTIONS = {
   commandes: { label: "Commandes Web", component: Vendeur, Icon: FiPackage, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10", border: "border-indigo-500" },
   bouclage: { label: "Bouclage", component: Bouclage, Icon: FiTag, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-500/10", border: "border-orange-500" },
   finance: { label: "Comptabilité", component: AdminCaisse, Icon: FiDollarSign, color: "text-yellow-500", bg: "bg-yellow-50 dark:bg-yellow-500/10", border: "border-yellow-500" },
-  
-  // 👉 MODIFICATION ICI : On renomme "Marketing SMS" en "MARKETING"
   sms: { label: "Marketing", component: AdminSMS, Icon: FiMessageSquare, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", border: "border-purple-500" },
-  
   logs: { label: "Traçabilité (Logs)", component: AdminLogs, Icon: FiActivity, color: "text-slate-500", bg: "bg-slate-100 dark:bg-slate-500/10", border: "border-slate-500" },
   settings: { label: "Paramètres", component: AdminSettings, Icon: FiSettings, color: "text-gray-500", bg: "bg-gray-50 dark:bg-gray-500/10", border: "border-gray-500" },
 };
@@ -212,7 +209,8 @@ export default function Dashboard() {
             <div className="max-w-7xl mx-auto">
                 {ActiveComponent ? (
                     <div className="animate-fade-in-up">
-                        <ActiveComponent changeTab={setActive} />
+                        {/* On passe le userRole à ActiveComponent */}
+                        <ActiveComponent changeTab={setActive} userRole={profile?.role} />
                     </div>
                 ) : (
                     <div className="h-[60vh] flex flex-col items-center justify-center text-center">

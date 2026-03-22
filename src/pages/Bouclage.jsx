@@ -110,7 +110,6 @@ export default function Bouclage() {
         setSearchInput(""); 
       } else {
         setCommande(data);
-        // On ne pré-remplit pas l'input pour pouvoir taper directement une NOUVELLE boucle
         setNumeroBoucle(""); 
         setSearchInput(data.ticket_num?.toString() || "");
       }
@@ -139,10 +138,17 @@ export default function Bouclage() {
   // BOUTON DE GAUCHE : Valide l'agneau mais garde le ticket ouvert pour en ajouter un autre
   const validerEtGarder = async (e) => {
     if (e) e.preventDefault();
-    
     setProcessing(true);
+    
+    // 👉 VÉRIFICATION DE SÉCURITÉ : Le client a-t-il payé la totalité ?
+    const estPaye = commande.statut === 'paye_integralement' || commande.statut === 'validee' || commande.statut === 'bouclee';
+    if (!estPaye) {
+        showNotification("Action refusée : le client n'a pas payé la totalité de sa commande !", "error");
+        setProcessing(false);
+        return;
+    }
+
     try {
-      // Ajoute à la suite si le ticket a déjà des boucles enregistrées, ou ignore si vide
       let newBoucles = commande.numero_boucle || "";
       if (numeroBoucle.trim()) {
           newBoucles = newBoucles ? `${newBoucles}, ${numeroBoucle.trim()}` : numeroBoucle.trim();
@@ -161,7 +167,6 @@ export default function Bouclage() {
       logAction('MODIFICATION', 'BOUCLAGE', { ticket: commande.ticket_num, boucle: numeroBoucle || "Aucune" });
       showNotification(`Agneau validé ! Prêt pour le suivant.`, "success");
       
-      // On met à jour l'état local et on vide juste l'input
       setCommande({ ...commande, numero_boucle: newBoucles, statut: 'bouclee' });
       setNumeroBoucle("");
     } catch (err) {
@@ -174,8 +179,16 @@ export default function Bouclage() {
   // BOUTON DE DROITE : Valide l'agneau et ferme le ticket
   const validerBouclage = async (e) => {
     if (e) e.preventDefault();
-    
     setProcessing(true);
+    
+    // 👉 VÉRIFICATION DE SÉCURITÉ : Le client a-t-il payé la totalité ?
+    const estPaye = commande.statut === 'paye_integralement' || commande.statut === 'validee' || commande.statut === 'bouclee';
+    if (!estPaye) {
+        showNotification("Action refusée : le client n'a pas payé la totalité de sa commande !", "error");
+        setProcessing(false);
+        return;
+    }
+
     try {
       let newBoucles = commande.numero_boucle || "";
       if (numeroBoucle.trim()) {
@@ -218,9 +231,7 @@ export default function Bouclage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20 animate-fade-in">
       
-      {/* =========================================================================
-          ÉTAT 1 : RECHERCHE DU TICKET
-      ========================================================================= */}
+      {/* ÉTAT 1 : RECHERCHE DU TICKET */}
       {!commande && (
           <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 max-w-lg mx-auto">
               <div className="flex justify-center items-center mb-8">
@@ -272,13 +283,11 @@ export default function Bouclage() {
           </div>
       )}
 
-      {/* =========================================================================
-          ÉTAT 2 : DOSSIER TROUVÉ ET ASSOCIATION
-      ========================================================================= */}
+      {/* ÉTAT 2 : DOSSIER TROUVÉ ET ASSOCIATION */}
       {commande && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up">
           
-          {/* COLONNE GAUCHE (INFOS ET BOUTON D'AJOUT RAPIDE) */}
+          {/* COLONNE GAUCHE */}
           <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 flex flex-col h-full">
               <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-700 pb-6">
                   <div>
@@ -338,7 +347,7 @@ export default function Bouclage() {
               </div>
           </div>
 
-          {/* COLONNE DROITE (VALIDATION DIRECTE) */}
+          {/* COLONNE DROITE */}
           <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-xl border-t-8 border-orange-500 flex flex-col items-center">
               <h3 className="text-2xl font-black mb-4 text-slate-800 dark:text-white w-full text-left">Validation Rapide</h3>
               
@@ -347,7 +356,6 @@ export default function Bouclage() {
                  (Le numéro de boucle est désormais facultatif).
               </div>
 
-              {/* Affichage des boucles déjà enregistrées si le ticket possède déjà des agneaux */}
               {commande.numero_boucle && (
                   <div className="w-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 p-4 rounded-2xl mb-4 border border-emerald-200 dark:border-emerald-800">
                       <p className="text-xs font-bold uppercase mb-1 flex items-center gap-2"><FiTag/> Déjà associé(s) :</p>
@@ -379,9 +387,7 @@ export default function Bouclage() {
         </div>
       )}
 
-      {/* =========================================================================
-          MODALE SCANNER CAMERA
-      ========================================================================= */}
+      {/* MODALE SCANNER CAMERA */}
       {showScanner && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
             <button onClick={() => setShowScanner(false)} className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20 transition-colors">
