@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
 import { 
   FiClock, FiUsers, FiEdit3, FiPlus, FiTrash2, FiPieChart, FiEye, FiSearch, FiPrinter, FiPhone, FiFileText, FiX, FiCalendar,
-  FiBox, FiTag, FiXCircle, FiCheck, FiLayers, FiUser, FiInfo, FiGrid, FiSettings
+  FiBox, FiTag, FiXCircle, FiCheck, FiLayers, FiUser, FiInfo, FiGrid, FiSettings, FiGlobe, FiEyeOff
 } from "react-icons/fi";
 import { logAction } from "../lib/logger";
 
@@ -19,7 +19,7 @@ function CreneauxManager() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({ 
-    date: "", heure_debut: "", heure_fin: "", capacite_max: 50 
+    date: "", heure_debut: "", heure_fin: "", capacite_max: 50, is_online: true 
   });
   
   const [showDatesModal, setShowDatesModal] = useState(false);
@@ -65,7 +65,7 @@ function CreneauxManager() {
   const openDetails = async (slot) => {
       setSelectedSlot(slot); setDetailLoading(true); setShowDetailModal(true); setSearchTerm("");
       try {
-          const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slot.id).order("ticket_num", { ascending: true });
+          const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slot.id).order("ticket_num", { ascending: true }).limit(1000);
           if (error) throw error;
           setSlotOrders(data || []);
       } catch (err) { showNotification("Impossible de charger les détails", "error"); } finally { setDetailLoading(false); }
@@ -74,11 +74,11 @@ function CreneauxManager() {
   const openModal = (creneau = null) => {
       if (creneau) {
           setEditingId(creneau.id);
-          setFormData({ date: creneau.date, heure_debut: creneau.heure_debut, heure_fin: creneau.heure_fin, capacite_max: creneau.capacite_max });
+          setFormData({ date: creneau.date, heure_debut: creneau.heure_debut, heure_fin: creneau.heure_fin, capacite_max: creneau.capacite_max, is_online: creneau.is_online ?? true });
       } else {
           setEditingId(null);
           const defaultDate = joursConfig.length > 0 ? joursConfig[0].date_fete : "";
-          setFormData({ date: defaultDate, heure_debut: "", heure_fin: "", capacite_max: 50 });
+          setFormData({ date: defaultDate, heure_debut: "", heure_fin: "", capacite_max: 50, is_online: true });
       }
       setShowModal(true);
   };
@@ -88,40 +88,46 @@ function CreneauxManager() {
       setShowDatesModal(true);
   };
 
-  // 🟢 CORRECTION : On utilise .eq("numero", jour.numero) au lieu de l'ID
+  // NOUVELLE FONCTION : Basculer l'état En ligne / Hors ligne
+  const toggleOnlineStatus = async (slot) => {
+      try {
+          const newStatus = !slot.is_online;
+          const { error } = await supabase
+              .from("creneaux_horaires")
+              .update({ is_online: newStatus })
+              .eq("id", slot.id);
+              
+          if (error) throw error;
+          
+          showNotification(`Créneau de ${slot.heure_debut.slice(0,5)} passé ${newStatus ? 'EN LIGNE' : 'HORS LIGNE'}`, newStatus ? "success" : "info");
+          
+          // Mise à jour de l'affichage local sans avoir à recharger toute la page
+          if (selectedSlot && selectedSlot.id === slot.id) {
+              setSelectedSlot({ ...selectedSlot, is_online: newStatus });
+          }
+          fetchCreneaux();
+      } catch (err) {
+          showNotification("Erreur lors de la modification du statut en ligne", "error");
+      }
+  };
+
   const handleSaveDates = async (e) => {
       e.preventDefault();
       try {
           for (const jour of editJours) {
               const original = joursConfig.find(j => j.numero === jour.numero);
-              
               if (original && original.date_fete !== jour.date_fete && jour.date_fete) {
-                  // 1. Mettre à jour la table jours_fete
-                  const { error: errJours } = await supabase
-                      .from("jours_fete")
-                      .update({ date_fete: jour.date_fete })
-                      .eq("numero", jour.numero); // Utilisation du numéro comme clé
-                  
+                  const { error: errJours } = await supabase.from("jours_fete").update({ date_fete: jour.date_fete }).eq("numero", jour.numero); 
                   if (errJours) throw errJours;
-
-                  // 2. Mettre à jour la table creneaux_horaires (décaler les créneaux)
                   if (original.date_fete) {
-                      const { error: errCreneaux } = await supabase
-                          .from("creneaux_horaires")
-                          .update({ date: jour.date_fete })
-                          .eq("date", original.date_fete);
-                      
+                      const { error: errCreneaux } = await supabase.from("creneaux_horaires").update({ date: jour.date_fete }).eq("date", original.date_fete);
                       if (errCreneaux) throw errCreneaux;
                   }
               }
           }
           showNotification("Les dates ont été mises à jour !", "success");
-          setShowDatesModal(false);
-          fetchCreneaux();
-      } catch (err) {
-          console.error("Erreur sauvegarde dates:", err);
-          showNotification("Erreur : " + err.message, "error");
-      }
+          setShowDatesModal(false); fetchCreneaux();
+      } catch (err) { showNotification("Erreur : " + err.message, "error"); }
   };
 
   const handleSave = async (e) => {
@@ -133,8 +139,7 @@ function CreneauxManager() {
       if (editingId) { 
           await supabase.from("creneaux_horaires").update(payload).eq("id", editingId); 
           showNotification("Créneau mis à jour", "success"); 
-      } 
-      else { 
+      } else { 
           await supabase.from("creneaux_horaires").insert([payload]); 
           showNotification("Créneau créé", "success"); 
       }
@@ -146,8 +151,7 @@ function CreneauxManager() {
       if(!window.confirm("Supprimer ce créneau ?")) return;
       try {
           await supabase.from("creneaux_horaires").delete().eq("id", id);
-          showNotification("Créneau supprimé", "success"); 
-          fetchCreneaux();
+          showNotification("Créneau supprimé", "success"); fetchCreneaux();
       } catch(err) { showNotification("Impossible de supprimer (Commandes actives ?)", "error"); }
   };
 
@@ -159,7 +163,11 @@ function CreneauxManager() {
       return <span className="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">À Payer</span>;
   };
 
-  const filteredOrders = slotOrders.filter(o => o.contact_last_name?.toLowerCase().includes(searchTerm.toLowerCase()) || o.ticket_num?.toString().includes(searchTerm));
+  const filteredOrders = slotOrders.filter(o => 
+      (o.contact_last_name || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (o.ticket_num || "").toString().includes(searchTerm)
+  );
+  
   const getJourLabel = (dateStr) => { const j = joursConfig.find(jd => jd.date_fete === dateStr); return j ? `Jour ${j.numero}` : `Jour Inconnu`; };
   const handleCapacityChange = (e) => { const val = e.target.value; setFormData({ ...formData, capacite_max: val === '' ? '' : parseInt(val) }); };
 
@@ -171,7 +179,7 @@ function CreneauxManager() {
                     <div className="p-3 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl text-white shadow-xl shadow-emerald-500/30"><FiClock className="text-3xl" /></div>
                     Configuration Horaires
                 </h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">Gérez la capacité d'accueil de l'abattoir.</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">Gérez la capacité d'accueil de l'abattoir et la visibilité en ligne.</p>
           </div>
           <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-col justify-between relative overflow-hidden group">
               <div className="absolute right-0 top-0 w-40 h-40 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none group-hover:bg-white/20 transition-all"></div>
@@ -205,9 +213,21 @@ function CreneauxManager() {
             creneaux.map((c) => {
             const percent = Math.min(100, (c.remplissage / (c.capacite_max || 1)) * 100);
             let statusColor = percent >= 100 ? "bg-slate-800" : percent > 85 ? "bg-red-500" : "bg-emerald-500";
+            
+            // Si le créneau est hors ligne, on grise un peu la carte pour que ce soit visuel
+            const cardOpacity = c.is_online ? "opacity-100" : "opacity-80 grayscale-[20%]";
+
             return (
-                <div key={c.id} className="group bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col hover:shadow-2xl transition-all duration-300 relative">
+                <div key={c.id} className={`group bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col hover:shadow-2xl transition-all duration-300 relative ${cardOpacity}`}>
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${statusColor}`}></div>
+                    
+                    {/* Badge visuel "Hors Ligne" directement sur la carte */}
+                    {!c.is_online && (
+                        <div className="absolute top-4 right-4 bg-slate-100 text-slate-500 text-[10px] font-black uppercase px-2 py-1 rounded border border-slate-200 flex items-center gap-1">
+                            <FiEyeOff /> Hors ligne
+                        </div>
+                    )}
+
                     <div className="p-6 flex-1">
                         <div className="mb-2 text-xs font-bold uppercase text-slate-400 flex items-center gap-1"><FiCalendar /> {getJourLabel(c.date)}</div>
                         <div className="flex justify-between items-start mb-4"><h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{c.heure_debut.slice(0,5)} <span className="text-slate-300 mx-1 font-light">à</span> {c.heure_fin.slice(0,5)}</h3></div>
@@ -223,7 +243,16 @@ function CreneauxManager() {
                         </div>
                     </div>
                     <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                        <button onClick={() => openDetails(c)} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg text-sm font-bold hover:bg-emerald-200 transition-colors"><FiEye /> Détails</button>
+                        <div className="flex gap-2">
+                            <button onClick={() => openDetails(c)} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg text-sm font-bold hover:bg-emerald-200 transition-colors">
+                                <FiEye /> Détails
+                            </button>
+                            
+                            {/* BOUTON ON/OFF SUR LA CARTE */}
+                            <button onClick={() => toggleOnlineStatus(c)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${c.is_online ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`} title={c.is_online ? "Masquer ce créneau sur le site en ligne" : "Afficher ce créneau sur le site en ligne"}>
+                                {c.is_online ? <FiGlobe /> : <FiEyeOff />} {c.is_online ? "ON" : "OFF"}
+                            </button>
+                        </div>
                         <div className="flex gap-2">
                             <button onClick={() => openModal(c)} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"><FiEdit3 /></button>
                             <button onClick={() => handleDelete(c.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><FiTrash2 /></button>
@@ -242,31 +271,15 @@ function CreneauxManager() {
                     <button onClick={() => setShowDatesModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><FiX/></button>
                 </div>
                 <form onSubmit={handleSaveDates} className="p-6 space-y-6">
-                    <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-                        Modifiez les dates. Tous les créneaux existants s'adapteront automatiquement.
-                    </p>
-                    
+                    <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Modifiez les dates. Tous les créneaux existants s'adapteront automatiquement.</p>
                     <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
                         {editJours.map((jour, index) => (
                             <div key={index} className="space-y-2">
-                                <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                                    <FiCalendar /> Jour {jour.numero}
-                                </label>
-                                <input 
-                                    type="date" 
-                                    required 
-                                    value={jour.date_fete} 
-                                    onChange={e => {
-                                        const newJours = [...editJours];
-                                        newJours[index].date_fete = e.target.value;
-                                        setEditJours(newJours);
-                                    }} 
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                                />
+                                <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2"><FiCalendar /> Jour {jour.numero}</label>
+                                <input type="date" required value={jour.date_fete} onChange={e => { const newJours = [...editJours]; newJours[index].date_fete = e.target.value; setEditJours(newJours); }} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500" />
                             </div>
                         ))}
                     </div>
-
                     <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex gap-3">
                         <button type="button" onClick={() => setShowDatesModal(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors">Annuler</button>
                         <button type="submit" className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30">Mettre à jour</button>
@@ -311,6 +324,18 @@ function CreneauxManager() {
                             <input type="number" value={formData.capacite_max} onChange={handleCapacityChange} className="w-20 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500"/>
                         </div>
                     </div>
+                    {/* OPTION EN LIGNE DANS LE FORMULAIRE DE MODIFICATION */}
+                    <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div>
+                            <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><FiGlobe /> Visible en ligne</p>
+                            <p className="text-xs text-slate-500">Les clients pourront réserver ce créneau sur le site.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" className="sr-only peer" checked={formData.is_online} onChange={(e) => setFormData({...formData, is_online: e.target.checked})} />
+                            <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+
                     <div className="pt-4 flex gap-3">
                         <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors">Annuler</button>
                         <button type="submit" className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30">Enregistrer</button>
@@ -323,10 +348,23 @@ function CreneauxManager() {
       {showDetailModal && selectedSlot && (
           <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200 print:bg-white print:p-0 print:block">
               <div className="bg-white dark:bg-slate-800 w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden print:shadow-none print:w-full print:max-w-none print:rounded-none flex flex-col max-h-[90vh]">
-                  <div className="p-6 bg-slate-900 text-white flex justify-between items-center print:hidden shrink-0">
-                      <div>
-                          <h2 className="text-2xl font-bold flex items-center gap-2"><FiFileText /> Liste du Créneau</h2>
-                          <p className="text-slate-400 font-mono text-lg">{getJourLabel(selectedSlot.date)} • {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p>
+                  <div className="p-6 bg-slate-900 text-white flex justify-between items-start print:hidden shrink-0">
+                      <div className="space-y-2">
+                          <h2 className="text-2xl font-bold flex items-center gap-2">
+                              <FiFileText /> Liste du Créneau
+                              <span className="text-sm bg-emerald-500/30 text-emerald-300 px-3 py-1 rounded-full ml-2 border border-emerald-500/50">{filteredOrders.length} tickets</span>
+                          </h2>
+                          <div className="flex items-center gap-4">
+                              <p className="text-slate-400 font-mono text-lg">{getJourLabel(selectedSlot.date)} • {selectedSlot.heure_debut.slice(0,5)} - {selectedSlot.heure_fin.slice(0,5)}</p>
+                              {/* BOUTON ON/OFF DANS LA MODALE DE DETAILS */}
+                              <button onClick={() => toggleOnlineStatus(selectedSlot)} className={`text-xs px-2 py-1 rounded font-bold flex items-center gap-1 border transition-colors ${selectedSlot.is_online ? 'bg-blue-900/50 text-blue-300 border-blue-500' : 'bg-slate-800 text-slate-400 border-slate-600'}`}>
+                                  {selectedSlot.is_online ? <FiGlobe /> : <FiEyeOff />} {selectedSlot.is_online ? "En ligne" : "Hors ligne"}
+                              </button>
+                          </div>
+                          <div className="bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-lg inline-flex items-center gap-2 text-xs font-mono mt-1">
+                              <span className="text-slate-400">ID Base de données :</span>
+                              <span className="text-emerald-400 font-bold select-all cursor-copy" title="Cliquer pour sélectionner">{selectedSlot.id}</span>
+                          </div>
                       </div>
                       <div className="flex gap-3">
                           <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg"><FiPrinter/> Imprimer</button>
@@ -349,8 +387,8 @@ function CreneauxManager() {
                                   {filteredOrders.map(order => (
                                       <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 print:hover:bg-transparent">
                                           <td className="p-4 print:p-2 font-mono font-bold text-emerald-600 print:text-black">#{order.ticket_num}</td>
-                                          <td className="p-4 print:p-2 font-bold text-slate-800 dark:text-white print:text-black">{order.contact_last_name} {order.contact_first_name}</td>
-                                          <td className="p-4 print:p-2 text-slate-500 flex items-center gap-2 print:text-black"><FiPhone className="print:hidden"/> {order.contact_phone}</td>
+                                          <td className="p-4 print:p-2 font-bold text-slate-800 dark:text-white print:text-black">{order.contact_last_name || "En stock libre"} {order.contact_first_name || ""}</td>
+                                          <td className="p-4 print:p-2 text-slate-500 flex items-center gap-2 print:text-black"><FiPhone className="print:hidden"/> {order.contact_phone || "-"}</td>
                                           <td className="p-4 print:p-2 text-center">{getStatusBadge(order)}</td>
                                           <td className="hidden print:table-cell border-l border-black"></td>
                                       </tr>
@@ -411,9 +449,22 @@ function StockManager() {
       const { data: slots } = await supabase.from("creneaux_horaires").select("*").order("date", { ascending: true }).order("heure_debut", { ascending: true });
       setCreneaux(slots || []);
 
-      const { data: tickets } = await supabase.from("commandes").select("ticket_num, creneau_id").eq("statut", "disponible");
+      let allTickets = [];
+      let fetchMore = true;
+      let step = 0;
+      
+      while (fetchMore) {
+          const { data, error } = await supabase.from("commandes").select("ticket_num, creneau_id").eq("statut", "disponible").range(step * 1000, (step + 1) * 1000 - 1);
+          if (error) break;
+          if (data && data.length > 0) {
+              allTickets = [...allTickets, ...data];
+              step++;
+              if (data.length < 1000) fetchMore = false;
+          } else { fetchMore = false; }
+      }
+
       const mapping = {};
-      tickets?.forEach(t => {
+      allTickets.forEach(t => {
         if (!mapping[t.creneau_id]) mapping[t.creneau_id] = [];
         mapping[t.creneau_id].push(t.ticket_num);
       });
@@ -428,10 +479,22 @@ function StockManager() {
   async function fetchAllTicketsStatus() {
     setLoadingGrid(true);
     try {
-        const { data, error } = await supabase.from("commandes").select("ticket_num, statut, creneau_id");
-        if (error) throw error;
+        let allData = [];
+        let fetchMore = true;
+        let step = 0;
+        
+        while (fetchMore) {
+            const { data, error } = await supabase.from("commandes").select("ticket_num, statut, creneau_id").range(step * 1000, (step + 1) * 1000 - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+                allData = [...allData, ...data];
+                step++;
+                if (data.length < 1000) fetchMore = false;
+            } else { fetchMore = false; }
+        }
+
         const statusMap = {};
-        data?.forEach(t => { statusMap[t.ticket_num] = { statut: t.statut, creneau_id: t.creneau_id }; });
+        allData.forEach(t => { statusMap[t.ticket_num] = { statut: t.statut, creneau_id: t.creneau_id }; });
         setAllTicketsStatus(statusMap);
     } catch (err) { showNotification("Erreur chargement grille", "error"); } finally { setLoadingGrid(false); }
   }
@@ -456,9 +519,7 @@ function StockManager() {
     try {
         const { error } = await supabase.rpc("assigner_liste_tickets", { p_ticket_nums: selectedForAdd, p_creneau_id: selectedSlotId });
         if (error) throw error;
-        
         logAction('AJOUT', 'STOCK', { quantite: selectedForAdd.length, creneau: selectedSlotId, methode: 'grille_visuelle' });
-
         showNotification(`${selectedForAdd.length} tickets ajoutés au stock !`, "success");
         setShowModal(false); loadData();
     } catch (err) { showNotification("Erreur: " + err.message, "error"); }
@@ -471,7 +532,7 @@ function StockManager() {
   async function fetchSlotDetails(slotId) {
     setLoadingDetails(true);
     try {
-        const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slotId).order("ticket_num", { ascending: true });
+        const { data, error } = await supabase.from("commandes").select("*").eq("creneau_id", slotId).order("ticket_num", { ascending: true }).limit(1000);
         if (error) throw error;
         setDetailTickets(data || []);
     } catch (err) { showNotification("Erreur chargement détails", "error"); } finally { setLoadingDetails(false); }
@@ -483,9 +544,7 @@ function StockManager() {
     try {
       const { error } = await supabase.rpc("assigner_ticket_stock", { p_ticket_num: parseInt(numTicket), p_creneau_id: creneauId });
       if (error) throw error;
-      
       logAction('AJOUT', 'STOCK', { ticket: parseInt(numTicket), creneau: creneauId });
-
       showNotification(`Ticket #${numTicket} ajouté !`, "success");
       setInputs(prev => ({ ...prev, [creneauId]: "" })); loadData();
     } catch (err) { showNotification(err.message, "error"); }
@@ -496,9 +555,7 @@ function StockManager() {
     try {
       const { error } = await supabase.rpc("retirer_ticket_stock", { p_ticket_num: ticketNum });
       if (error) throw error;
-      
       logAction('RETRAIT', 'STOCK', { ticket: ticketNum });
-
       showNotification("Ticket retiré.", "info");
       loadData();
       if(showDetailModal) fetchSlotDetails(selectedSlotId);
@@ -538,9 +595,7 @@ function StockManager() {
             <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl text-white shadow-xl shadow-blue-500/30"><FiBox className="text-3xl" /></div>
             Stock & Attribution
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">
-            Attribuez physiquement les numéros de tickets aux créneaux.
-          </p>
+          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium text-lg ml-1">Attribuez physiquement les numéros de tickets aux créneaux.</p>
         </div>
       </div>
 
@@ -568,40 +623,19 @@ function StockManager() {
                           </div>
                           <div>
                             <div className="text-sm font-medium text-slate-500">Tickets disponibles (en stock libre)</div>
-                            <div className="text-2xl font-bold text-blue-600">
-                              {count} <span className="text-sm text-slate-400 font-normal">tickets</span>
-                            </div>
+                            <div className="text-2xl font-bold text-blue-600">{count} <span className="text-sm text-slate-400 font-normal">tickets</span></div>
                           </div>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="relative">
                             <FiTag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input 
-                              type="number" placeholder="N°"
-                              className="pl-10 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 w-24 md:w-32 dark:text-white font-mono font-bold"
-                              value={inputs[slot.id] || ""}
-                              onChange={(e) => setInputs({...inputs, [slot.id]: e.target.value})}
-                              onKeyDown={(e) => e.key === 'Enter' && handleAddTicket(slot.id)}
-                            />
+                            <input type="number" placeholder="N°" className="pl-10 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 w-24 md:w-32 dark:text-white font-mono font-bold" value={inputs[slot.id] || ""} onChange={(e) => setInputs({...inputs, [slot.id]: e.target.value})} onKeyDown={(e) => e.key === 'Enter' && handleAddTicket(slot.id)} />
                             <button onClick={() => handleAddTicket(slot.id)} className="absolute right-1 top-1 bottom-1 px-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 flex items-center justify-center transition-colors"><FiPlus /></button>
                           </div>
-
                           <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
-
-                          <button 
-                            onClick={() => openGridModal(slot.id)} 
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all text-sm"
-                          >
-                            <FiGrid className="text-lg" /> Sélection Grille
-                          </button>
-                          
-                          <button 
-                            onClick={() => openDetailModal(slot.id)} 
-                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm"
-                          >
-                            <FiEye className="text-lg" /> Détails
-                          </button>
+                          <button onClick={() => openGridModal(slot.id)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all text-sm"><FiGrid className="text-lg" /> Sélection Grille</button>
+                          <button onClick={() => openDetailModal(slot.id)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm"><FiEye className="text-lg" /> Détails</button>
                         </div>
                       </div>
                     </div>
@@ -613,14 +647,12 @@ function StockManager() {
         </div>
       )}
 
+      {/* Les modals Grid et Detail de StockManager restent identiques */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
             <div className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700">
                 <div className="bg-blue-600 p-5 flex flex-col sm:flex-row justify-between items-center gap-4 text-white shrink-0">
-                    <div>
-                        <h3 className="text-2xl font-black flex items-center gap-2"><FiGrid /> Gestion Visuelle du Stock</h3>
-                        <p className="text-blue-100 text-sm mt-1">Cliquez sur les cases blanches pour ajouter les tickets au créneau.</p>
-                    </div>
+                    <div><h3 className="text-2xl font-black flex items-center gap-2"><FiGrid /> Gestion Visuelle du Stock</h3></div>
                     <div className="flex items-center gap-3 bg-blue-800/50 p-2 rounded-xl">
                         <span className="text-sm font-medium">Afficher de :</span>
                         <input type="number" value={gridRange.start} onChange={(e) => setGridRange(p => ({...p, start: parseInt(e.target.value) || 1}))} className="w-20 px-2 py-1 rounded text-slate-900 font-bold outline-none" />
@@ -629,43 +661,24 @@ function StockManager() {
                     </div>
                     <button onClick={() => setShowModal(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors"><FiX className="text-2xl"/></button>
                 </div>
-
-                <div className="bg-slate-50 dark:bg-slate-900 p-3 flex flex-wrap gap-4 justify-center border-b border-slate-200 dark:border-slate-700 shrink-0">
-                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-red-500"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Vendu (Bloqué)</span></div>
-                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-orange-400"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">En Stock (Ailleurs)</span></div>
-                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded border-2 border-slate-300 bg-white"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Libre (Cliquable)</span></div>
-                    <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"></div><span className="text-sm text-slate-600 dark:text-slate-300 font-bold">Votre Sélection</span></div>
-                </div>
-
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900/50">
-                    {loadingGrid ? (
-                         <div className="flex h-full items-center justify-center"><div className="animate-spin text-4xl text-blue-500"><FiGrid/></div></div>
-                    ) : (
+                    {loadingGrid ? <div className="flex h-full items-center justify-center"><div className="animate-spin text-4xl text-blue-500"><FiGrid/></div></div> : (
                         <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-3">
                             {gridNumbers.map(num => {
                                 const state = getTicketState(num);
                                 let btnClass = "py-3 px-1 rounded-lg text-sm font-bold font-mono transition-all border-2 shadow-sm ";
-                                
                                 if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
                                 else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
                                 else if (state === 'selected') btnClass += "bg-blue-500 text-white border-blue-600 transform scale-110 shadow-blue-500/30 ring-4 ring-blue-300 z-10";
                                 else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md cursor-pointer";
-
-                                return (
-                                    <button key={num} onClick={() => handleTicketClick(num)} className={btnClass}>{num}</button>
-                                )
+                                return <button key={num} onClick={() => handleTicketClick(num)} className={btnClass}>{num}</button>
                             })}
                         </div>
                     )}
                 </div>
-
                 <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-between items-center">
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">
-                        <strong className="text-blue-600 dark:text-blue-400 text-2xl">{selectedForAdd.length}</strong> tickets prêts
-                    </p>
-                    <button onClick={confirmGridAdd} disabled={selectedForAdd.length === 0} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all text-lg">
-                        Confirmer l'ajout au stock
-                    </button>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm"><strong className="text-blue-600 dark:text-blue-400 text-2xl">{selectedForAdd.length}</strong> tickets prêts</p>
+                    <button onClick={confirmGridAdd} disabled={selectedForAdd.length === 0} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-lg">Confirmer l'ajout au stock</button>
                 </div>
             </div>
         </div>
@@ -683,21 +696,13 @@ function StockManager() {
                         {loadingDetails ? <div className="text-center py-4"><FiLayers className="animate-spin mx-auto text-slate-400 text-2xl"/></div> : 
                          detailTickets.length === 0 ? <p className="text-center text-slate-400 italic mt-4 font-medium">Aucun ticket.</p> :
                          detailTickets.map(t => (
-                            <button 
-                                key={t.ticket_num} onClick={() => setSelectedTicketInfo(t)}
-                                className={`w-full text-left p-4 rounded-xl border-2 transition-all flex justify-between items-center ${
-                                    selectedTicketInfo?.ticket_num === t.ticket_num ? "bg-white dark:bg-slate-700 border-blue-500 shadow-md ring-2 ring-blue-500/20" : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-blue-300"
-                                }`}
-                            >
+                            <button key={t.ticket_num} onClick={() => setSelectedTicketInfo(t)} className={`w-full text-left p-4 rounded-xl border-2 transition-all flex justify-between items-center ${selectedTicketInfo?.ticket_num === t.ticket_num ? "bg-white dark:bg-slate-700 border-blue-500 shadow-md ring-2 ring-blue-500/20" : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-blue-300"}`}>
                                 <span className="font-mono font-black text-xl text-slate-700 dark:text-slate-200">#{t.ticket_num}</span>
-                                <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${getStatusColor(t.statut)}`}>
-                                    {t.statut === 'disponible' ? 'Libre' : 'Réservé'}
-                                </span>
+                                <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded border ${getStatusColor(t.statut)}`}>{t.statut === 'disponible' ? 'Libre' : 'Réservé'}</span>
                             </button>
                         ))}
                     </div>
                 </div>
-
                 <div className="flex-1 flex flex-col relative bg-white dark:bg-slate-800">
                     <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><FiX className="text-2xl"/></button>
                     <div className="p-8 flex-1 flex flex-col justify-center items-center">
@@ -714,7 +719,6 @@ function StockManager() {
                                     <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-6">
                                         <span className="bg-orange-100 text-orange-800 border border-orange-200 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-4 inline-block">Vendu / Attribué</span>
                                         <h2 className="text-5xl font-black text-slate-900 dark:text-white mb-2">#{selectedTicketInfo.ticket_num}</h2>
-                                        <p className="text-slate-500 font-medium">Pour le sacrifice : <strong className="text-slate-800 dark:text-slate-200">{selectedTicketInfo.sacrifice_name || "Non précisé"}</strong></p>
                                     </div>
                                     <div className="space-y-4">
                                         <div className="flex items-center gap-4 p-5 bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-2xl">
@@ -725,7 +729,7 @@ function StockManager() {
                                 </div>
                             )
                         ) : (
-                            <div className="text-center text-slate-400"><FiInfo className="text-6xl mx-auto mb-4 opacity-20" /><p className="font-medium text-lg">Sélectionnez un ticket dans la liste<br/>pour voir ses détails.</p></div>
+                            <div className="text-center text-slate-400"><FiInfo className="text-6xl mx-auto mb-4 opacity-20" /><p className="font-medium text-lg">Sélectionnez un ticket pour voir ses détails.</p></div>
                         )}
                     </div>
                 </div>
@@ -744,23 +748,14 @@ export default function CreneauxStock() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
-      {/* TABS NAVIGATION */}
       <div className="flex gap-4 border-b-2 border-slate-200 dark:border-slate-700 print:hidden overflow-x-auto no-scrollbar">
-          <button 
-              onClick={() => setActiveTab('creneaux')} 
-              className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'creneaux' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('creneaux')} className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'creneaux' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
               <FiClock className="text-xl" /> Horaires & Capacités
           </button>
-          <button 
-              onClick={() => setActiveTab('stock')} 
-              className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'stock' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('stock')} className={`py-4 px-6 font-black text-sm sm:text-base flex items-center gap-2 border-b-4 transition-colors whitespace-nowrap ${activeTab === 'stock' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
               <FiBox className="text-xl" /> Attribution du Stock (Tickets)
           </button>
       </div>
-
-      {/* CONTENU */}
       {activeTab === 'creneaux' ? <CreneauxManager /> : <StockManager />}
     </div>
   );

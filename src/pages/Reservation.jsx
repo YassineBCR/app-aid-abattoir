@@ -84,7 +84,9 @@ export default function Reservation() {
           }
 
           const { data: slots } = await supabase.rpc("get_creneaux_public");
-          setCreneaux((slots || []).map(s => ({ ...s, places_disponibles: s.places_restantes })));
+          // 👉 SÉCURITÉ : On filtre les créneaux qui ne sont pas en ligne (is_online !== false)
+          const filteredSlots = (slots || []).filter(s => s.is_online !== false);
+          setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
 
           const { data: activeCartItems } = await supabase
             .from("commandes")
@@ -112,7 +114,6 @@ export default function Reservation() {
                   let creneauStr = "";
                   if (item.creneaux_horaires?.date) {
                       const j = configJours.find(jd => jd.date_fete === item.creneaux_horaires.date);
-                      // 👉 CORRECTION ICI : On ne formate plus de date, on met "Jour Inconnu" si introuvable
                       const jourLabel = j ? `Jour ${j.numero}` : 'Jour Inconnu';
                       creneauStr = `${jourLabel} à ${item.creneaux_horaires.heure_debut.slice(0,5)}`;
                   }
@@ -164,12 +165,13 @@ export default function Reservation() {
       setStep(1);
       await supabase.rpc('nettoyer_paniers_expires');
       const { data: slots } = await supabase.rpc("get_creneaux_public");
-      setCreneaux((slots || []).map(s => ({ ...s, places_disponibles: s.places_restantes })));
+      // 👉 FILTRE ICI AUSSI
+      const filteredSlots = (slots || []).filter(s => s.is_online !== false);
+      setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
   };
 
   const handleLogout = async () => { await supabase.auth.signOut(); navigate("/"); };
   
-  // 👉 CORRECTION ICI : On ne formate plus la date, on affiche Jour X ou Jour Inconnu
   const getJourLabel = (dateStr) => { 
       const j = joursConfig.find(jd => jd.date_fete === dateStr); 
       return j ? `Jour ${j.numero}` : 'Jour Inconnu'; 
@@ -227,7 +229,7 @@ export default function Reservation() {
               setExpireTime(new Date(ticketData.expire_le).getTime());
           }
 
-          showNotification(`Place ajoutée au panier ! Plus que 1 minutes pour valider.`, "success");
+          showNotification(`Place ajoutée au panier !`, "success");
           
           setForm({ ...form, sacrifice_name: "" });
           setSelectedCreneau(null);
@@ -261,7 +263,8 @@ export default function Reservation() {
           }
 
           const { data: slots } = await supabase.rpc("get_creneaux_public");
-          setCreneaux((slots || []).map(s => ({ ...s, places_disponibles: s.places_restantes })));
+          const filteredSlots = (slots || []).filter(s => s.is_online !== false);
+          setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
 
           showNotification("Place retirée du panier", "info");
       } catch(err) {
@@ -346,10 +349,10 @@ export default function Reservation() {
                             {step === 1 && (
                                 <div className="space-y-6 animate-fade-in">
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">1</span> Vos Coordonnées</h2>
-                                    <p className="text-slate-500 text-sm">Veuillez indiquer pour qui est cette réservation (vous pourrez en ajouter d'autres après).</p>
+                                    <p className="text-slate-500 text-sm">Veuillez indiquer pour qui est cette réservation.</p>
                                     <div className="grid gap-6 md:grid-cols-2">
-                                        <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Prénom de l'acheteur" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
-                                        <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Nom de l'acheteur" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
+                                        <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Prénom" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
+                                        <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Nom" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
                                         <div className="relative"><FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Téléphone" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} /></div>
                                         <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
                                         <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
@@ -383,22 +386,22 @@ export default function Reservation() {
                                         <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
                                             <div>
                                                 <p className="font-bold text-lg">Place Réservée</p>
-                                                <p className="text-sm text-slate-500">Pour le sacrifice de : <span className="font-bold text-slate-800 dark:text-white">{form.sacrifice_name}</span></p>
+                                                <p className="text-sm text-slate-500">Pour : <span className="font-bold text-slate-800 dark:text-white">{form.sacrifice_name}</span></p>
                                             </div>
                                         </div>
                                         <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-700">
-                                            <div><p className="font-bold text-slate-700 dark:text-slate-200">Retrait le {selectedCreneau ? getJourLabel(selectedCreneau.date) : ""}</p><p className="text-sm text-slate-500">Heure prévue : {selectedCreneau?.heure_debut.slice(0,5)}</p></div>
+                                            <div><p className="font-bold text-slate-700 dark:text-slate-200">Retrait le {selectedCreneau ? getJourLabel(selectedCreneau.date) : ""}</p><p className="text-sm text-slate-500">Heure : {selectedCreneau?.heure_debut.slice(0,5)}</p></div>
                                         </div>
                                         <div className="flex justify-between items-center pt-2">
-                                            <span className="font-bold text-slate-700 dark:text-slate-300">Acompte lié à cette place :</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300">Acompte :</span>
                                             <span className="text-2xl font-black text-green-600">
                                                 {((selectedTarif?.acompte_cents || 5000) / 100).toFixed(2)} €
                                             </span>
                                         </div>
                                     </div>
                                     <button onClick={ajouterAuPanier} disabled={addingToCart || !canAddToCart} className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-lg hover:scale-[1.02] shadow-xl transition-all">
-                                        {addingToCart ? <FiLoader className="animate-spin text-xl" /> : <FiPlus className="text-xl" />}
-                                        {addingToCart ? "Ajout en cours..." : "Ajouter cette place au panier"}
+                                        {addingToCart ? <FiLoader className="animate-spin" /> : <FiPlus />}
+                                        {addingToCart ? "Ajout..." : "Ajouter au panier"}
                                     </button>
                                 </div>
                             )}
@@ -411,12 +414,12 @@ export default function Reservation() {
                     )}
                 </div>
 
-                {/* COLONNE DROITE : LE PANIER VISUEL */}
+                {/* COLONNE DROITE : PANIER */}
                 <div className={`lg:col-span-1 transition-all duration-500 ${panier.length > 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none hidden lg:block'}`}>
                     <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border-4 border-green-500 dark:border-green-600 overflow-hidden sticky top-32 flex flex-col max-h-[80vh]">
                         
                         <div className="bg-green-500 p-4 text-white flex justify-between items-center shrink-0 shadow-md">
-                            <h3 className="font-black text-xl flex items-center gap-2"><FiShoppingCart /> Votre Panier</h3>
+                            <h3 className="font-black text-xl flex items-center gap-2"><FiShoppingCart /> Panier</h3>
                             <div className="bg-red-500 text-white px-3 py-1 rounded-lg font-mono font-bold text-lg flex items-center gap-2 shadow-inner border border-red-400">
                                 <FiClock /> {timeLeft}
                             </div>
@@ -430,21 +433,21 @@ export default function Reservation() {
                                     <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 relative overflow-hidden">
                                         <div className="absolute -top-3 -left-3 w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center font-black border-2 border-white dark:border-slate-800 z-10">{index + 1}</div>
                                         
-                                        <button onClick={() => retirerDuPanier(item.id)} className="absolute top-2 right-2 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 p-2 rounded-lg transition-colors z-10">
+                                        <button onClick={() => retirerDuPanier(item.id)} className="absolute top-2 right-2 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 p-2 rounded-lg transition-colors z-10">
                                             <FiTrash2 />
                                         </button>
 
                                         <div className="flex items-center justify-between pl-3 pr-8 mb-2">
-                                            <p className="font-bold text-slate-800 dark:text-white">Place Réservée</p>
-                                            <span className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-black border border-indigo-200 dark:border-indigo-800 shadow-sm">
-                                                Ticket #{item.ticket_num}
+                                            <p className="font-bold text-slate-800 dark:text-white">Place #{item.ticket_num}</p>
+                                            <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-black border border-indigo-200 shadow-sm">
+                                                Grammont
                                             </span>
                                         </div>
 
-                                        <p className="text-xs text-slate-500 mt-1 pl-3 font-medium">Pour : <span className="text-slate-700 dark:text-slate-300">{item.sacrifice}</span></p>
+                                        <p className="text-xs text-slate-500 mt-1 pl-3 font-medium">Pour : {item.sacrifice}</p>
                                         <p className="text-xs text-slate-500 mt-1 pl-3 mb-3">{item.creneau}</p>
                                         
-                                        <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center pl-3">
+                                        <div className="pt-2 border-t border-slate-100 flex justify-between items-center pl-3">
                                             <span className="text-xs font-bold text-slate-400 uppercase">Acompte:</span>
                                             <span className="font-black text-green-600">{(item.acompte / 100).toFixed(2)} €</span>
                                         </div>
@@ -454,26 +457,16 @@ export default function Reservation() {
                         </div>
 
                         {panier.length > 0 && (
-                            <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
-                                
-                                <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-xl border border-green-100 dark:border-green-800/50 mb-4">
-                                    <p className="text-xs font-bold text-green-800 dark:text-green-400 mb-1 flex items-center gap-1.5">
-                                        <FiTag /> Numéros réservés pour vous :
-                                    </p>
-                                    <p className="text-sm font-black text-green-600 dark:text-green-500">
-                                        {panier.map(p => `#${p.ticket_num}`).join(', ')}
-                                    </p>
-                                </div>
-
+                            <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 shrink-0">
                                 <div className="flex justify-between items-end mb-4">
-                                    <span className="font-bold text-slate-500">Total à payer :</span>
+                                    <span className="font-bold text-slate-500">Total :</span>
                                     <span className="text-3xl font-black text-green-600">{(panier.reduce((sum, item) => sum + item.acompte, 0) / 100).toFixed(2)} €</span>
                                 </div>
-                                <button onClick={validerPanierEtPayer} disabled={paying} className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-bold text-lg shadow-lg hover:scale-[1.02] transition-all">
+                                <button onClick={validerPanierEtPayer} disabled={paying} className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg hover:scale-[1.02] transition-all">
                                     {paying ? <FiLoader className="animate-spin" /> : <FiCreditCard />} 
                                     Payer {panier.length} place(s)
                                 </button>
-                                <p className="text-[10px] text-center text-slate-400 font-medium mt-3 flex items-center justify-center gap-1"><FiAlertCircle/> Le paiement valide l'intégralité du panier.</p>
+                                <p className="text-[10px] text-center text-slate-400 font-medium mt-3 flex items-center justify-center gap-1"><FiAlertCircle/> Paiement sécurisé via Stripe.</p>
                             </div>
                         )}
                     </div>

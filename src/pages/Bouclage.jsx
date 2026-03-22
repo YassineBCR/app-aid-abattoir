@@ -110,7 +110,8 @@ export default function Bouclage() {
         setSearchInput(""); 
       } else {
         setCommande(data);
-        setNumeroBoucle(data.numero_boucle || "");
+        // On ne pré-remplit pas l'input pour pouvoir taper directement une NOUVELLE boucle
+        setNumeroBoucle(""); 
         setSearchInput(data.ticket_num?.toString() || "");
       }
     } catch (err) {
@@ -135,29 +136,64 @@ export default function Bouclage() {
     }
   };
 
-  const validerBouclage = async (e) => {
+  // BOUTON DE GAUCHE : Valide l'agneau mais garde le ticket ouvert pour en ajouter un autre
+  const validerEtGarder = async (e) => {
     if (e) e.preventDefault();
-    if (!numeroBoucle.trim()) return showNotification("Saisissez un numéro de boucle.", "error");
     
     setProcessing(true);
     try {
+      // Ajoute à la suite si le ticket a déjà des boucles enregistrées, ou ignore si vide
+      let newBoucles = commande.numero_boucle || "";
+      if (numeroBoucle.trim()) {
+          newBoucles = newBoucles ? `${newBoucles}, ${numeroBoucle.trim()}` : numeroBoucle.trim();
+      }
+
       const { error } = await supabase
         .from("commandes")
         .update({ 
-            numero_boucle: numeroBoucle,
+            numero_boucle: newBoucles,
             statut: 'bouclee'
         })
         .eq("id", commande.id);
 
       if (error) throw error;
 
-      logAction('MODIFICATION', 'BOUCLAGE', { ticket: commande.ticket_num, boucle: numeroBoucle });
+      logAction('MODIFICATION', 'BOUCLAGE', { ticket: commande.ticket_num, boucle: numeroBoucle || "Aucune" });
+      showNotification(`Agneau validé ! Prêt pour le suivant.`, "success");
       
-      const jourLabel = getJourLabel(commande.creneaux_horaires?.date);
-      const heureLabel = commande.creneaux_horaires?.heure_debut ? ` à ${commande.creneaux_horaires.heure_debut.slice(0, 5)}` : "";
-      const categorieLabel = commande.categorie || "Inconnue";
-      
-      showNotification(`Validé ! Catégorie ${categorieLabel} | ${jourLabel}${heureLabel}`, "success");
+      // On met à jour l'état local et on vide juste l'input
+      setCommande({ ...commande, numero_boucle: newBoucles, statut: 'bouclee' });
+      setNumeroBoucle("");
+    } catch (err) {
+      showNotification("Erreur lors de l'enregistrement.", "error");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // BOUTON DE DROITE : Valide l'agneau et ferme le ticket
+  const validerBouclage = async (e) => {
+    if (e) e.preventDefault();
+    
+    setProcessing(true);
+    try {
+      let newBoucles = commande.numero_boucle || "";
+      if (numeroBoucle.trim()) {
+          newBoucles = newBoucles ? `${newBoucles}, ${numeroBoucle.trim()}` : numeroBoucle.trim();
+      }
+
+      const { error } = await supabase
+        .from("commandes")
+        .update({ 
+            numero_boucle: newBoucles,
+            statut: 'bouclee'
+        })
+        .eq("id", commande.id);
+
+      if (error) throw error;
+
+      logAction('MODIFICATION', 'BOUCLAGE', { ticket: commande.ticket_num, boucle: numeroBoucle || "Aucune" });
+      showNotification(`Validé et terminé !`, "success");
       
       setCommande(null);
       setSearchInput("");
@@ -179,13 +215,11 @@ export default function Bouclage() {
       }
   };
 
-  const estDejaBoucle = commande?.statut === 'bouclee' || (commande?.numero_boucle && commande?.numero_boucle.trim() !== "");
-
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20 animate-fade-in">
       
       {/* =========================================================================
-          ÉTAT 1 : RECHERCHE DU TICKET (AVEC PAVÉ NUMÉRIQUE ET GROS BOUTON SCAN)
+          ÉTAT 1 : RECHERCHE DU TICKET
       ========================================================================= */}
       {!commande && (
           <div className="bg-white dark:bg-slate-800 p-6 md:p-10 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 max-w-lg mx-auto">
@@ -199,8 +233,8 @@ export default function Bouclage() {
               <div className="w-full mb-4">
                   <input 
                       type="text" 
-                      readOnly // Empêche le clavier natif de sortir
                       value={searchInput} 
+                      onChange={(e) => setSearchInput(e.target.value)}
                       placeholder="N° de Ticket..." 
                       className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl text-4xl font-black outline-none border-2 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white text-center shadow-inner"
                   />
@@ -239,12 +273,13 @@ export default function Bouclage() {
       )}
 
       {/* =========================================================================
-          ÉTAT 2 : DOSSIER TROUVÉ -> SAISIE OU BLOCAGE
+          ÉTAT 2 : DOSSIER TROUVÉ ET ASSOCIATION
       ========================================================================= */}
       {commande && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up">
           
-          <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 space-y-6">
+          {/* COLONNE GAUCHE (INFOS ET BOUTON D'AJOUT RAPIDE) */}
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 flex flex-col h-full">
               <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-700 pb-6">
                   <div>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-1">Dossier Client</p>
@@ -256,7 +291,7 @@ export default function Bouclage() {
                   </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 my-6">
                   <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                       <div className="w-12 h-12 bg-slate-200 dark:bg-slate-800 rounded-full flex items-center justify-center text-xl text-slate-500"><FiUser/></div>
                       <div>
@@ -284,59 +319,62 @@ export default function Bouclage() {
                   </div>
               </div>
 
-              <button onClick={() => { setCommande(null); setSearchInput(""); }} className="w-full py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
-                  <FiX /> Annuler et chercher un autre
-              </button>
+              {/* BOUTONS EN BAS À GAUCHE */}
+              <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-700 space-y-3">
+                  <button 
+                      onClick={validerEtGarder}
+                      disabled={processing}
+                      className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30"
+                  >
+                      <FiCheckCircle className="text-xl" />
+                      Boucler l'agneau (Ajouter un autre)
+                  </button>
+                  <button 
+                      onClick={() => { setCommande(null); setSearchInput(""); setNumeroBoucle(""); }} 
+                      className="w-full py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                  >
+                      <FiX /> Fermer le ticket sans valider
+                  </button>
+              </div>
           </div>
 
+          {/* COLONNE DROITE (VALIDATION DIRECTE) */}
           <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-xl border-t-8 border-orange-500 flex flex-col items-center">
-              <h3 className="text-2xl font-black mb-2 text-slate-800 dark:text-white w-full text-left">Associer l'Agneau</h3>
+              <h3 className="text-2xl font-black mb-4 text-slate-800 dark:text-white w-full text-left">Validation Rapide</h3>
               
-              {estDejaBoucle ? (
-                  /* ÉCRAN DE BLOCAGE (DÉJÀ BOUCLÉ) */
-                  <div className="w-full mt-4 p-8 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800/50 rounded-2xl flex flex-col items-center text-center animate-fade-in">
-                      <div className="w-20 h-20 bg-red-100 dark:bg-red-900/50 text-red-500 rounded-full flex items-center justify-center mb-4 shadow-inner">
-                          <FiAlertTriangle className="text-4xl" />
-                      </div>
-                      <h4 className="text-2xl font-black text-red-600 dark:text-red-400 mb-2 uppercase tracking-tight">Action Bloquée</h4>
-                      <p className="text-slate-700 dark:text-slate-300 font-medium mb-1">Ce ticket est DÉJÀ associé à la boucle :</p>
-                      
-                      <div className="w-full bg-white dark:bg-slate-800 py-4 px-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 mt-4 mb-6">
-                          <p className="text-4xl font-black text-slate-800 dark:text-white uppercase tracking-wider">{commande.numero_boucle}</p>
-                      </div>
-                      
-                      <button 
-                          onClick={() => { setCommande(null); setSearchInput(""); }} 
-                          className="w-full py-4 bg-slate-900 hover:bg-black text-white font-bold text-lg rounded-xl transition-all shadow-xl shadow-slate-900/20"
-                      >
-                          Scanner un autre ticket
-                      </button>
+              <div className="w-full text-center text-slate-500 mb-6">
+                 Vous pouvez valider ce dossier directement. <br/>
+                 (Le numéro de boucle est désormais facultatif).
+              </div>
+
+              {/* Affichage des boucles déjà enregistrées si le ticket possède déjà des agneaux */}
+              {commande.numero_boucle && (
+                  <div className="w-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 p-4 rounded-2xl mb-4 border border-emerald-200 dark:border-emerald-800">
+                      <p className="text-xs font-bold uppercase mb-1 flex items-center gap-2"><FiTag/> Déjà associé(s) :</p>
+                      <p className="text-xl font-black">{commande.numero_boucle}</p>
                   </div>
-              ) : (
-                  /* SAISIE DE LA BOUCLE (PAVÉ NUMÉRIQUE) */
-                  <>
-                      <div className="w-full mb-2 mt-4">
-                          <input 
-                              type="text" 
-                              readOnly 
-                              value={numeroBoucle} 
-                              placeholder="N° Boucle" 
-                              className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl text-4xl font-black outline-none border-2 border-slate-200 dark:border-slate-700 text-orange-600 dark:text-orange-400 text-center uppercase shadow-inner"
-                          />
-                      </div>
-
-                      <PaveNumerique value={numeroBoucle} onChange={setNumeroBoucle} showFR={true} />
-
-                      <button 
-                          onClick={validerBouclage}
-                          disabled={processing || !numeroBoucle.trim()}
-                          className="mt-6 w-full py-5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-2xl font-black text-xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center gap-3 transform hover:-translate-y-1 active:scale-95"
-                      >
-                          {processing ? <FiLoader className="animate-spin text-2xl"/> : <FiCheckCircle className="text-2xl"/>} 
-                          VALIDER LE BOUCLAGE
-                      </button>
-                  </>
               )}
+
+              <div className="w-full mb-2">
+                  <input 
+                      type="text" 
+                      value={numeroBoucle} 
+                      onChange={(e) => setNumeroBoucle(e.target.value.toUpperCase())}
+                      placeholder="N° Boucle (Facultatif)" 
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl text-4xl font-black outline-none border-2 border-slate-200 dark:border-slate-700 text-orange-600 dark:text-orange-400 text-center uppercase shadow-inner"
+                  />
+              </div>
+
+              <PaveNumerique value={numeroBoucle} onChange={setNumeroBoucle} showFR={true} />
+
+              <button 
+                  onClick={validerBouclage}
+                  disabled={processing}
+                  className="mt-6 w-full py-5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-2xl font-black text-xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center gap-3 transform hover:-translate-y-1 active:scale-95"
+              >
+                  {processing ? <FiLoader className="animate-spin text-2xl"/> : <FiCheckCircle className="text-2xl"/>} 
+                  VALIDER ET TERMINER
+              </button>
           </div>
         </div>
       )}
