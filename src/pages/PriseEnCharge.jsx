@@ -249,12 +249,19 @@ export default function PriseEnCharge() {
               montant_cents: montantAjouteCents, moyen_paiement: modePaiement, encaisse_par: userEmail
           });
           if (errHistory) throw errHistory;
+          
           const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
           const nouveauTotalPayeCents = ancienPayeCents + montantAjouteCents;
+          
           let nouveauStatut = commande.statut;
-          const totalCents = commande.montant_total_cents || 0;
+          
+          // 🔥 NOUVEAU : On utilise le prix dynamique depuis les paramètres pour vérifier si c'est payé
+          const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+          const totalCents = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+
           if (nouveauTotalPayeCents >= totalCents) { nouveauStatut = 'paye_integralement'; }
           else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) { nouveauStatut = 'acompte_paye'; }
+          
           await supabase.from('commandes').update({ montant_paye_cents: nouveauTotalPayeCents, statut: nouveauStatut }).eq('id', commande.id);
           
           logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant_encaisse: montantAsaisi, moyen: modePaiement });
@@ -317,7 +324,11 @@ export default function PriseEnCharge() {
           const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
           const nouveauPayeCents = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
           let nouveauStatut = commande.statut;
-          const totalCents = commande.montant_total_cents || 0;
+          
+          // 🔥 NOUVEAU : On utilise le prix dynamique depuis les paramètres
+          const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+          const totalCents = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+
           if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') { nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente'; }
           await supabase.from('commandes').update({ montant_paye_cents: nouveauPayeCents, statut: nouveauStatut }).eq('id', commande.id);
           
@@ -345,7 +356,10 @@ export default function PriseEnCharge() {
     window.print();
   };
 
-  const total = commande ? (commande.montant_total_cents / 100) : 0;
+  // 🔥 NOUVEAU : CALCUL DYNAMIQUE DU RESTE À PAYER BASÉ SUR LES TARIFS
+  const tarifActuel = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
+  const total = commande ? (tarifActuel && tarifActuel.prix_cents ? (tarifActuel.prix_cents / 100) : (commande.montant_total_cents / 100)) : 0;
+  
   const dejaPayeCents = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
   const dejaPaye = dejaPayeCents / 100;
   const resteAPayer = Math.max(0, total - dejaPaye);
@@ -535,7 +549,7 @@ export default function PriseEnCharge() {
                                 )}
 
                                 <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
-                                    <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
+                                    <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total (Actuel)</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
                                     <div className="flex justify-between text-sm items-center">
                                         <span className="text-slate-500">Total Payé</span>
                                         <span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span>
@@ -584,7 +598,6 @@ export default function PriseEnCharge() {
                                             IMPRIMER LE TICKET ZEBRA
                                         </button>
                                         
-                                        {/* PETIT RAPPEL IMPORTANT POUR TOI */}
                                         <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">
                                             IMPORTANT : Lors de l'impression, choisis "Format de papier : 102x76mm" et non "A4".
                                         </p>

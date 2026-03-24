@@ -37,30 +37,62 @@ export default function Statistiques() {
     try {
       setLoading(true);
 
-      // 1. Récupérer toutes les commandes (hors brouillons/disponibles)
-      const { data: commandes, error: cmdError } = await supabase
-        .from('commandes')
-        .select('*')
-        .neq('statut', 'disponible')
-        .neq('statut', 'brouillon');
+      // 1. Récupérer TOUTES les commandes via une boucle (contourne la limite de 1000 lignes de Supabase)
+      let toutesLesCommandes = [];
+      let fromCmd = 0;
+      let toCmd = 999;
+      let hasMoreCmd = true;
 
-      if (cmdError) throw cmdError;
+      while (hasMoreCmd) {
+        const { data: commandesBatch, error: cmdError } = await supabase
+          .from('commandes')
+          .select('*')
+          .neq('statut', 'disponible')
+          .neq('statut', 'brouillon')
+          .range(fromCmd, toCmd);
 
-      // 2. Récupérer l'historique des paiements
-      const { data: paiements, error: payError } = await supabase
-        .from('historique_paiements')
-        .select('*');
+        if (cmdError) throw cmdError;
 
-      if (payError) throw payError;
+        if (commandesBatch && commandesBatch.length > 0) {
+          toutesLesCommandes = [...toutesLesCommandes, ...commandesBatch];
+          fromCmd += 1000;
+          toCmd += 1000;
+        } else {
+          hasMoreCmd = false;
+        }
+      }
 
-      // 3. Calculer les statistiques
+      // 2. Récupérer TOUS les paiements via une boucle (au cas où il y en aurait plus de 1000 aussi)
+      let tousLesPaiements = [];
+      let fromPay = 0;
+      let toPay = 999;
+      let hasMorePay = true;
+
+      while (hasMorePay) {
+        const { data: paiementsBatch, error: payError } = await supabase
+          .from('historique_paiements')
+          .select('*')
+          .range(fromPay, toPay);
+
+        if (payError) throw payError;
+
+        if (paiementsBatch && paiementsBatch.length > 0) {
+          tousLesPaiements = [...tousLesPaiements, ...paiementsBatch];
+          fromPay += 1000;
+          toPay += 1000;
+        } else {
+          hasMorePay = false;
+        }
+      }
+
+      // 3. Calculer les statistiques sur l'ensemble des données
       let caTheorique = 0;
       let caEncaisse = 0;
       let sCounts = { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 };
       let mCounts = { especes: 0, cb: 0, stripe: 0 };
       let cCounts = {};
 
-      commandes.forEach(cmd => {
+      toutesLesCommandes.forEach(cmd => {
         // Chiffre d'affaires
         caTheorique += (Number(cmd.montant_total_cents) || 0);
         caEncaisse += (Number(cmd.montant_paye_cents) || Number(cmd.acompte_cents) || 0);
@@ -78,7 +110,7 @@ export default function Statistiques() {
         else if (cmd.statut === 'annule') sCounts.annule++;
       });
 
-      paiements.forEach(p => {
+      tousLesPaiements.forEach(p => {
         if (p.moyen_paiement === 'especes') mCounts.especes += Number(p.montant_cents);
         if (p.moyen_paiement === 'cb') mCounts.cb += Number(p.montant_cents);
         if (p.moyen_paiement === 'stripe') mCounts.stripe += Number(p.montant_cents);
@@ -89,7 +121,7 @@ export default function Statistiques() {
       const nonBoucles = totalActifs - sCounts.bouclee;
 
       setStats({
-        totalCommandes: commandes.length,
+        totalCommandes: toutesLesCommandes.length,
         totalActifs: totalActifs,
         nonBoucles: nonBoucles,
         caTheorique: caTheorique / 100,

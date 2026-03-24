@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { 
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
-  FiMessageSquare, FiSend, FiLoader, FiTrash2
+  FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -12,51 +12,104 @@ export default function Tableau({ changeTab, userRole }) {
   const { showNotification } = useNotification();
   const [commandes, setCommandes] = useState([]);
   const [joursConfig, setJoursConfig] = useState([]);
+  const [creneauxConfig, setCreneauxConfig] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // États de recherche, filtres et pagination
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState(""); 
+  const [filterDate, setFilterDate] = useState("");
+  const [filterCreneauId, setFilterCreneauId] = useState("");
+  
+  const [limit, setLimit] = useState(50); 
+  const [hasMore, setHasMore] = useState(true);
 
+  // États des modales et actions
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orderHistory, setOrderHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  
   const [sendingMail, setSendingMail] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // États pour la modale d'e-mail
   const [showMailModal, setShowMailModal] = useState(false);
   const [customMailSubject, setCustomMailSubject] = useState("");
   const [customMailBody, setCustomMailBody] = useState("");
   const [sendingCustomMail, setSendingCustomMail] = useState(false);
 
-  // États pour la modale de SMS
   const [showSmsModal, setShowSmsModal] = useState(false);
   const [customSmsBody, setCustomSmsBody] = useState("");
   const [sendingCustomSms, setSendingCustomSms] = useState(false);
 
+  // 1. Charger la configuration des jours et créneaux une seule fois au démarrage
+  useEffect(() => {
+    async function loadConfig() {
+        const { data: jours } = await supabase.from("jours_fete").select("*");
+        setJoursConfig(jours || []);
+        const { data: cren } = await supabase.from("creneaux_horaires").select("*").order("date").order("heure_debut");
+        setCreneauxConfig(cren || []);
+    }
+    loadConfig();
+  }, []);
+
+  // 2. Debounce pour la recherche textuelle
+  useEffect(() => {
+      const handler = setTimeout(() => {
+          setDebouncedSearch(searchTerm.trim());
+          setLimit(50);
+      }, 400); 
+      return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  // 3. Recharger les données si un filtre, la pagination ou la recherche change
   useEffect(() => {
     fetchData();
     const sub = supabase.channel('table_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes' }, () => fetchData())
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, []);
+  }, [limit, debouncedSearch, filterDate, filterCreneauId]);
 
   async function fetchData() {
+    setLoading(true);
     try {
-      const { data: jours } = await supabase.from("jours_fete").select("*");
-      setJoursConfig(jours || []);
-
-      const { data, error } = await supabase
+      let query = supabase
         .from("commandes")
-        .select(`*, creneaux_horaires ( date, heure_debut )`)
+        .select(`*, creneaux_horaires ( date, heure_debut )`, { count: 'exact' })
         .not("contact_last_name", "is", null)
         .neq("contact_last_name", "")
         .neq("statut", "disponible")
-        .neq("statut", "brouillon")
-        .order("created_at", { ascending: false });
+        .neq("statut", "brouillon");
+
+      // Appliquer les Filtres par Date ou Créneau
+      if (filterCreneauId) {
+          query = query.eq('creneau_id', filterCreneauId);
+      } else if (filterDate && creneauxConfig.length > 0) {
+          const ids = creneauxConfig.filter(c => c.date === filterDate).map(c => c.id);
+          if (ids.length > 0) {
+              query = query.in('creneau_id', ids);
+          } else {
+              query = query.eq('creneau_id', '00000000-0000-0000-0000-000000000000'); // Sécurité si aucun ID trouvé
+          }
+      }
+
+      // Appliquer la recherche textuelle
+      if (debouncedSearch) {
+          const isNumeric = /^\d+$/.test(debouncedSearch);
+          if (isNumeric) {
+              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+          } else {
+              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+          }
+      }
+
+      const { data, error, count } = await query
+        .order("created_at", { ascending: false })
+        .limit(limit);
 
       if (error) throw error;
+      
       setCommandes(data || []);
+      setHasMore(count > (data || []).length);
     } catch (err) {
       console.error(err);
       showNotification("Erreur de chargement du registre", "error");
@@ -70,6 +123,10 @@ export default function Tableau({ changeTab, userRole }) {
       const j = joursConfig.find(jd => jd.date_fete === dateStr); 
       return j ? `Jour ${j.numero}` : 'Jour Inconnu'; 
   };
+
+  const uniqueDates = [...new Set(creneauxConfig.map(c => c.date))];
+
+  // ======================== ACTIONS & EXPORT ========================
 
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
@@ -118,14 +175,14 @@ export default function Tableau({ changeTab, userRole }) {
           });
 
           if (response.ok) {
-              showNotification("Billet renvoyé avec succès par email !", "success");
-              logAction('MODIFICATION', 'COMMANDE', { action: 'Renvoi du billet par email', ticket: cmd.ticket_num });
+              showNotification("Billet renvoyé avec succès !", "success");
+              logAction('MODIFICATION', 'COMMANDE', { action: 'Renvoi du billet', ticket: cmd.ticket_num });
           } else {
               throw new Error("Erreur serveur lors de l'envoi");
           }
       } catch (err) {
           console.error(err);
-          showNotification("Impossible d'envoyer l'email. Vérifiez votre serveur.", "error");
+          showNotification("Impossible d'envoyer l'email.", "error");
       } finally {
           setSendingMail(false);
       }
@@ -140,93 +197,89 @@ export default function Tableau({ changeTab, userRole }) {
           const response = await fetch("http://localhost:3000/send-custom-email", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                  email: selectedOrder.contact_email,
-                  subject: customMailSubject,
-                  message: customMailBody
-              })
+              body: JSON.stringify({ email: selectedOrder.contact_email, subject: customMailSubject, message: customMailBody })
           });
 
           if (response.ok) {
-              showNotification("Email envoyé au client avec succès !", "success");
-              logAction('CONTACT', 'COMMANDE', { action: 'Email envoyé au client', ticket: selectedOrder.ticket_num, sujet: customMailSubject });
-              setShowMailModal(false);
-              setCustomMailSubject("");
-              setCustomMailBody("");
-          } else {
-              throw new Error("Erreur lors de l'envoi");
-          }
-      } catch (err) {
-          console.error(err);
-          showNotification("Impossible d'envoyer l'email. Vérifiez votre serveur.", "error");
-      } finally {
-          setSendingCustomMail(false);
-      }
+              showNotification("Email envoyé !", "success");
+              logAction('CONTACT', 'COMMANDE', { action: 'Email client', ticket: selectedOrder.ticket_num, sujet: customMailSubject });
+              setShowMailModal(false); setCustomMailSubject(""); setCustomMailBody("");
+          } else throw new Error("Erreur");
+      } catch (err) { showNotification("Erreur d'envoi.", "error"); } 
+      finally { setSendingCustomMail(false); }
   };
 
   const handleSendCustomSms = async (e) => {
       e.preventDefault();
-      if (!customSmsBody.trim()) return showNotification("Le message ne peut pas être vide.", "error");
+      if (!customSmsBody.trim()) return showNotification("Message vide.", "error");
       
       setSendingCustomSms(true);
       try {
           const response = await fetch("http://localhost:3000/send-sms", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                  phone: selectedOrder.contact_phone,
-                  message: customSmsBody
-              })
+              body: JSON.stringify({ phone: selectedOrder.contact_phone, message: customSmsBody })
           });
 
           if (response.ok) {
-              showNotification("SMS envoyé au client avec succès !", "success");
-              logAction('CONTACT', 'COMMANDE', { action: 'SMS envoyé au client', ticket: selectedOrder.ticket_num });
-              setShowSmsModal(false);
-              setCustomSmsBody("");
-          } else {
-              throw new Error("Erreur lors de l'envoi du SMS");
-          }
-      } catch (err) {
-          console.error(err);
-          showNotification("Impossible d'envoyer le SMS. Vérifiez votre configuration OVH.", "error");
-      } finally {
-          setSendingCustomSms(false);
-      }
+              showNotification("SMS envoyé !", "success");
+              logAction('CONTACT', 'COMMANDE', { action: 'SMS client', ticket: selectedOrder.ticket_num });
+              setShowSmsModal(false); setCustomSmsBody("");
+          } else throw new Error("Erreur");
+      } catch (err) { showNotification("Erreur d'envoi SMS.", "error"); } 
+      finally { setSendingCustomSms(false); }
   };
 
   const handleDeleteOrder = async () => {
-    if (!window.confirm(`⚠️ Êtes-vous sûr de vouloir supprimer DÉFINITIVEMENT le dossier #${selectedOrder.ticket_num} ?\nCette action est irréversible et supprimera la commande.`)) {
-        return;
-    }
-    
+    if (!window.confirm(`⚠️ Supprimer DÉFINITIVEMENT le dossier #${selectedOrder.ticket_num} ?`)) return;
     setIsDeleting(true);
     try {
-        const { error } = await supabase
-            .from('commandes')
-            .delete()
-            .eq('id', selectedOrder.id);
-            
+        const { error } = await supabase.from('commandes').delete().eq('id', selectedOrder.id);
         if (error) throw error;
-        
-        showNotification("Réservation supprimée avec succès", "success");
+        showNotification("Supprimée avec succès", "success");
         logAction('SUPPRESSION', 'COMMANDE', { action: 'Suppression définitive', ticket: selectedOrder.ticket_num });
         setSelectedOrder(null);
-    } catch (err) {
-        console.error(err);
-        showNotification("Erreur lors de la suppression de la commande", "error");
-    } finally {
-        setIsDeleting(false);
-    }
+    } catch (err) { showNotification("Erreur suppression", "error"); } 
+    finally { setIsDeleting(false); }
   };
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
+    showNotification("Préparation de l'export...", "info");
+    
+    // On refait la requête complète (sans la limite de 50) pour exporter TOUT le résultat de la recherche
+    let exportQuery = supabase
+        .from("commandes")
+        .select(`*, creneaux_horaires ( date, heure_debut )`)
+        .not("contact_last_name", "is", null)
+        .neq("contact_last_name", "")
+        .neq("statut", "disponible")
+        .neq("statut", "brouillon");
+
+    if (filterCreneauId) {
+        exportQuery = exportQuery.eq('creneau_id', filterCreneauId);
+    } else if (filterDate && creneauxConfig.length > 0) {
+        const ids = creneauxConfig.filter(c => c.date === filterDate).map(c => c.id);
+        if (ids.length > 0) exportQuery = exportQuery.in('creneau_id', ids);
+    }
+
+    if (debouncedSearch) {
+        const isNumeric = /^\d+$/.test(debouncedSearch);
+        if (isNumeric) exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+        else exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+    }
+
+    const { data: allData, error } = await exportQuery.order("created_at", { ascending: false });
+
+    if (error) {
+        showNotification("Erreur lors de l'export", "error");
+        return;
+    }
+
     const headers = ["Ticket", "Client", "Téléphone", "Email", "Sacrifice", "Boucle", "Date Retrait", "Acompte", "Payé Total", "Reste à payer", "Statut", "Ref Stripe"];
-    const rows = commandes.map(c => {
+    const rows = allData.map(c => {
       const dejaPaye = (Number(c.montant_paye_cents) || 0) / 100;
       const total = (Number(c.montant_total_cents) || 0) / 100;
       const reste = Math.max(0, total - dejaPaye);
-      
       let statutFr = "En Attente";
       if (c.statut === 'annule') statutFr = 'Annulé';
       else if (c.statut === 'bouclee') statutFr = 'Bouclée';
@@ -246,7 +299,7 @@ export default function Tableau({ changeTab, userRole }) {
           `${reste.toFixed(2)} €`,
           statutFr,
           c.stripe_ref || ""
-      ]
+      ];
     });
     
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
@@ -258,12 +311,8 @@ export default function Tableau({ changeTab, userRole }) {
     link.click();
     document.body.removeChild(link);
 
-    logAction('EXPORT', 'COMMANDE', { action: 'Export du registre complet des commandes' });
+    logAction('EXPORT', 'COMMANDE', { action: `Export du registre (${allData.length} lignes)` });
   };
-
-  const filteredCommandes = commandes.filter(c => 
-    `${c.contact_last_name} ${c.contact_first_name} ${c.ticket_num} ${c.numero_boucle || ''} ${c.stripe_ref || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const renderStatut = (cmd) => {
     if (cmd.statut === 'annule') return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-2.5 py-1 rounded-lg border border-red-200"><FiAlertCircle /> Annulé</span>;
@@ -283,25 +332,68 @@ export default function Tableau({ changeTab, userRole }) {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-fade-in">
       
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      {/* BARRE SUPÉRIEURE : TITRE + FILTRES + RECHERCHE */}
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white flex items-center gap-3">
             <div className="p-3 bg-teal-500 rounded-2xl text-white shadow-lg shadow-teal-500/30"><FiList className="text-2xl" /></div>
             Registre des Commandes
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Toute la base de données. Cliquez sur une ligne pour voir les détails.</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Filtrez et recherchez dans toute la base de données.</p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-72 group">
-            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors text-lg" />
-            <input type="text" placeholder="Nom, ticket, réf stripe..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" />
+        
+        <div className="flex flex-col md:flex-row items-center gap-3 w-full xl:w-auto">
+          
+          <div className="flex w-full md:w-auto items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+              <div className="pl-3 text-slate-400"><FiFilter /></div>
+              
+              <select 
+                  value={filterDate} 
+                  onChange={e => { setFilterDate(e.target.value); setFilterCreneauId(""); setLimit(50); }}
+                  className="bg-transparent text-sm font-bold text-slate-700 dark:text-slate-300 py-2 outline-none cursor-pointer"
+              >
+                  <option value="">Tous les jours</option>
+                  {uniqueDates.map(date => (
+                      <option key={date} value={date}>{getJourLabel(date)} ({new Date(date).toLocaleDateString('fr-FR')})</option>
+                  ))}
+              </select>
+
+              <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1"></div>
+
+              <select 
+                  value={filterCreneauId} 
+                  onChange={e => { setFilterCreneauId(e.target.value); setLimit(50); }}
+                  className="bg-transparent text-sm font-bold text-slate-700 dark:text-slate-300 py-2 pr-3 outline-none cursor-pointer"
+                  disabled={!filterDate && creneauxConfig.length === 0}
+              >
+                  <option value="">Tous les créneaux</option>
+                  {creneauxConfig.filter(c => !filterDate || c.date === filterDate).map(c => (
+                      <option key={c.id} value={c.id}>
+                          {c.heure_debut.slice(0,5)} {filterDate ? '' : `(${getJourLabel(c.date)})`}
+                      </option>
+                  ))}
+              </select>
           </div>
-          <button onClick={exportToCSV} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
+
+          <div className="relative flex-1 w-full md:w-64 group">
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors text-lg" />
+            <input 
+                type="text" 
+                placeholder="Nom, ticket, réf..." 
+                value={searchTerm} 
+                onChange={e => setSearchTerm(e.target.value)} 
+                className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" 
+            />
+          </div>
+          
+          <button onClick={exportToCSV} className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20 shrink-0">
             <FiDownload /> Excel
           </button>
+
         </div>
       </div>
 
+      {/* TABLEAU */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -317,12 +409,12 @@ export default function Tableau({ changeTab, userRole }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-              {loading ? (
-                <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement du registre...</td></tr>
-              ) : filteredCommandes.length === 0 ? (
+              {loading && commandes.length === 0 ? (
+                <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
+              ) : commandes.length === 0 ? (
                 <tr><td colSpan="7" className="p-12 text-center text-slate-400">Aucune commande trouvée.</td></tr>
               ) : (
-                filteredCommandes.map(cmd => {
+                commandes.map(cmd => {
                   const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
                   const total = (Number(cmd.montant_total_cents) || 0) / 100;
                   const reste = Math.max(0, total - dejaPaye);
@@ -377,6 +469,19 @@ export default function Tableau({ changeTab, userRole }) {
         </div>
       </div>
 
+      {hasMore && !loading && (
+        <div className="flex justify-center mt-8">
+            <button 
+                onClick={() => setLimit(prev => prev + 50)}
+                className="flex items-center gap-3 px-8 py-4 bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-black rounded-2xl shadow-xl transition-all hover:scale-105 active:scale-95"
+            >
+                ⬇️ Charger les résultats suivants
+            </button>
+        </div>
+      )}
+
+      {/* ===================== MODALES ===================== */}
+
       {selectedOrder && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
               <div className="bg-white dark:bg-slate-800 w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
@@ -420,29 +525,17 @@ export default function Tableau({ changeTab, userRole }) {
 
                               <div className="flex flex-wrap gap-2 pt-4 mt-2 border-t border-slate-100 dark:border-slate-700">
                                   {selectedOrder.contact_email && (
-                                      <button 
-                                          onClick={() => setShowMailModal(true)} 
-                                          className="flex-1 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                                      >
+                                      <button onClick={() => setShowMailModal(true)} className="flex-1 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
                                           <FiMail className="text-sm" /> Écrire
                                       </button>
                                   )}
-                                  
                                   {selectedOrder.contact_phone && (
-                                      <button 
-                                          onClick={() => setShowSmsModal(true)} 
-                                          className="flex-1 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                                      >
+                                      <button onClick={() => setShowSmsModal(true)} className="flex-1 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
                                           <FiMessageSquare className="text-sm" /> SMS
                                       </button>
                                   )}
-
                                   {selectedOrder.contact_email && selectedOrder.statut !== 'en_attente' && selectedOrder.statut !== 'annule' && (
-                                      <button 
-                                          onClick={() => renvoyerBillet(selectedOrder)} 
-                                          disabled={sendingMail} 
-                                          className="w-full py-2 mt-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                                      >
+                                      <button onClick={() => renvoyerBillet(selectedOrder)} disabled={sendingMail} className="w-full py-2 mt-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
                                           {sendingMail ? <FiLoader className="animate-spin text-sm" /> : <FiSend className="text-sm" />} 
                                           {sendingMail ? "Envoi en cours..." : "Renvoyer le Billet"}
                                       </button>
@@ -477,7 +570,6 @@ export default function Tableau({ changeTab, userRole }) {
                                       <span className="text-xs font-bold text-slate-400 uppercase">Reste</span>
                                       <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, ((selectedOrder.montant_total_cents || 0) - (selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0)) / 100).toFixed(2)} €</span>
                                   </div>
-
                                   {selectedOrder.stripe_ref && (
                                       <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700">
                                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
@@ -486,7 +578,6 @@ export default function Tableau({ changeTab, userRole }) {
                                           </p>
                                       </div>
                                   )}
-                                  
                               </div>
                           </div>
                       </div>
@@ -524,7 +615,6 @@ export default function Tableau({ changeTab, userRole }) {
           </div>
       )}
 
-      {/* MODALE : ENVOI D'UN EMAIL PERSONNALISÉ */}
       {showMailModal && selectedOrder && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
               <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">
@@ -534,40 +624,23 @@ export default function Tableau({ changeTab, userRole }) {
                       </h3>
                       <button onClick={() => setShowMailModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
                   </div>
-                  
                   <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
                       <p className="text-sm text-slate-500">Destinataire :</p>
                       <p className="font-bold text-slate-800 dark:text-white">{selectedOrder.contact_first_name} {selectedOrder.contact_last_name} ({selectedOrder.contact_email})</p>
                   </div>
-
                   <form onSubmit={handleSendCustomMail} className="space-y-4">
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Sujet de l'e-mail <span className="text-red-500">*</span></label>
-                          <input 
-                              required 
-                              type="text" 
-                              value={customMailSubject} 
-                              onChange={(e) => setCustomMailSubject(e.target.value)} 
-                              placeholder="Ex: Information concernant votre commande"
-                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white" 
-                          />
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Sujet de l'e-mail *</label>
+                          <input required type="text" value={customMailSubject} onChange={(e) => setCustomMailSubject(e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white" />
                       </div>
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Votre message <span className="text-red-500">*</span></label>
-                          <textarea 
-                              required 
-                              rows="6"
-                              value={customMailBody} 
-                              onChange={(e) => setCustomMailBody(e.target.value)} 
-                              placeholder="Rédigez votre message ici..."
-                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white resize-none" 
-                          ></textarea>
+                          <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Votre message *</label>
+                          <textarea required rows="6" value={customMailBody} onChange={(e) => setCustomMailBody(e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-blue-500 dark:text-white resize-none" ></textarea>
                       </div>
                       <div className="flex gap-3 pt-4">
                           <button type="button" onClick={() => setShowMailModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
-                          <button type="submit" disabled={sendingCustomMail} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
-                              {sendingCustomMail ? <FiLoader className="animate-spin" /> : <FiSend />} 
-                              {sendingCustomMail ? "Envoi..." : "Envoyer l'e-mail"}
+                          <button type="submit" disabled={sendingCustomMail} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 flex justify-center items-center gap-2 transition-all">
+                              {sendingCustomMail ? <FiLoader className="animate-spin" /> : <FiSend />} Envoyer
                           </button>
                       </div>
                   </form>
@@ -575,7 +648,6 @@ export default function Tableau({ changeTab, userRole }) {
           </div>
       )}
 
-      {/* MODALE : ENVOI D'UN SMS (OVH) */}
       {showSmsModal && selectedOrder && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
               <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">
@@ -585,37 +657,23 @@ export default function Tableau({ changeTab, userRole }) {
                       </h3>
                       <button onClick={() => setShowSmsModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
                   </div>
-                  
                   <div className="mb-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
                       <p className="text-sm text-emerald-700 dark:text-emerald-400">Numéro du client :</p>
                       <p className="font-bold text-emerald-800 dark:text-emerald-300">{selectedOrder.contact_first_name} {selectedOrder.contact_last_name} ({selectedOrder.contact_phone})</p>
                   </div>
-
                   <form onSubmit={handleSendCustomSms} className="space-y-4">
                       <div>
                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1 flex justify-between">
-                              <span>Votre message (SMS) <span className="text-red-500">*</span></span>
-                              <span className={`text-xs ${customSmsBody.length > 160 ? 'text-red-500' : 'text-slate-400'}`}>
-                                  {customSmsBody.length}/160 caractères
-                              </span>
+                              <span>Votre message (SMS) *</span>
+                              <span className={`text-xs ${customSmsBody.length > 160 ? 'text-red-500' : 'text-slate-400'}`}>{customSmsBody.length}/160</span>
                           </label>
-                          <textarea 
-                              required 
-                              rows="4"
-                              value={customSmsBody} 
-                              onChange={(e) => setCustomSmsBody(e.target.value)} 
-                              placeholder="Bonjour, votre commande est prête..."
-                              className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-emerald-500 dark:text-white resize-none" 
-                          ></textarea>
-                          {customSmsBody.length > 160 && (
-                              <p className="text-xs text-red-500 mt-1"><FiAlertCircle className="inline" /> Attention, ce message sera facturé comme 2 SMS par OVH.</p>
-                          )}
+                          <textarea required rows="4" value={customSmsBody} onChange={(e) => setCustomSmsBody(e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-emerald-500 dark:text-white resize-none" ></textarea>
+                          {customSmsBody.length > 160 && <p className="text-xs text-red-500 mt-1">Facturé comme 2 SMS par OVH.</p>}
                       </div>
                       <div className="flex gap-3 pt-4">
                           <button type="button" onClick={() => setShowSmsModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
-                          <button type="submit" disabled={sendingCustomSms || !customSmsBody.trim()} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
-                              {sendingCustomSms ? <FiLoader className="animate-spin" /> : <FiSend />} 
-                              {sendingCustomSms ? "Envoi en cours..." : "Envoyer le SMS"}
+                          <button type="submit" disabled={sendingCustomSms || !customSmsBody.trim()} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 flex justify-center items-center gap-2 transition-all">
+                              {sendingCustomSms ? <FiLoader className="animate-spin" /> : <FiSend />} Envoyer
                           </button>
                       </div>
                   </form>
