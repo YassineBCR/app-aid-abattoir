@@ -8,6 +8,8 @@ import {
 export default function Stock() {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+ const [selectionMode, setSelectionMode] = useState(null);
   
   // Données principales
   const [creneaux, setCreneaux] = useState([]);
@@ -227,6 +229,33 @@ export default function Stock() {
       }
   }
 
+  const handleMouseDown = (num, state) => {
+    setIsMouseDown(true);
+    // Détermine le mode selon le premier ticket cliqué
+    if (state === 'selected') {
+        setSelectionMode('remove');
+        setSelectedForAdd(prev => prev.filter(n => n !== num));
+    } else if (state === 'free') {
+        setSelectionMode('add');
+        setSelectedForAdd(prev => [...prev, num]);
+    }
+};
+
+const handleMouseEnter = (num, state) => {
+    if (!isMouseDown || !selectionMode) return;
+
+    if (selectionMode === 'add' && state === 'free') {
+        setSelectedForAdd(prev => prev.includes(num) ? prev : [...prev, num]);
+    } else if (selectionMode === 'remove' && state === 'selected') {
+        setSelectedForAdd(prev => prev.filter(n => n !== num));
+    }
+};
+
+const handleMouseUp = () => {
+    setIsMouseDown(false);
+    setSelectionMode(null);
+};
+
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-8">
       <div className="flex justify-between items-center">
@@ -343,35 +372,34 @@ export default function Stock() {
                     <div className="flex items-center gap-2"><div className="w-4 h-4 rounded border border-slate-300 bg-white"></div><span className="text-sm text-slate-600 dark:text-slate-300">Libre (Sélectionnable)</span></div>
                     <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-emerald-500"></div><span className="text-sm text-slate-600 dark:text-slate-300">À Ajouter</span></div>
                 </div>
+                <div 
+                          className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2"
+                          onMouseLeave={handleMouseUp} // Sécurité si on sort de la grille
+                      >
+                          {gridNumbers.map(num => {
+                              const state = getTicketState(num);
+                              let btnClass = "py-2 px-1 rounded text-sm font-bold font-mono transition-all border shadow-sm select-none "; // select-none est important
+                              
+                              if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
+                              else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
+                              else if (state === 'selected') btnClass += "bg-emerald-500 text-white border-emerald-600 transform scale-110 shadow-emerald-500/30 ring-2 ring-emerald-300 z-10";
+                              else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md cursor-pointer";
 
-                {/* GRILLE SCROLLABLE */}
-                <div className="flex-1 overflow-y-auto p-4 bg-slate-100 dark:bg-slate-900/50">
-                    {loadingGrid ? (
-                         <div className="flex h-full items-center justify-center"><div className="animate-spin text-4xl text-indigo-500"><FiGrid/></div></div>
-                    ) : (
-                        <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2">
-                            {gridNumbers.map(num => {
-                                const state = getTicketState(num);
-                                let btnClass = "py-2 px-1 rounded text-sm font-bold font-mono transition-all border shadow-sm ";
-                                
-                                if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
-                                else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
-                                else if (state === 'selected') btnClass += "bg-emerald-500 text-white border-emerald-600 transform scale-110 shadow-emerald-500/30 ring-2 ring-emerald-300 z-10";
-                                else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md cursor-pointer";
-
-                                return (
-                                    <button 
-                                        key={num} 
-                                        onClick={() => handleTicketClick(num)}
-                                        className={btnClass}
-                                        title={state === 'sold' ? 'Vendu' : state === 'stock' ? 'Déjà en stock' : 'Disponible'}
-                                    >
-                                        {num}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    )}
+                              return (
+                          <button 
+                                key={num} 
+                                onMouseDown={() => handleMouseDown(num, state)}
+                                onMouseEnter={() => handleMouseEnter(num, state)}
+                                onMouseUp={handleMouseUp}
+                                className={btnClass}
+                                type="button"
+                            >
+                                {num}
+                              </button>
+                          )
+                      })}
+                  </div>
+                    
                 </div>
 
                 {/* FOOTER ACTIONS */}
