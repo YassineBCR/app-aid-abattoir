@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+"dev": "vite",
+  "build": "vite build",
+  "install-all": "npm install && cd server && npm install",
+  "start": "cd server && node index.js"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^5.6.1",
