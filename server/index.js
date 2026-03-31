@@ -5,6 +5,20 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 import ovh from 'ovh'; // <-- NOUVEL IMPORT OVH
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Servir les fichiers statiques du build React (qui sera dans un dossier au-dessus)
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// Rediriger toutes les autres requêtes vers l'index.html de React (important pour le routage)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
 
 dotenv.config();
 
