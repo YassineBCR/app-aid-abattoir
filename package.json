@@ -14,7 +14,7 @@
   "dependencies": {
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.9.0",
-    "@supabase/supabase-js": "^2.90.0",
+    "@supabase/supabase-js": "^2.45.4",
     "@yudiel/react-qr-scanner": "^2.5.0",
     "driver.js": "^1.4.0",
     "jspdf": "^4.0.0",
@@ -44,8 +44,5 @@
     "tailwindcss": "^3.4.19",
     "vite": "npm:rolldown-vite@7.2.5",
     "vite-plugin-pwa": "^1.2.0"
-  },
-  "overrides": {
-    "vite": "npm:rolldown-vite@7.2.5"
   }
 }
