@@ -234,9 +234,10 @@ export default function Reservation() {
       try {
           const totalAcompteCents = panier.reduce((sum, item) => sum + item.acompte, 0);
           
-          // CORRECTION ICI : URL Render en dur
-          const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
-              method: "POST", headers: { "Content-Type": "application/json" },
+          // LA MAGIE VERCEL : Appel de l'API locale !
+          const response = await fetch("/api/create-checkout-session", {
+              method: "POST", 
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ 
                 montantTotal: totalAcompteCents, 
                 panierId: panierId, 
