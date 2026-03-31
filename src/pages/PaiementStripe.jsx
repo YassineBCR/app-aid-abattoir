@@ -26,13 +26,13 @@ export default function PaiementStripe() {
   const handlePaiement = async () => {
     setPaying(true);
     try {
-      // SOLUTION RADICALE : On force l'URL exacte de ton serveur Render
+      // URL Render forcée + Noms des variables corrigés pour le backend
       const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          montant: commande.acompte_cents || 5000, 
-          commandeId: commande.id,
+          montantTotal: commande.acompte_cents || 5000, 
+          panierId: commande.id,
           description: `Acompte Ticket N°${commande.ticket_num}`
         }),
       });
@@ -40,7 +40,7 @@ export default function PaiementStripe() {
       const data = await response.json();
       if (data.url) window.location.href = data.url; 
     } catch (error) {
-      alert("Erreur serveur");
+      alert("Erreur serveur : la connexion a échoué");
     } finally {
       setPaying(false);
     }
