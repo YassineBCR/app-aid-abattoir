@@ -15,6 +15,9 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// MODIFICATION ICI : On définit l'URL du frontend pour les redirections
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
 // Configuration Email
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -62,8 +65,9 @@ app.post("/create-checkout-session", async (req, res) => {
       client_reference_id: panierId, 
       payment_intent_data: { description: `Panier #${panierId.split('-')[0]} - ${description}` },
       metadata: { panier_id: panierId, type_commande: "reservation_agneaux" },
-      success_url: `http://localhost:5173/paiement-reussi?session_id={CHECKOUT_SESSION_ID}&panier_id=${panierId}`,
-      cancel_url: `http://localhost:5173/reservation`,
+      // MODIFICATION ICI : On utilise FRONTEND_URL
+      success_url: `${FRONTEND_URL}/paiement-reussi?session_id={CHECKOUT_SESSION_ID}&panier_id=${panierId}`,
+      cancel_url: `${FRONTEND_URL}/reservation`,
     });
     res.json({ url: session.url });
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -127,19 +131,16 @@ app.post("/send-sms", async (req, res) => {
   if (!phone || !message) return res.status(400).json({ error: "Données manquantes" });
 
   try {
-    // Formatage du numéro de téléphone en format international (+33...)
     let formattedPhone = phone.replace(/\s+/g, '');
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '+33' + formattedPhone.slice(1);
     }
 
-    // Si tu n'as pas activé ton nom d'expéditeur personnalisé chez OVH, 
-    // commente la ligne "sender" et remplace par "senderForResponse: true"
     const result = await ovhClient.requestPromised('POST', `/sms/${process.env.OVH_SMS_ACCOUNT}/jobs`, {
       message: message,
       sender: process.env.OVH_SMS_SENDER || 'ABATTOIR', 
       receivers: [formattedPhone],
-      noStopClause: true // Empêche l'ajout automatique de "STOP au XXXXX" si c'est de l'informationnel
+      noStopClause: true 
     });
 
     res.json({ success: true, result });
