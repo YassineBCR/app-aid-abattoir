@@ -236,10 +236,18 @@ export default function Reservation() {
       setPaying(true);
       try {
           const totalAcompteCents = panier.reduce((sum, item) => sum + item.acompte, 0);
-          const response = await fetch("http://localhost:3000/create-checkout-session", {
+          
+          // LA CORRECTION EST ICI :
+          const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ montantTotal: totalAcompteCents, panierId: panierId, description: `Réservation de ${panier.length} place(s)`, email: form.email }),
+              body: JSON.stringify({ 
+                  montantTotal: totalAcompteCents, 
+                  panierId: panierId, 
+                  description: `Réservation de ${panier.length} place(s)`, 
+                  email: form.email 
+              }),
           });
+          
           const stripeData = await response.json();
           if (stripeData.url) window.location.href = stripeData.url; 
           else throw new Error("Erreur serveur Stripe");
