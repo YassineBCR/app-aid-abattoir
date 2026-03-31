@@ -5,7 +5,8 @@
     "main": "index.js",
     "scripts": {
         "dev": "node index.js",
-        "start": "node index.js"
+        "start": "node index.js",
+        "build": "echo 'Aucun build necessaire pour le backend'"
     },
     "dependencies": {
         "cors": "^2.8.6",
