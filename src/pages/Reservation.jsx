@@ -28,7 +28,6 @@ const BlobBackground = () => (
   </div>
 );
 
-// 🔥 LES PRIX FIXÉS EN DUR
 const TARIFS_DURS = [
   { categorie: 'A', nom: 'Catégorie A', prix_cents: 36000, acompte_cents: 10000 },
   { categorie: 'B', nom: 'Catégorie B', prix_cents: 38000, acompte_cents: 10000 },
@@ -54,7 +53,7 @@ export default function Reservation() {
   const [joursConfig, setJoursConfig] = useState([]);
 
   const [form, setForm] = useState({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "" });
-  const [selectedTarif, setSelectedTarif] = useState(TARIFS_DURS[0]); // Par défaut Catégorie A
+  const [selectedTarif, setSelectedTarif] = useState(TARIFS_DURS[0]);
   const [selectedCreneau, setSelectedCreneau] = useState(null);
 
   const [panierId, setPanierId] = useState(() => crypto.randomUUID());
@@ -74,10 +73,8 @@ export default function Reservation() {
       
       try {
           await supabase.rpc('nettoyer_paniers_expires');
-
           const { data: jours } = await supabase.from("jours_fete").select("*");
           setJoursConfig(jours || []);
-          
           const { data: slots } = await supabase.rpc("get_creneaux_public");
           const filteredSlots = (slots || []).filter(s => s.is_online !== false);
           setCreneaux(filteredSlots.map(s => ({ ...s, places_disponibles: s.places_restantes })));
@@ -237,17 +234,16 @@ export default function Reservation() {
       try {
           const totalAcompteCents = panier.reduce((sum, item) => sum + item.acompte, 0);
           
-          // LA CORRECTION EST ICI :
+          // CORRECTION ICI : URL Render en dur
           const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ 
-                  montantTotal: totalAcompteCents, 
-                  panierId: panierId, 
-                  description: `Réservation de ${panier.length} place(s)`, 
-                  email: form.email 
+                montantTotal: totalAcompteCents, 
+                panierId: panierId, 
+                description: `Réservation de ${panier.length} place(s)`, 
+                email: form.email 
               }),
           });
-          
           const stripeData = await response.json();
           if (stripeData.url) window.location.href = stripeData.url; 
           else throw new Error("Erreur serveur Stripe");
@@ -289,8 +285,6 @@ export default function Reservation() {
         <div className="max-w-6xl mx-auto">
             <div className="text-center mb-10"><h1 className="text-3xl md:text-5xl font-black mb-2">Réservation</h1></div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* COLONNE GAUCHE */}
                 <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 md:p-10 min-h-[400px]">
                     {loading ? (
                         <div className="flex justify-center items-center h-64"><FiLoader className="w-8 h-8 animate-spin text-green-500" /></div>
@@ -299,7 +293,6 @@ export default function Reservation() {
                             {step === 1 && (
                                 <div className="space-y-6 animate-fade-in">
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">1</span> Vos Coordonnées</h2>
-                                    <p className="text-slate-500 text-sm">Veuillez indiquer pour qui est cette réservation.</p>
                                     <div className="grid gap-6 md:grid-cols-2">
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Prénom" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Nom" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
@@ -312,7 +305,6 @@ export default function Reservation() {
                                     </div>
                                 </div>
                             )}
-
                             {step === 2 && (
                                 <div className="space-y-8 animate-fade-in">
                                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
@@ -356,7 +348,6 @@ export default function Reservation() {
                                     </div>
                                 </div>
                             )}
-
                             {step === 3 && (
                                 <div className="space-y-6 animate-fade-in">
                                     <h2 className="text-2xl font-bold">Vérification de la place</h2>
@@ -381,7 +372,6 @@ export default function Reservation() {
                                     </button>
                                     <div className="flex justify-between items-center mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
                                         <button onClick={handleBack} className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"><FiArrowLeft /> Retour</button>
-                                        <div></div>
                                     </div>
                                 </div>
                             )}
@@ -389,14 +379,12 @@ export default function Reservation() {
                     )}
                 </div>
 
-                {/* COLONNE DROITE : PANIER */}
                 <div className={`lg:col-span-1 transition-all duration-500 ${panier.length > 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8 pointer-events-none hidden lg:block'}`}>
                     <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border-4 border-green-500 dark:border-green-600 overflow-hidden sticky top-32 flex flex-col max-h-[80vh]">
                         <div className="bg-green-500 p-4 text-white flex justify-between items-center shrink-0 shadow-md">
                             <h3 className="font-black text-xl flex items-center gap-2"><FiShoppingCart /> Panier</h3>
                             <div className="bg-red-500 text-white px-3 py-1 rounded-lg font-mono font-bold text-lg flex items-center gap-2 shadow-inner border border-red-400"><FiClock /> {timeLeft}</div>
                         </div>
-
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-900/50">
                             {panier.map((item, index) => (
                                 <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 relative overflow-hidden">
@@ -415,7 +403,6 @@ export default function Reservation() {
                                 </div>
                             ))}
                         </div>
-
                         <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 shrink-0">
                             <div className="flex justify-between items-end mb-4">
                                 <span className="font-bold text-slate-500">Total :</span>
@@ -427,7 +414,6 @@ export default function Reservation() {
                         </div>
                     </div>
                 </div>
-
             </div>
         </div>
       </main>
