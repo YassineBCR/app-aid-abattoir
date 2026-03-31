@@ -26,10 +26,8 @@ export default function PaiementStripe() {
   const handlePaiement = async () => {
     setPaying(true);
     try {
-      // MODIFICATION ICI : On utilise la variable d'environnement ou localhost par défaut
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-      
-      const response = await fetch(`${API_URL}/create-checkout-session`, {
+      // SOLUTION RADICALE : On force l'URL exacte de ton serveur Render
+      const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
