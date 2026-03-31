@@ -26,14 +26,15 @@ export default function PaiementStripe() {
   const handlePaiement = async () => {
     setPaying(true);
     try {
-      // URL Render forcée + Noms des variables corrigés pour le backend
-      const response = await fetch("https://app-aid-abattoir.onrender.com/create-checkout-session", {
+      // API VERCEL (Chemin Relatif)
+      const response = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           montantTotal: commande.acompte_cents || 5000, 
           panierId: commande.id,
-          description: `Acompte Ticket N°${commande.ticket_num}`
+          description: `Acompte Ticket N°${commande.ticket_num}`,
+          email: commande.contact_email || "client@abattoir.fr" // Sécurité email
         }),
       });
 

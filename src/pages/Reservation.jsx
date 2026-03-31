@@ -234,7 +234,7 @@ export default function Reservation() {
       try {
           const totalAcompteCents = panier.reduce((sum, item) => sum + item.acompte, 0);
           
-          // LA MAGIE VERCEL : Appel de l'API locale !
+          // API VERCEL (Chemin Relatif)
           const response = await fetch("/api/create-checkout-session", {
               method: "POST", 
               headers: { "Content-Type": "application/json" },
