@@ -87,19 +87,29 @@ export default function AdminCaisse() {
       setTransactions(txData || []);
       setSessionsCaisse(sessionsData || []);
 
+      // === CORRECTION ICI : Tolérance sur les textes de paiement ===
       let sums = { stripe: 0, especes: 0, cb: 0, annulations: 0, totalNet: 0 };
       (txData || []).forEach(t => {
         const montantEuros = t.montant_cents / 100;
+        
         if (montantEuros < 0) {
             sums.annulations += Math.abs(montantEuros);
         } else {
-            if (t.moyen_paiement === 'stripe') sums.stripe += montantEuros;
-            if (t.moyen_paiement === 'especes') sums.especes += montantEuros;
-            if (t.moyen_paiement === 'cb') sums.cb += montantEuros;
+            // Sécurise la vérification en mettant tout en minuscules pour éviter les bugs de casse
+            const moyen = String(t.moyen_paiement || "").toLowerCase().trim();
+            
+            if (moyen === 'stripe' || moyen === 'carte' || moyen === 'card') {
+                sums.stripe += montantEuros;
+            } else if (moyen === 'especes' || moyen === 'espece') {
+                sums.especes += montantEuros;
+            } else if (moyen === 'cb' || moyen === 'tpe') {
+                sums.cb += montantEuros;
+            }
         }
         sums.totalNet += montantEuros; 
       });
       setTotaux(sums);
+      // ==============================================================
 
     } catch (err) {
       console.error("Erreur Compta:", err);
@@ -132,7 +142,7 @@ export default function AdminCaisse() {
       setTarifs(tarifs.map(t => t.categorie === categorie ? { ...t, [field]: value } : t));
   };
 
-  // ================= SAUVEGARDE DES TARIFS (CORRIGÉ & INFAILLIBLE) =================
+  // ================= SAUVEGARDE DES TARIFS =================
   const saveTarifs = async () => {
       setLoadingTarifs(true);
       try {
@@ -140,7 +150,6 @@ export default function AdminCaisse() {
               const prixCents = Math.round(parseFloat(t.prixEuros || 0) * 100);
               const acompteCents = Math.round(parseFloat(t.acompteEuros || 0) * 100);
               
-              // LA CORRECTION EST ICI : on cible la 'categorie' (A, B ou C) directement, c'est infaillible !
               const { error } = await supabase
                 .from('tarifs')
                 .update({ 
@@ -168,12 +177,11 @@ export default function AdminCaisse() {
 
   const getBadgeStyle = (moyen, montant) => {
     if (montant < 0) return { icon: <FiTrash2 />, color: "bg-red-100 text-red-700 border-red-200", label: "Annulation" };
-    switch(moyen) {
-        case 'stripe': return { icon: <FiSmartphone />, color: "bg-purple-100 text-purple-700 border-purple-200", label: "Stripe Web" };
-        case 'especes': return { icon: <FiDollarSign />, color: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "Espèces" };
-        case 'cb': return { icon: <FiCreditCard />, color: "bg-blue-100 text-blue-700 border-blue-200", label: "TPE Bancaire" };
-        default: return { icon: <FiFileText />, color: "bg-slate-100 text-slate-700 border-slate-200", label: moyen };
-    }
+    const m = String(moyen || "").toLowerCase().trim();
+    if (m === 'stripe' || m === 'carte' || m === 'card') return { icon: <FiSmartphone />, color: "bg-purple-100 text-purple-700 border-purple-200", label: "Stripe Web" };
+    if (m === 'especes' || m === 'espece') return { icon: <FiDollarSign />, color: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "Espèces" };
+    if (m === 'cb' || m === 'tpe') return { icon: <FiCreditCard />, color: "bg-blue-100 text-blue-700 border-blue-200", label: "TPE Bancaire" };
+    return { icon: <FiFileText />, color: "bg-slate-100 text-slate-700 border-slate-200", label: moyen };
   };
 
   const exportToCSV = () => {
@@ -301,7 +309,7 @@ export default function AdminCaisse() {
                                         <p className="text-xs text-slate-500 mt-0.5">{t.commandes ? `${t.commandes.contact_last_name} ${t.commandes.contact_first_name}` : "Client Inconnu"}</p>
                                     </td>
                                     <td className="p-5"><span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border shadow-sm ${style.color}`}>{style.icon} {style.label}</span></td>
-                                    <td className="p-5"><span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-medium"><FiUser className="text-slate-400"/> {t.encaisse_par.split('@')[0]}</span></td>
+                                    <td className="p-5"><span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-medium"><FiUser className="text-slate-400"/> {t.encaisse_par?.split('@')[0]}</span></td>
                                     <td className="p-5 max-w-[200px]">{t.notes && <p className="text-xs text-red-700 font-bold bg-white dark:bg-red-900/30 p-2 rounded-lg border border-red-100 dark:border-red-900/50 line-clamp-2" title={t.notes}>{t.notes}</p>}</td>
                                     <td className={`p-5 text-right font-black text-xl ${isNeg ? 'text-red-500' : 'text-emerald-600'}`}>{isNeg ? "" : "+"}{montantEuro.toFixed(2)} €</td>
                                 </tr>
@@ -325,7 +333,7 @@ export default function AdminCaisse() {
                         <div key={session.id} className={`bg-white dark:bg-slate-800 border-2 rounded-3xl overflow-hidden ${isOuverte ? 'border-emerald-300 dark:border-emerald-700 shadow-xl shadow-emerald-100/50' : 'border-slate-200 dark:border-slate-700 shadow-md'}`}>
                             <div className={`p-5 flex flex-wrap justify-between items-center gap-4 ${isOuverte ? 'bg-emerald-50 dark:bg-emerald-900/30 border-b border-emerald-100 dark:border-emerald-800' : 'border-b border-slate-100 dark:border-slate-700'}`}>
                                 <div>
-                                    <h4 className="font-bold text-xl text-slate-800 dark:text-white flex items-center gap-2"><FiArchive className={isOuverte ? "text-emerald-500" : "text-slate-400"}/> Caisse : {session.vendeur_email.split('@')[0]}</h4>
+                                    <h4 className="font-bold text-xl text-slate-800 dark:text-white flex items-center gap-2"><FiArchive className={isOuverte ? "text-emerald-500" : "text-slate-400"}/> Caisse : {session.vendeur_email?.split('@')[0]}</h4>
                                     <p className="text-sm text-slate-500 mt-1 flex items-center gap-1.5 font-medium"><FiClock /> Ouverture : {new Date(session.created_at).toLocaleString('fr-FR')}{session.heure_cloture && ` • Clôture : ${new Date(session.heure_cloture).toLocaleTimeString('fr-FR')}`}</p>
                                 </div>
                                 <div>{isOuverte ? <span className="px-4 py-2 rounded-xl text-xs font-bold uppercase bg-emerald-500 text-white shadow-md flex items-center gap-2"><FiUnlock/> En cours d'utilisation</span> : <span className="px-4 py-2 rounded-xl text-xs font-bold uppercase bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 flex items-center gap-2"><FiCheckCircle/> Clôturée</span>}</div>
