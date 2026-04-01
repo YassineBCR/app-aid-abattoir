@@ -309,7 +309,7 @@ export default function Reservation() {
                             {step === 2 && (
                                 <div className="space-y-8 animate-fade-in">
                                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
-                                        <h3 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Créneau de retrait</h3>
+                                        <h3 className="text-2xl font-bold flex items-center gap-2"><span className="bg-green-100 text-green-600 w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span> Créneau de passage (à titre indicatif)</h3>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                         {groupedCreneaux.map((group) => (
