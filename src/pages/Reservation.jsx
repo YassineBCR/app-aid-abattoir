@@ -307,7 +307,7 @@ export default function Reservation() {
                                         <div className="space-y-4 text-sm">
                                             <div>
                                                 <p className="font-bold">En cas de retard ?</p>
-                                                <p>Les horaires de passage sont donnés à titre indicatif et nous ne pouvons nous tenir responsables en cas de retard ou d'absence lors du sacrifice.</p>
+                                                <p>Les horaires de passage sont donnés à titre indicatif et nous ne pouvons nous tenir responsables en cas de retard lors du sacrifice.</p>
                                             </div>
                                             <div>
                                                 <p className="font-bold">En cas d'absence ?</p>
@@ -333,7 +333,9 @@ export default function Reservation() {
                                     </div>
 
                                     <div className="flex justify-end mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
-                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Ajoutez une place supplémentaire <FiArrowRight /></button>
+                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">
+                                            {panier.length === 0 ? "Suivant" : "Ajoutez une place supplémentaire"} <FiArrowRight />
+                                        </button>
                                     </div>
                                 </div>
                             )}
