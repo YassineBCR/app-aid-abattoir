@@ -333,7 +333,7 @@ export default function Reservation() {
                                                                         </div>
                                                                     </div>
                                                                     <div className="text-right">
-                                                                        {isFull ? <span className="bg-red-500 text-white px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider">Complet</span> : <div className={`text-sm font-black ${isSelected ? 'text-blue-600' : 'text-emerald-600'}`}>{c.places_disponibles} places</div>}
+                                                                        {isFull ? <span className="bg-red-500 text-white px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider">Complet</span> : <div className={`text-sm font-black ${isSelected ? 'text-blue-600' : 'text-emerald-600'}`}>Disponible</div>}
                                                                     </div>
                                                                 </div>
                                                             </button>
