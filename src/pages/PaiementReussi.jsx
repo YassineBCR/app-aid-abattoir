@@ -32,19 +32,26 @@ export default function PaiementReussi() {
             return;
         }
 
-        // ÉTAPE A : On récupère les tickets "en_attente"
-        const { data: ticketsToPay } = await supabase
+        // ÉTAPE A : On récupère les tickets "en_attente" du bon panier
+        // ✅ FIX : on filtre par panier_id pour cibler uniquement CES tickets
+        let queryTickets = supabase
           .from('commandes')
           .select('*')
           .eq('client_id', user.id)
           .eq('statut', 'en_attente');
+
+        if (panierId) {
+          queryTickets = queryTickets.eq('panier_id', panierId);
+        }
+
+        const { data: ticketsToPay } = await queryTickets;
 
         if (ticketsToPay && ticketsToPay.length > 0) {
             for (const ticket of ticketsToPay) {
                 const vraiMontantAcompte = ticket.acompte_cents || 5000; 
 
                 // 1. On passe le ticket en payé
-                await supabase
+                const { error: updateError } = await supabase
                   .from('commandes')
                   .update({ 
                       statut: 'acompte_paye',
@@ -52,35 +59,55 @@ export default function PaiementReussi() {
                   }) 
                   .eq('id', ticket.id);
 
+                if (updateError) {
+                  console.error(`Erreur update ticket ${ticket.ticket_num}:`, updateError);
+                  continue; // On passe au suivant sans bloquer les autres
+                }
+
                 // 2. On crée la ligne d'historique (Traçabilité)
+                // ✅ FIX : référence UNIQUE par ticket pour éviter les conflits de contrainte UNIQUE
+                // Avant : sessionId était identique pour tous → le 2ème insert plantait
+                const refUniqueParTicket = sessionId 
+                  ? `${sessionId}_${ticket.id}` 
+                  : `web_${ticket.id}`;
+
                 const { data: existing } = await supabase
                     .from('historique_paiements')
                     .select('id')
-                    .eq('reference_externe', sessionId || `web_${ticket.id}`)
+                    .eq('reference_externe', refUniqueParTicket)
                     .eq('commande_id', ticket.id)
                     .maybeSingle();
 
                 if (!existing) {
-                    await supabase.from('historique_paiements').insert({
+                    const { error: insertError } = await supabase
+                      .from('historique_paiements')
+                      .insert({
                         commande_id: ticket.id,
                         ticket_num: ticket.ticket_num,
                         montant_cents: vraiMontantAcompte,
                         moyen_paiement: 'stripe',
                         encaisse_par: 'Site Web (Stripe)',
-                        reference_externe: sessionId || `web_${ticket.id}`
+                        reference_externe: refUniqueParTicket
                     });
+
+                    if (insertError) {
+                      console.error(`Erreur historique ticket ${ticket.ticket_num}:`, insertError);
+                      // On ne bloque pas pour autant — le statut est déjà mis à jour
+                    }
                 }
             }
         }
 
+        // Appel backend optionnel (ne bloque pas si indisponible en prod)
         if (panierId && sessionId) {
-            fetch("http://localhost:3000/valider-panier", {
+            fetch("/api/valider-panier", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ panierId, sessionId })
-            }).catch(() => console.log("Backend injoignable."));
+            }).catch(() => console.log("Endpoint /api/valider-panier injoignable (optionnel)."));
         }
 
+        // ÉTAPE B : On récupère les tickets mis à jour pour l'affichage
         let query = supabase
           .from('commandes')
           .select('*, creneaux_horaires(date, heure_debut)')
@@ -104,7 +131,7 @@ export default function PaiementReussi() {
     validateAndFetch();
   }, [panierId, sessionId]);
 
-  // 2. useEffect SECONDAIRE : Envoi des emails
+  // 2. useEffect SECONDAIRE : Envoi des emails de confirmation
   useEffect(() => {
       if (tickets.length > 0) {
           const envoyerEmails = async () => {
@@ -169,7 +196,7 @@ export default function PaiementReussi() {
       return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900">
               <FiLoader className="text-5xl text-emerald-500 animate-spin mb-4" />
-              <p className="text-slate-500 font-bold text-lg">Génération de vos tickets et validation du paiement...</p>
+              <p className="text-slate-500 font-bold text-lg">Validation du paiement et génération des tickets...</p>
           </div>
       );
   }
@@ -180,6 +207,7 @@ export default function PaiementReussi() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-12 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-8">
         
+        {/* BANDEAU DE CONFIRMATION */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-8 md:p-12 text-center animate-fade-in-up border-t-8 border-emerald-500">
           <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
               <FiCheckCircle className="text-6xl" />
@@ -188,7 +216,9 @@ export default function PaiementReussi() {
               Paiement Validé !
           </h1>
           <p className="text-lg text-slate-600 dark:text-slate-300 font-medium">
-              Merci pour votre commande. Vos tickets <strong className="text-emerald-600">{listNumeros}</strong> sont officiellement réservés et bloqués.
+              Merci pour votre commande. Vos tickets{' '}
+              <strong className="text-emerald-600">{listNumeros}</strong>{' '}
+              sont officiellement réservés et bloqués.
           </p>
 
           {emailsSent && (
@@ -199,6 +229,7 @@ export default function PaiementReussi() {
           )}
         </div>
 
+        {/* GRILLE DES TICKETS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
             {tickets.map((ticket) => (
                 <div key={ticket.id} className="bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col relative group">
@@ -216,14 +247,24 @@ export default function PaiementReussi() {
                             <div>
                                 <p className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5"><FiCalendar/> Retrait Prévu</p>
                                 <p className="font-bold text-slate-700 dark:text-slate-300">
-                                    {ticket.creneaux_horaires ? new Date(ticket.creneaux_horaires.date).toLocaleDateString('fr-FR') : "Date inconnue"}
+                                    {ticket.creneaux_horaires 
+                                        ? new Date(ticket.creneaux_horaires.date).toLocaleDateString('fr-FR') 
+                                        : "Date inconnue"}
                                     <br/>
-                                    <span className="text-emerald-600">à {ticket.creneaux_horaires?.heure_debut.slice(0,5)}</span>
+                                    <span className="text-emerald-600">
+                                        à {ticket.creneaux_horaires?.heure_debut.slice(0,5)}
+                                    </span>
                                 </p>
                             </div>
                             <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
                                 <p className="text-xs font-bold text-slate-400 uppercase">Catégorie</p>
                                 <p className="font-bold text-slate-600 dark:text-slate-400">Catégorie {ticket.categorie}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                                <p className="text-xs font-bold text-slate-400 uppercase">Acompte payé</p>
+                                <p className="font-black text-emerald-600 text-lg">
+                                    {((ticket.montant_paye_cents || ticket.acompte_cents || 0) / 100).toFixed(2)} €
+                                </p>
                             </div>
                         </div>
 
@@ -249,8 +290,21 @@ export default function PaiementReussi() {
             ))}
         </div>
 
+        {/* Cas où aucun ticket n'est trouvé */}
+        {!loading && tickets.length === 0 && (
+            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-8 text-center">
+                <p className="text-slate-500 font-medium">
+                    Le paiement a bien été reçu. Si vos tickets n'apparaissent pas, 
+                    contactez-nous en mentionnant votre référence Stripe.
+                </p>
+            </div>
+        )}
+
         <div className="text-center pt-8">
-            <Link to="/" className="inline-flex items-center gap-3 px-8 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold shadow-xl hover:scale-105 transition-all text-lg">
+            <Link 
+                to="/" 
+                className="inline-flex items-center gap-3 px-8 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold shadow-xl hover:scale-105 transition-all text-lg"
+            >
                 Retourner à l'accueil <FiArrowRight />
             </Link>
         </div>
