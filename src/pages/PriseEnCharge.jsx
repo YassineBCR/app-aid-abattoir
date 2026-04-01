@@ -815,13 +815,22 @@ export default function PriseEnCharge() {
                 <button onClick={verifierPaiementStripe} disabled={checkingStripe}
                   className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
-                  {checkingStripe ? <><FiRefreshCw className="animate-spin" /> Vérification…</> : <><FiCheckCircle className="text-xl" /> Confirmer le paiement</>}
+                  {checkingStripe ? <><FiRefreshCw className="animate-spin" /> Vérification…</> : <><FiCheckCircle className="text-xl" /> Confirmer le paiement (Auto)</>}
                 </button>
+                
+                {/* --- NOUVEAU BOUTON : Validation Manuelle --- */}
+                <button onClick={enregistrerPaiementStripe}
+                  className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors flex items-center justify-center gap-2 text-sm"
+                >
+                  <FiCheck className="text-lg" /> Forcer la validation (Vérifié manuellement)
+                </button>
+                {/* -------------------------------------------- */}
+
                 <p className="text-center text-xs text-slate-400">
-                  Cliquez après que le client ait payé. Le système vérifiera automatiquement ou vous pourrez confirmer manuellement.
+                  Le système vérifiera automatiquement via Stripe, ou vous pouvez valider manuellement si vous avez déjà constaté l'encaissement.
                 </p>
                 <button onClick={() => setStripeModal(null)} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">
-                  Annuler (le lien reste valide)
+                  Fermer (le lien reste valide)
                 </button>
               </div>
             </div>
