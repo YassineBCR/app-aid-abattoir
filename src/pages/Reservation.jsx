@@ -301,8 +301,39 @@ export default function Reservation() {
                                         <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
                                         <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
                                     </div>
+                                    
+                                    <div className="mt-8 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-6 text-amber-900 dark:text-amber-200">
+                                        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><FiAlertCircle /> Informations importantes</h3>
+                                        <div className="space-y-4 text-sm">
+                                            <div>
+                                                <p className="font-bold">En cas de retard ?</p>
+                                                <p>Les horaires de passage sont donnés à titre indicatif et nous ne pouvons nous tenir responsables en cas de retard ou d'absence lors du sacrifice.</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold">En cas d'absence ?</p>
+                                                <p>En cas d'absence lors du sacrifice, il devra être effectué en votre absence et nous ne pouvons nous tenir responsables.</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold">En cas de saisie ?</p>
+                                                <p>En cas de saisies par les services vétérinaires :</p>
+                                                <ul className="list-disc pl-5 mt-1 space-y-1">
+                                                    <li>Lors d'une saisie partielle (cœur, foie, abats, etc...) : Aucun remboursement ni dédommagement ne pourra être demandé.</li>
+                                                    <li>En cas de saisie totale : Un remplacement à l'identique sera proposé, aucun remboursement ne pourra être demandé.</li>
+                                                </ul>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold">En cas d'annulation ?</p>
+                                                <p>Aucun remboursement ne pourra être effectué.</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold">Après le bouclage de l'agneau ?</p>
+                                                <p>Aucun échange ou modification ne pourra être effectué.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="flex justify-end mt-10 pt-6 border-t border-slate-100 dark:border-slate-700">
-                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Suivant <FiArrowRight /></button>
+                                        <button onClick={handleNext} className="flex items-center gap-2 px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg hover:scale-105 transition-all">Ajoutez une place supplémentaire <FiArrowRight /></button>
                                     </div>
                                 </div>
                             )}
