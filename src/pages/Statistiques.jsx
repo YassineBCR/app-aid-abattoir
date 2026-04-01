@@ -95,7 +95,11 @@ export default function Statistiques() {
       toutesLesCommandes.forEach(cmd => {
         // Chiffre d'affaires
         caTheorique += (Number(cmd.montant_total_cents) || 0);
-        caEncaisse += (Number(cmd.montant_paye_cents) || Number(cmd.acompte_cents) || 0);
+        
+        // --- CORRECTION DU BUG DES 0 IGNORES ---
+        const payeCents = cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0;
+        caEncaisse += Number(payeCents);
+        // ---------------------------------------
 
         // Catégories (Uniquement pour les actifs)
         if (cmd.categorie && cmd.statut !== 'annule') {
