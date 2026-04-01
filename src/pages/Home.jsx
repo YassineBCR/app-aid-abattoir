@@ -179,8 +179,10 @@ export default function Home() {
 
   const statsRef = useRef(null);
   
-  // --- DATE MODIFIÉE : 27 MAI 2026 ---
-  const openingDate = new Date(2026, 4, 27, 10, 0, 0).getTime();
+  // --- DATE MODIFIÉE : VENDREDI 3 AVRIL 2026 A 06H00 (HEURE FRANÇAISE) ---
+  // On utilise le format ISO avec le fuseau horaire +02:00 (Heure d'été en France) 
+  // pour s'assurer de la justesse de l'heure peu importe où se trouve l'utilisateur
+  const openingDate = new Date("2026-04-03T06:00:00+02:00").getTime();
 
   useEffect(() => {
     const checkUser = async () => {
