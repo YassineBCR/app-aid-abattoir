@@ -13,14 +13,12 @@ export default function PaiementReussi() {
   const [loading, setLoading] = useState(true);
   const [emailsSent, setEmailsSent] = useState(false);
 
-  // 👉 LE BOUCLIER ANTI-DOUBLONS
   const processedRef = useRef(false);
 
-  // 1. useEffect PRINCIPAL : Validation à toute épreuve
   useEffect(() => {
     const validateAndFetch = async () => {
       if (processedRef.current) return;
-      processedRef.current = true; // On verrouille la porte
+      processedRef.current = true;
 
       try {
         const { data: authData } = await supabase.auth.getUser();
@@ -47,7 +45,6 @@ export default function PaiementReussi() {
             for (const ticket of ticketsToPay) {
                 const vraiMontantAcompte = ticket.acompte_cents || 5000; 
 
-                // On passe le ticket en payé
                 const { error: updateError } = await supabase
                   .from('commandes')
                   .update({ 
@@ -61,7 +58,6 @@ export default function PaiementReussi() {
                   continue; 
                 }
 
-                // Création de la ligne d'historique
                 const refUniqueParTicket = sessionId 
                   ? `${sessionId}_${ticket.id}` 
                   : `web_${ticket.id}`;
@@ -92,7 +88,6 @@ export default function PaiementReussi() {
             }
         }
 
-        // Récupération des tickets mis à jour pour l'affichage
         let query = supabase
           .from('commandes')
           .select('*, creneaux_horaires(date, heure_debut)')
@@ -116,7 +111,6 @@ export default function PaiementReussi() {
     validateAndFetch();
   }, [panierId, sessionId]);
 
-  // 2. useEffect SECONDAIRE : Envoi des emails de confirmation via Vercel Function
   useEffect(() => {
       if (tickets.length > 0) {
           const envoyerEmails = async () => {
@@ -133,20 +127,18 @@ export default function PaiementReussi() {
               for (const ticket of tickets) {
                   if (ticket.contact_email && !ticket.contact_email.includes('surplace')) {
                       try {
-                          const dateFormatee = new Date(ticket.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
                           const qrData = JSON.stringify({ id: ticket.id, ticket: ticket.ticket_num, nom: ticket.contact_last_name });
 
-                          // Appel à la Serverless Function Vercel
                           await fetch("/api/send-ticket-email", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                   email: ticket.contact_email,
                                   firstName: ticket.contact_first_name,
+                                  lastName: ticket.contact_last_name,
+                                  phone: ticket.contact_phone,
                                   ticketNum: ticket.ticket_num,
                                   sacrificeName: ticket.sacrifice_name,
-                                  dateCreneau: dateFormatee,
-                                  heureCreneau: ticket.creneaux_horaires?.heure_debut?.slice(0,5),
                                   qrData: qrData
                               })
                           });
@@ -193,7 +185,6 @@ export default function PaiementReussi() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 py-12 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-8">
         
-        {/* BANDEAU DE CONFIRMATION */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-8 md:p-12 text-center animate-fade-in-up border-t-8 border-emerald-500">
           <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
               <FiCheckCircle className="text-6xl" />
@@ -215,7 +206,6 @@ export default function PaiementReussi() {
           )}
         </div>
 
-        {/* GRILLE DES TICKETS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
             {tickets.map((ticket) => (
                 <div key={ticket.id} className="bg-white dark:bg-slate-800 rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col relative group">
@@ -276,7 +266,6 @@ export default function PaiementReussi() {
             ))}
         </div>
 
-        {/* Cas où aucun ticket n'est trouvé */}
         {!loading && tickets.length === 0 && (
             <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-8 text-center">
                 <p className="text-slate-500 font-medium">
