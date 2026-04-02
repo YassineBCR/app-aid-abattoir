@@ -68,22 +68,24 @@ export default function Statistiques() {
       let sCounts = { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 };
       let mCounts = { especes: 0, cb: 0, stripe: 0 };
       let cCounts = {};
+      let totalNonBoucles = 0;
 
       // 3. Boucle unique pour calculer toutes les statistiques en temps réel
       toutLeRegistre.forEach(item => {
-        // --- Finances ---
-        caTheorique += (Number(item.montant_total_cents) || 0);
+        // --- Finances (Utilisation de tes vraies colonnes en EUROS) ---
+        caTheorique += (Number(item.prix_total_euros) || 0);
         
-        const montantPaye = Number(item.montant_paye_cents) || 0;
+        const montantPaye = Number(item.total_paye_euros) || 0;
         caEncaisse += montantPaye;
 
         // --- Moyens de paiement ---
-        // On se base sur le moyen_paiement enregistré pour la somme encaissée
+        // Assure-toi d'avoir une colonne 'moyen_paiement' dans ta table !
         if (item.moyen_paiement === 'especes') mCounts.especes += montantPaye;
         if (item.moyen_paiement === 'cb') mCounts.cb += montantPaye;
         if (item.moyen_paiement === 'stripe') mCounts.stripe += montantPaye;
 
         // --- Catégories (hors annulés) ---
+        // Assure-toi d'avoir une colonne 'categorie' dans ta table !
         if (item.categorie && item.statut !== 'annule') {
           cCounts[item.categorie] = (cCounts[item.categorie] || 0) + 1;
         }
@@ -93,19 +95,24 @@ export default function Statistiques() {
         else if (item.statut === 'paye_integralement' || item.statut === 'validee') sCounts.paye++;
         else if (item.statut === 'bouclee') sCounts.bouclee++;
         else if (item.statut === 'annule') sCounts.annule++;
+
+        // --- Bêtes non bouclées ---
+        // On considère une bête non bouclée si la colonne numero_boucle est vide ET que la commande n'est pas annulée
+        if (!item.numero_boucle && item.statut !== 'annule') {
+            totalNonBoucles++;
+        }
       });
 
       // 4. Calculs déduits
       const totalActifs = sCounts.acompte + sCounts.paye + sCounts.bouclee;
-      const nonBoucles = totalActifs - sCounts.bouclee;
 
       // 5. Mise à jour de l'état
       setStats({
         totalCommandes: toutLeRegistre.length,
         totalActifs: totalActifs,
-        nonBoucles: nonBoucles,
-        caTheorique: caTheorique / 100, // Conversion des centimes en euros
-        caEncaisse: caEncaisse / 100,   // Conversion des centimes en euros
+        nonBoucles: totalNonBoucles,
+        caTheorique: caTheorique, // Plus de division par 100, on est déjà en euros !
+        caEncaisse: caEncaisse,   // Plus de division par 100, on est déjà en euros !
         statusCounts: sCounts,
         methodCounts: mCounts,
         categorieCounts: cCounts
@@ -130,7 +137,8 @@ export default function Statistiques() {
 
   // --- Variables pour les barres de progression ---
   const pourcentageBoucle = stats.totalActifs > 0 ? (stats.statusCounts.bouclee / stats.totalActifs) * 100 : 0;
-  const totalPayementsHistory = (stats.methodCounts.especes + stats.methodCounts.cb + stats.methodCounts.stripe) / 100;
+  // On ne divise plus par 100 ici non plus pour les moyens de paiement
+  const totalPayementsHistory = stats.methodCounts.especes + stats.methodCounts.cb + stats.methodCounts.stripe;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20 animate-fade-in">
@@ -249,30 +257,30 @@ export default function Statistiques() {
                 <div>
                     <div className="flex justify-between items-end mb-2">
                         <span className="font-bold flex items-center gap-2 dark:text-white"><FiCreditCard className="text-indigo-500"/> Paiements Web (Stripe)</span>
-                        <span className="font-black text-indigo-600">{(stats.methodCounts.stripe / 100).toFixed(2)} €</span>
+                        <span className="font-black text-indigo-600">{stats.methodCounts.stripe.toFixed(2)} €</span>
                     </div>
                     <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                        <div className="bg-indigo-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.stripe / 100 / totalPayementsHistory) * 100 : 0}%` }}></div>
+                        <div className="bg-indigo-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.stripe / totalPayementsHistory) * 100 : 0}%` }}></div>
                     </div>
                 </div>
 
                 <div>
                     <div className="flex justify-between items-end mb-2">
                         <span className="font-bold flex items-center gap-2 dark:text-white"><FiDollarSign className="text-teal-500"/> Guichet: Espèces</span>
-                        <span className="font-black text-teal-600">{(stats.methodCounts.especes / 100).toFixed(2)} €</span>
+                        <span className="font-black text-teal-600">{stats.methodCounts.especes.toFixed(2)} €</span>
                     </div>
                     <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                        <div className="bg-teal-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.especes / 100 / totalPayementsHistory) * 100 : 0}%` }}></div>
+                        <div className="bg-teal-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.especes / totalPayementsHistory) * 100 : 0}%` }}></div>
                     </div>
                 </div>
 
                 <div>
                     <div className="flex justify-between items-end mb-2">
                         <span className="font-bold flex items-center gap-2 dark:text-white"><FiCreditCard className="text-blue-500"/> Guichet: CB</span>
-                        <span className="font-black text-blue-600">{(stats.methodCounts.cb / 100).toFixed(2)} €</span>
+                        <span className="font-black text-blue-600">{stats.methodCounts.cb.toFixed(2)} €</span>
                     </div>
                     <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                        <div className="bg-blue-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.cb / 100 / totalPayementsHistory) * 100 : 0}%` }}></div>
+                        <div className="bg-blue-500 h-full" style={{ width: `${totalPayementsHistory ? (stats.methodCounts.cb / totalPayementsHistory) * 100 : 0}%` }}></div>
                     </div>
                 </div>
             </div>
