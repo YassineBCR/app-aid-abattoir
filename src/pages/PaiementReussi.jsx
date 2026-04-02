@@ -19,7 +19,6 @@ export default function PaiementReussi() {
   // 1. useEffect PRINCIPAL : Validation à toute épreuve
   useEffect(() => {
     const validateAndFetch = async () => {
-      // Si on a déjà lancé le processus, on s'arrête immédiatement !
       if (processedRef.current) return;
       processedRef.current = true; // On verrouille la porte
 
@@ -32,8 +31,6 @@ export default function PaiementReussi() {
             return;
         }
 
-        // ÉTAPE A : On récupère les tickets "en_attente" du bon panier
-        // ✅ FIX : on filtre par panier_id pour cibler uniquement CES tickets
         let queryTickets = supabase
           .from('commandes')
           .select('*')
@@ -50,7 +47,7 @@ export default function PaiementReussi() {
             for (const ticket of ticketsToPay) {
                 const vraiMontantAcompte = ticket.acompte_cents || 5000; 
 
-                // 1. On passe le ticket en payé
+                // On passe le ticket en payé
                 const { error: updateError } = await supabase
                   .from('commandes')
                   .update({ 
@@ -61,12 +58,10 @@ export default function PaiementReussi() {
 
                 if (updateError) {
                   console.error(`Erreur update ticket ${ticket.ticket_num}:`, updateError);
-                  continue; // On passe au suivant sans bloquer les autres
+                  continue; 
                 }
 
-                // 2. On crée la ligne d'historique (Traçabilité)
-                // ✅ FIX : référence UNIQUE par ticket pour éviter les conflits de contrainte UNIQUE
-                // Avant : sessionId était identique pour tous → le 2ème insert plantait
+                // Création de la ligne d'historique
                 const refUniqueParTicket = sessionId 
                   ? `${sessionId}_${ticket.id}` 
                   : `web_${ticket.id}`;
@@ -92,22 +87,12 @@ export default function PaiementReussi() {
 
                     if (insertError) {
                       console.error(`Erreur historique ticket ${ticket.ticket_num}:`, insertError);
-                      // On ne bloque pas pour autant — le statut est déjà mis à jour
                     }
                 }
             }
         }
 
-        // Appel backend optionnel (ne bloque pas si indisponible en prod)
-        if (panierId && sessionId) {
-            fetch("/api/valider-panier", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ panierId, sessionId })
-            }).catch(() => console.log("Endpoint /api/valider-panier injoignable (optionnel)."));
-        }
-
-        // ÉTAPE B : On récupère les tickets mis à jour pour l'affichage
+        // Récupération des tickets mis à jour pour l'affichage
         let query = supabase
           .from('commandes')
           .select('*, creneaux_horaires(date, heure_debut)')
@@ -131,7 +116,7 @@ export default function PaiementReussi() {
     validateAndFetch();
   }, [panierId, sessionId]);
 
-  // 2. useEffect SECONDAIRE : Envoi des emails de confirmation
+  // 2. useEffect SECONDAIRE : Envoi des emails de confirmation via Vercel Function
   useEffect(() => {
       if (tickets.length > 0) {
           const envoyerEmails = async () => {
@@ -151,7 +136,8 @@ export default function PaiementReussi() {
                           const dateFormatee = new Date(ticket.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
                           const qrData = JSON.stringify({ id: ticket.id, ticket: ticket.ticket_num, nom: ticket.contact_last_name });
 
-                          await fetch("http://localhost:3000/send-ticket-email", {
+                          // Appel à la Serverless Function Vercel
+                          await fetch("/api/send-ticket-email", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
@@ -252,7 +238,7 @@ export default function PaiementReussi() {
                                         : "Date inconnue"}
                                     <br/>
                                     <span className="text-emerald-600">
-                                        à {ticket.creneaux_horaires?.heure_debut.slice(0,5)}
+                                        à {ticket.creneaux_horaires?.heure_debut?.slice(0,5)}
                                     </span>
                                 </p>
                             </div>

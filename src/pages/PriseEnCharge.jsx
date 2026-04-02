@@ -211,8 +211,16 @@ export default function PriseEnCharge() {
     if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
     setLoading(true);
     try {
-      const { data: slots } = await supabase.rpc("get_creneaux_public");
+      // Modification ici : Récupération directe de tous les créneaux sans filtre "public"
+      const { data: slots, error: slotsError } = await supabase
+        .from("creneaux_horaires")
+        .select("*")
+        .order("date", { ascending: true })
+        .order("heure_debut", { ascending: true });
+        
+      if (slotsError) throw slotsError;
       setCreneauxDispo(slots || []);
+      
       const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
       setTarifs(prix || []);
       setNewResaForm({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0 });
@@ -852,7 +860,7 @@ export default function PriseEnCharge() {
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Créneau <span className="text-red-500">*</span></label>
                   <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({...newResaForm, creneau_id: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
                     <option value="">-- Choisir un créneau --</option>
-                    {creneauxDispo.map(c => (<option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>{getJourLabel(c.date)} à {c.heure_debut.slice(0,5)} ({c.places_restantes} dispo)</option>))}
+                    {creneauxDispo.map(c => (<option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>{getJourLabel(c.date)} à {c.heure_debut.slice(0,5)} ({c.places_restantes !== undefined ? c.places_restantes : '∞'} dispo)</option>))}
                   </select>
                 </div>
                 <div>
