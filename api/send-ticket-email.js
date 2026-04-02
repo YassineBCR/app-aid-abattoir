@@ -10,11 +10,9 @@ export default async function handler(req, res) {
   const { email, firstName, lastName, phone, ticketNum, sacrificeName, qrData } = req.body;
 
   try {
-    // 💡 NOUVELLE MÉTHODE : On génère une URL sécurisée pour le QR Code
-    // encodeURIComponent permet de s'assurer que les données JSON passent bien dans l'URL
+    // Génération de l'URL du QR Code via QuickChart (plus fiable pour l'affichage en boîte mail)
     const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250&margin=2`;
 
-    // 2. Le template HTML du mail
     const emailHtml = `
     <!DOCTYPE html>
     <html lang="fr">
@@ -60,6 +58,7 @@ export default async function handler(req, res) {
               <p style="margin: 0 0 10px 0; color: #065f46; font-size: 15px; font-weight: bold;">📍 Choix de votre agneau</p>
               <p style="margin: 0; color: #064e3b; font-size: 15px; line-height: 1.5;">
                 Vous pouvez vous rendre à Grammont à partir du <strong>15 MAI 2026</strong> pour choisir votre agneau.<br><br>
+                <strong>Adresse :</strong> 2902 Avenue Albert Einstein, 34000 Montpellier<br>
                 <strong>Horaires d'ouverture :</strong><br>
                 De 10h à 13h et de 15h à 19h, tous les jours.
               </p>
@@ -71,8 +70,8 @@ export default async function handler(req, res) {
               <img src="${qrImageUrl}" alt="QR Code Ticket" width="250" height="250" style="border: 4px solid #f1f5f9; border-radius: 12px; display: inline-block;" />
               
               <div style="margin-top: 15px;">
-                <a href="${qrImageUrl}" target="_blank" download="Ticket_${ticketNum}.png" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
-                  📥 Sauvegarder l'image du QR Code
+                <a href="${qrImageUrl}" target="_blank" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
+                  📥 Télécharger le QR Code
                 </a>
               </div>
             </div>
@@ -109,11 +108,10 @@ export default async function handler(req, res) {
     </html>
     `;
 
-    // 3. Envoi via Resend
     const { data, error } = await resend.emails.send({
-      from: 'Billetterie Grammont <contact@aidmontpellier.fr>', // Remplacez par votre email d'expédition vérifié si ce n'est pas déjà le cas
+      from: 'Billetterie Grammont <contact@aidmontpellier.fr>',
       to: [email],
-      subject: `🎟️ Ticket #${ticketNum} - Votre réservation Grammont`,
+      subject: `Confirmation Réservation Ticket #${ticketNum}`,
       html: emailHtml,
     });
 

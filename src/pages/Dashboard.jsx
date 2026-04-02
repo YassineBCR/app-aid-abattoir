@@ -32,7 +32,7 @@ const PERMS = {
 // ---- CONFIGURATION DES ONGLETS ----
 const SECTIONS = {
   prise_en_charge: { label: "Guichet Unique", component: PriseEnCharge, Icon: FiCamera, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10", border: "border-emerald-500" },
-  tableau: { label: "Registre Global", component: Tableau, Icon: FiList, color: "text-teal-500", bg: "bg-teal-50 dark:bg-teal-500/10", border: "border-teal-500" },
+  tableau: { label: " Global", component: Tableau, Icon: FiList, color: "text-teal-500", bg: "bg-teal-50 dark:bg-teal-500/10", border: "border-teal-500" },
   statistiques: { label: "Statistiques", component: Statistiques, Icon: FiPieChart, color: "text-rose-500", bg: "bg-rose-50 dark:bg-rose-500/10", border: "border-rose-500" },
   creneaux: { label: "Créneaux & Stock", component: Creneaux, Icon: FiClock, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-500/10", border: "border-blue-500" },
   commandes: { label: "Commandes Web", component: Vendeur, Icon: FiPackage, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10", border: "border-indigo-500" },

@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { 
-  FiPieChart, FiTrendingUp, FiShoppingBag, FiDollarSign, 
-  FiCheckCircle, FiClock, FiTag, FiAlertCircle, FiCreditCard, FiAlertTriangle
+  FiPieChart, FiShoppingBag, FiDollarSign, 
+  FiCheckCircle, FiTag, FiAlertCircle, FiCreditCard, FiAlertTriangle
 } from "react-icons/fi";
 
 export default function Statistiques() {
@@ -36,106 +36,89 @@ export default function Statistiques() {
     try {
       setLoading(true);
 
-      // Récupérer TOUTES les commandes confirmées (on exclut en_attente = paniers abandonnés)
-      let toutesLesCommandes = [];
-      let fromCmd = 0;
-      let toCmd = 999;
-      let hasMoreCmd = true;
+      // 1. Récupération de TOUTES les données depuis la table 'registre'
+      let toutLeRegistre = [];
+      let from = 0;
+      let to = 999;
+      let hasMore = true;
 
-      while (hasMoreCmd) {
-        const { data: commandesBatch, error: cmdError } = await supabase
-          .from('commandes')
+      while (hasMore) {
+        const { data: batch, error } = await supabase
+          .from('registre')
           .select('*')
-          .neq('statut', 'disponible')
+          // On exclut les paniers abandonnés ou brouillons pour ne garder que le concret
           .neq('statut', 'brouillon')
-          .neq('statut', 'en_attente') // ✅ On exclut les paniers non payés
-          .range(fromCmd, toCmd);
+          .neq('statut', 'en_attente') 
+          .range(from, to);
 
-        if (cmdError) throw cmdError;
+        if (error) throw error;
 
-        if (commandesBatch && commandesBatch.length > 0) {
-          toutesLesCommandes = [...toutesLesCommandes, ...commandesBatch];
-          fromCmd += 1000;
-          toCmd += 1000;
+        if (batch && batch.length > 0) {
+          toutLeRegistre = [...toutLeRegistre, ...batch];
+          from += 1000;
+          to += 1000;
         } else {
-          hasMoreCmd = false;
+          hasMore = false;
         }
       }
 
-      // Récupérer TOUS les paiements
-      let tousLesPaiements = [];
-      let fromPay = 0;
-      let toPay = 999;
-      let hasMorePay = true;
-
-      while (hasMorePay) {
-        const { data: paiementsBatch, error: payError } = await supabase
-          .from('historique_paiements')
-          .select('*')
-          .range(fromPay, toPay);
-
-        if (payError) throw payError;
-
-        if (paiementsBatch && paiementsBatch.length > 0) {
-          tousLesPaiements = [...tousLesPaiements, ...paiementsBatch];
-          fromPay += 1000;
-          toPay += 1000;
-        } else {
-          hasMorePay = false;
-        }
-      }
-
-      // Calculer les statistiques
+      // 2. Initialisation des variables de calcul
       let caTheorique = 0;
       let caEncaisse = 0;
       let sCounts = { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 };
       let mCounts = { especes: 0, cb: 0, stripe: 0 };
       let cCounts = {};
 
-      toutesLesCommandes.forEach(cmd => {
-        caTheorique += (Number(cmd.montant_total_cents) || 0);
+      // 3. Boucle unique pour calculer toutes les statistiques en temps réel
+      toutLeRegistre.forEach(item => {
+        // --- Finances ---
+        caTheorique += (Number(item.montant_total_cents) || 0);
         
-        const payeCents = cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0;
-        caEncaisse += Number(payeCents);
+        const montantPaye = Number(item.montant_paye_cents) || 0;
+        caEncaisse += montantPaye;
 
-        if (cmd.categorie && cmd.statut !== 'annule') {
-          cCounts[cmd.categorie] = (cCounts[cmd.categorie] || 0) + 1;
+        // --- Moyens de paiement ---
+        // On se base sur le moyen_paiement enregistré pour la somme encaissée
+        if (item.moyen_paiement === 'especes') mCounts.especes += montantPaye;
+        if (item.moyen_paiement === 'cb') mCounts.cb += montantPaye;
+        if (item.moyen_paiement === 'stripe') mCounts.stripe += montantPaye;
+
+        // --- Catégories (hors annulés) ---
+        if (item.categorie && item.statut !== 'annule') {
+          cCounts[item.categorie] = (cCounts[item.categorie] || 0) + 1;
         }
 
-        if (cmd.statut === 'acompte_paye') sCounts.acompte++;
-        else if (cmd.statut === 'paye_integralement' || cmd.statut === 'validee') sCounts.paye++;
-        else if (cmd.statut === 'bouclee') sCounts.bouclee++;
-        else if (cmd.statut === 'annule') sCounts.annule++;
-        // Note: en_attente n'est plus compté ici
+        // --- Statuts ---
+        if (item.statut === 'acompte_paye') sCounts.acompte++;
+        else if (item.statut === 'paye_integralement' || item.statut === 'validee') sCounts.paye++;
+        else if (item.statut === 'bouclee') sCounts.bouclee++;
+        else if (item.statut === 'annule') sCounts.annule++;
       });
 
-      tousLesPaiements.forEach(p => {
-        if (p.moyen_paiement === 'especes') mCounts.especes += Number(p.montant_cents);
-        if (p.moyen_paiement === 'cb') mCounts.cb += Number(p.montant_cents);
-        if (p.moyen_paiement === 'stripe') mCounts.stripe += Number(p.montant_cents);
-      });
-
+      // 4. Calculs déduits
       const totalActifs = sCounts.acompte + sCounts.paye + sCounts.bouclee;
       const nonBoucles = totalActifs - sCounts.bouclee;
 
+      // 5. Mise à jour de l'état
       setStats({
-        totalCommandes: toutesLesCommandes.length,
+        totalCommandes: toutLeRegistre.length,
         totalActifs: totalActifs,
         nonBoucles: nonBoucles,
-        caTheorique: caTheorique / 100,
-        caEncaisse: caEncaisse / 100,
+        caTheorique: caTheorique / 100, // Conversion des centimes en euros
+        caEncaisse: caEncaisse / 100,   // Conversion des centimes en euros
         statusCounts: sCounts,
         methodCounts: mCounts,
         categorieCounts: cCounts
       });
 
     } catch (err) {
-      console.error("Erreur de chargement des stats", err);
+      console.error("Erreur lors du calcul des statistiques depuis le registre :", err);
     } finally {
       setLoading(false);
     }
   };
 
+  // --- Affichage (Loader) ---
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 animate-pulse">
@@ -145,6 +128,7 @@ export default function Statistiques() {
     );
   }
 
+  // --- Variables pour les barres de progression ---
   const pourcentageBoucle = stats.totalActifs > 0 ? (stats.statusCounts.bouclee / stats.totalActifs) * 100 : 0;
   const totalPayementsHistory = (stats.methodCounts.especes + stats.methodCounts.cb + stats.methodCounts.stripe) / 100;
 
@@ -160,12 +144,14 @@ export default function Statistiques() {
             </div>
             Statistiques & Suivi
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — uniquement les réservations confirmées (acompte payé).</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — calculée en temps réel depuis le registre.</p>
         </div>
       </div>
 
       {/* TOP KPIs - SUIVI DES AGNEAUX */}
-      <h3 className="text-xl font-black text-slate-800 dark:text-white mt-8 flex items-center gap-2"><FiShoppingBag className="text-blue-500"/> Suivi Physique des Agneaux</h3>
+      <h3 className="text-xl font-black text-slate-800 dark:text-white mt-8 flex items-center gap-2">
+        <FiShoppingBag className="text-blue-500"/> Suivi Physique des Agneaux
+      </h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden group">
@@ -211,7 +197,7 @@ export default function Statistiques() {
 
       {/* DETAIL DES STATUTS */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8 mt-6">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-6">Détail du statut des agneaux commandés (hors paniers abandonnés)</h3>
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-6">Détail du statut des agneaux commandés</h3>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           
@@ -243,9 +229,12 @@ export default function Statistiques() {
       </div>
 
       {/* GRAPHIQUES DETAILLES (Finances & Catégories) */}
-      <h3 className="text-xl font-black text-slate-800 dark:text-white mt-12 flex items-center gap-2"><FiDollarSign className="text-emerald-500"/> Suivi Financier & Ventes</h3>
+      <h3 className="text-xl font-black text-slate-800 dark:text-white mt-12 flex items-center gap-2">
+        <FiDollarSign className="text-emerald-500"/> Suivi Financier & Ventes
+      </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
+        {/* CHIFFRE D'AFFAIRES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
             <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Chiffre d'Affaires</h3>
             
@@ -289,6 +278,7 @@ export default function Statistiques() {
             </div>
         </div>
 
+        {/* VENTES PAR CATEGORIES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
             <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Ventes par Catégories</h3>
             
