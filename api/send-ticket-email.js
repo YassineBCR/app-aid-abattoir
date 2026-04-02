@@ -1,5 +1,4 @@
 import { Resend } from 'resend';
-import QRCode from 'qrcode';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -8,16 +7,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Méthode non autorisée' });
   }
 
-  // On récupère toutes les infos envoyées par le frontend
   const { email, firstName, lastName, phone, ticketNum, sacrificeName, qrData } = req.body;
 
   try {
-    // 1. Génération du QR Code
-    const qrImageBase64 = await QRCode.toDataURL(qrData, {
-      width: 250,
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' }
-    });
+    // 💡 NOUVELLE MÉTHODE : On génère une URL sécurisée pour le QR Code
+    // encodeURIComponent permet de s'assurer que les données JSON passent bien dans l'URL
+    const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(qrData)}&size=250&margin=2`;
 
     // 2. Le template HTML du mail
     const emailHtml = `
@@ -72,10 +67,11 @@ export default async function handler(req, res) {
 
             <div style="text-align: center; margin-bottom: 30px;">
               <p style="font-size: 14px; font-weight: bold; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">Votre code d'accès</p>
-              <img src="${qrImageBase64}" alt="QR Code Ticket" width="200" height="200" style="border: 4px solid #f1f5f9; border-radius: 12px; display: inline-block;" />
+              
+              <img src="${qrImageUrl}" alt="QR Code Ticket" width="250" height="250" style="border: 4px solid #f1f5f9; border-radius: 12px; display: inline-block;" />
               
               <div style="margin-top: 15px;">
-                <a href="${qrImageBase64}" download="Ticket_${ticketNum}.png" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
+                <a href="${qrImageUrl}" target="_blank" download="Ticket_${ticketNum}.png" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
                   📥 Sauvegarder l'image du QR Code
                 </a>
               </div>
@@ -115,7 +111,7 @@ export default async function handler(req, res) {
 
     // 3. Envoi via Resend
     const { data, error } = await resend.emails.send({
-      from: 'Billetterie Grammont <contact@aidmontpellier.fr>',
+      from: 'Billetterie Grammont <contact@aidmontpellier.fr>', // Remplacez par votre email d'expédition vérifié si ce n'est pas déjà le cas
       to: [email],
       subject: `🎟️ Ticket #${ticketNum} - Votre réservation Grammont`,
       html: emailHtml,
