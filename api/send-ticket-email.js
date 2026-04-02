@@ -22,7 +22,7 @@ export default async function handler(req, res) {
 
     // 2. Envoi de l'email via Resend
     const { data, error } = await resend.emails.send({
-      from: 'Billetterie Grammont <billetterie@votre-domaine.com>', // ⚠️ REMPLACEZ PAR VOTRE DOMAINE VÉRIFIÉ SUR RESEND
+      from: 'Billetterie Grammont <billetterie@aidmontpellier.fr>', // ⚠️ REMPLACEZ PAR VOTRE DOMAINE VÉRIFIÉ SUR RESEND
       to: [email],
       subject: `🎟️ Confirmation de votre Ticket #${ticketNum}`,
       html: `
