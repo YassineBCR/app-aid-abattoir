@@ -235,15 +235,29 @@ export default function PriseEnCharge() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase.rpc("reserver_prochain_ticket", {
-        p_creneau_id: newResaForm.creneau_id, p_client_id: user.id, p_nom: newResaForm.last_name, p_prenom: newResaForm.first_name, p_email: newResaForm.email || "surplace@abattoir.local",
-        p_tel: newResaForm.phone, p_sacrifice_name: newResaForm.sacrifice_name, p_categorie: newResaForm.tarif_categorie, p_montant_total_cents: newResaForm.prix_cents, p_acompte_cents: 0
+        p_creneau_id: newResaForm.creneau_id, 
+        p_client_id: user.id, 
+        p_nom: newResaForm.last_name, 
+        p_prenom: newResaForm.first_name, 
+        p_email: newResaForm.email || "surplace@abattoir.local",
+        p_tel: newResaForm.phone, 
+        p_sacrifice_name: newResaForm.sacrifice_name, 
+        p_categorie: newResaForm.tarif_categorie, 
+        p_montant_total_cents: newResaForm.prix_cents, 
+        p_acompte_cents: 0 // Assure que la commande est sauvegardée sans encaissement forcé
       });
+      
       if (error) throw error;
+      
       logAction('CREATION', 'COMMANDE', { ticket: data.ticket_num, source: 'guichet_sur_place', client: `${newResaForm.first_name} ${newResaForm.last_name}` });
-      showNotification(`Réservation créée ! Ticket N°${data.ticket_num}`, "success");
+      showNotification(`Réservation enregistrée ! Ticket N°${data.ticket_num}`, "success");
+      
       setShowCreateModal(false);
+      
+      // On affiche le dossier sans forcer l'encaissement (vous pouvez cliquer sur Client Suivant)
       const { data: fullCmd } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", data.commande_id).single();
       if(fullCmd) selectCommande(fullCmd);
+      
     } catch (err) { showNotification("Erreur lors de la création.", "error"); } finally { setLoadingCreate(false); }
   };
 
@@ -598,11 +612,19 @@ export default function PriseEnCharge() {
                       <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
                       <h3 className="font-bold text-slate-700 dark:text-slate-200 text-xl">Dossier N°{commande.ticket_num}</h3>
                     </div>
-                    {isPaye ? (
-                      <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
-                    ) : (
-                      <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
-                    )}
+                    
+                    {/* -- Section Modifiée pour permettre l'enchaînement fluide -- */}
+                    <div className="flex items-center gap-3">
+                      {isPaye ? (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
+                      ) : (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
+                      )}
+                      <button onClick={handleBackToList} className="hidden sm:flex px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-sm rounded-xl transition-colors">
+                        Client Suivant
+                      </button>
+                    </div>
+                    {/* ------------------------------------------------------------- */}
                   </div>
                   
                   <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
@@ -880,10 +902,10 @@ export default function PriseEnCharge() {
                 <span className="text-indigo-800 dark:text-indigo-300 font-bold">Total à encaisser ensuite :</span>
                 <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents/100).toFixed(2)} €</span>
               </div>
-              <div className="flex gap-3 pt-4">
+              <div className="flex flex-col sm:flex-row gap-3 pt-4">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
-                <button type="submit" disabled={loadingCreate} className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
-                  {loadingCreate ? "Création..." : <>Créer & Aller en caisse <FiArrowRight /></>}
+                <button type="submit" disabled={loadingCreate} className="flex-1 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                  {loadingCreate ? "Création..." : <>Enregistrer la réservation <FiCheck /></>}
                 </button>
               </div>
             </form>
