@@ -395,11 +395,17 @@ export default function Home() {
                 <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[1.1] tracking-tight">L'Aïd al-Adha <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-200">Serein & Sacré</span></h1>
                 <p className="text-lg text-slate-300 max-w-lg mx-auto lg:mx-0 leading-relaxed">Une solution clé en main respectant strictement le rite et les normes sanitaires. Réservez votre créneau en toute tranquillité.</p>
 
-                <div className="flex justify-center lg:justify-start gap-3">
-                    <CountdownUnit value={countdown.days} label="Jours" />
-                    <CountdownUnit value={countdown.hours} label="Heures" />
-                    <CountdownUnit value={countdown.minutes} label="Min" />
-                    <CountdownUnit value={countdown.seconds} label="Sec" />
+                {/* TEXTE AJOUTÉ ICI */}
+                <div className="pt-2">
+                    <p className="text-green-400 font-bold text-sm uppercase tracking-widest mb-3 text-center lg:text-left">
+                        Ouverture des réservations dans :
+                    </p>
+                    <div className="flex justify-center lg:justify-start gap-3">
+                        <CountdownUnit value={countdown.days} label="Jours" />
+                        <CountdownUnit value={countdown.hours} label="Heures" />
+                        <CountdownUnit value={countdown.minutes} label="Min" />
+                        <CountdownUnit value={countdown.seconds} label="Sec" />
+                    </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start pt-4">
