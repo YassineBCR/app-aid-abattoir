@@ -15,7 +15,6 @@ export default function Tableau({ changeTab, userRole }) {
   const [creneauxConfig, setCreneauxConfig] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // États de recherche, filtres et pagination
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState(""); 
   const [filterDate, setFilterDate] = useState("");
@@ -24,7 +23,6 @@ export default function Tableau({ changeTab, userRole }) {
   const [limit, setLimit] = useState(50); 
   const [hasMore, setHasMore] = useState(true);
 
-  // États des modales et actions
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orderHistory, setOrderHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -40,7 +38,6 @@ export default function Tableau({ changeTab, userRole }) {
   const [customSmsBody, setCustomSmsBody] = useState("");
   const [sendingCustomSms, setSendingCustomSms] = useState(false);
 
-  // 1. Charger la configuration des jours et créneaux une seule fois au démarrage
   useEffect(() => {
     async function loadConfig() {
         const { data: jours } = await supabase.from("jours_fete").select("*");
@@ -51,7 +48,6 @@ export default function Tableau({ changeTab, userRole }) {
     loadConfig();
   }, []);
 
-  // 2. Debounce pour la recherche textuelle
   useEffect(() => {
       const handler = setTimeout(() => {
           setDebouncedSearch(searchTerm.trim());
@@ -60,7 +56,6 @@ export default function Tableau({ changeTab, userRole }) {
       return () => clearTimeout(handler);
   }, [searchTerm]);
 
-  // 3. Recharger les données si un filtre, la pagination ou la recherche change
   useEffect(() => {
     fetchData();
     const sub = supabase.channel('table_realtime')
@@ -78,9 +73,9 @@ export default function Tableau({ changeTab, userRole }) {
         .not("contact_last_name", "is", null)
         .neq("contact_last_name", "")
         .neq("statut", "disponible")
-        .neq("statut", "brouillon");
+        .neq("statut", "brouillon")
+        .neq("statut", "en_attente"); // ✅ On exclut les paniers abandonnés
 
-      // Appliquer les Filtres par Date ou Créneau
       if (filterCreneauId) {
           query = query.eq('creneau_id', filterCreneauId);
       } else if (filterDate && creneauxConfig.length > 0) {
@@ -88,11 +83,10 @@ export default function Tableau({ changeTab, userRole }) {
           if (ids.length > 0) {
               query = query.in('creneau_id', ids);
           } else {
-              query = query.eq('creneau_id', '00000000-0000-0000-0000-000000000000'); // Sécurité si aucun ID trouvé
+              query = query.eq('creneau_id', '00000000-0000-0000-0000-000000000000');
           }
       }
 
-      // Appliquer la recherche textuelle
       if (debouncedSearch) {
           const isNumeric = /^\d+$/.test(debouncedSearch);
           if (isNumeric) {
@@ -125,8 +119,6 @@ export default function Tableau({ changeTab, userRole }) {
   };
 
   const uniqueDates = [...new Set(creneauxConfig.map(c => c.date))];
-
-  // ======================== ACTIONS & EXPORT ========================
 
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
@@ -246,14 +238,14 @@ export default function Tableau({ changeTab, userRole }) {
   const exportToCSV = async () => {
     showNotification("Préparation de l'export...", "info");
     
-    // On refait la requête complète (sans la limite de 50) pour exporter TOUT le résultat de la recherche
     let exportQuery = supabase
         .from("commandes")
         .select(`*, creneaux_horaires ( date, heure_debut )`)
         .not("contact_last_name", "is", null)
         .neq("contact_last_name", "")
         .neq("statut", "disponible")
-        .neq("statut", "brouillon");
+        .neq("statut", "brouillon")
+        .neq("statut", "en_attente"); // ✅ Même filtre pour l'export
 
     if (filterCreneauId) {
         exportQuery = exportQuery.eq('creneau_id', filterCreneauId);
@@ -332,14 +324,13 @@ export default function Tableau({ changeTab, userRole }) {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-fade-in">
       
-      {/* BARRE SUPÉRIEURE : TITRE + FILTRES + RECHERCHE */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white flex items-center gap-3">
             <div className="p-3 bg-teal-500 rounded-2xl text-white shadow-lg shadow-teal-500/30"><FiList className="text-2xl" /></div>
             Registre des Commandes
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Filtrez et recherchez dans toute la base de données.</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Seules les réservations confirmées (acompte payé) sont affichées.</p>
         </div>
         
         <div className="flex flex-col md:flex-row items-center gap-3 w-full xl:w-auto">
@@ -393,7 +384,6 @@ export default function Tableau({ changeTab, userRole }) {
         </div>
       </div>
 
-      {/* TABLEAU */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -412,7 +402,7 @@ export default function Tableau({ changeTab, userRole }) {
               {loading && commandes.length === 0 ? (
                 <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
               ) : commandes.length === 0 ? (
-                <tr><td colSpan="7" className="p-12 text-center text-slate-400">Aucune commande trouvée.</td></tr>
+                <tr><td colSpan="7" className="p-12 text-center text-slate-400">Aucune réservation confirmée pour le moment.</td></tr>
               ) : (
                 commandes.map(cmd => {
                   const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
@@ -479,8 +469,6 @@ export default function Tableau({ changeTab, userRole }) {
             </button>
         </div>
       )}
-
-      {/* ===================== MODALES ===================== */}
 
       {selectedOrder && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">

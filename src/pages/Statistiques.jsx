@@ -9,7 +9,7 @@ export default function Statistiques() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalCommandes: 0,
-    totalActifs: 0, // Sans les annulés
+    totalActifs: 0,
     nonBoucles: 0,
     caTheorique: 0,
     caEncaisse: 0,
@@ -37,7 +37,7 @@ export default function Statistiques() {
     try {
       setLoading(true);
 
-      // 1. Récupérer TOUTES les commandes via une boucle (contourne la limite de 1000 lignes de Supabase)
+      // Récupérer TOUTES les commandes confirmées (on exclut en_attente = paniers abandonnés)
       let toutesLesCommandes = [];
       let fromCmd = 0;
       let toCmd = 999;
@@ -49,6 +49,7 @@ export default function Statistiques() {
           .select('*')
           .neq('statut', 'disponible')
           .neq('statut', 'brouillon')
+          .neq('statut', 'en_attente') // ✅ On exclut les paniers non payés
           .range(fromCmd, toCmd);
 
         if (cmdError) throw cmdError;
@@ -62,7 +63,7 @@ export default function Statistiques() {
         }
       }
 
-      // 2. Récupérer TOUS les paiements via une boucle (au cas où il y en aurait plus de 1000 aussi)
+      // Récupérer TOUS les paiements
       let tousLesPaiements = [];
       let fromPay = 0;
       let toPay = 999;
@@ -85,7 +86,7 @@ export default function Statistiques() {
         }
       }
 
-      // 3. Calculer les statistiques sur l'ensemble des données
+      // Calculer les statistiques
       let caTheorique = 0;
       let caEncaisse = 0;
       let sCounts = { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 };
@@ -93,25 +94,20 @@ export default function Statistiques() {
       let cCounts = {};
 
       toutesLesCommandes.forEach(cmd => {
-        // Chiffre d'affaires
         caTheorique += (Number(cmd.montant_total_cents) || 0);
         
-        // --- CORRECTION DU BUG DES 0 IGNORES ---
         const payeCents = cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0;
         caEncaisse += Number(payeCents);
-        // ---------------------------------------
 
-        // Catégories (Uniquement pour les actifs)
         if (cmd.categorie && cmd.statut !== 'annule') {
           cCounts[cmd.categorie] = (cCounts[cmd.categorie] || 0) + 1;
         }
 
-        // Statuts précis
-        if (cmd.statut === 'en_attente') sCounts.attente++;
-        else if (cmd.statut === 'acompte_paye') sCounts.acompte++;
+        if (cmd.statut === 'acompte_paye') sCounts.acompte++;
         else if (cmd.statut === 'paye_integralement' || cmd.statut === 'validee') sCounts.paye++;
         else if (cmd.statut === 'bouclee') sCounts.bouclee++;
         else if (cmd.statut === 'annule') sCounts.annule++;
+        // Note: en_attente n'est plus compté ici
       });
 
       tousLesPaiements.forEach(p => {
@@ -120,8 +116,7 @@ export default function Statistiques() {
         if (p.moyen_paiement === 'stripe') mCounts.stripe += Number(p.montant_cents);
       });
 
-      // Calculs déduits
-      const totalActifs = sCounts.attente + sCounts.acompte + sCounts.paye + sCounts.bouclee;
+      const totalActifs = sCounts.acompte + sCounts.paye + sCounts.bouclee;
       const nonBoucles = totalActifs - sCounts.bouclee;
 
       setStats({
@@ -168,15 +163,14 @@ export default function Statistiques() {
             </div>
             Statistiques & Suivi
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale de l'abattoir (Agneaux, Bouclage, Finances).</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — uniquement les réservations confirmées (acompte payé).</p>
         </div>
       </div>
 
-      {/* 🟢 TOP KPIs - SUIVI DES AGNEAUX */}
+      {/* TOP KPIs - SUIVI DES AGNEAUX */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white mt-8 flex items-center gap-2"><FiShoppingBag className="text-blue-500"/> Suivi Physique des Agneaux</h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* TOTAL COMMANDES (Actifs) */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden group">
           <div className="absolute right-0 top-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-all"></div>
           <div className="flex justify-between items-start relative z-10">
@@ -189,7 +183,6 @@ export default function Statistiques() {
           </div>
         </div>
 
-        {/* NON BOUCLÉS (URGENT) */}
         <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden group border-t-4 border-red-500">
           <div className="absolute right-0 top-0 w-32 h-32 bg-red-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
           <div className="flex justify-between items-start relative z-10">
@@ -202,7 +195,6 @@ export default function Statistiques() {
           </div>
         </div>
 
-        {/* BOUCLÉS */}
         <div className="bg-emerald-600 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden group">
           <div className="absolute right-0 top-0 w-32 h-32 bg-white/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
           <div className="flex justify-between items-start relative z-10">
@@ -220,19 +212,11 @@ export default function Statistiques() {
 
       </div>
 
-      {/* 🟠 DETAIL DES STATUTS */}
+      {/* DETAIL DES STATUTS */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8 mt-6">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-6">Détail du statut des agneaux commandés</h3>
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-6">Détail du statut des agneaux commandés (hors paniers abandonnés)</h3>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          
-          <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 flex items-center gap-4">
-             <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-600 text-slate-400 text-xl"><FiClock /></div>
-             <div>
-                <p className="text-xs font-bold uppercase text-slate-500">En Attente</p>
-                <h4 className="text-2xl font-black text-slate-800 dark:text-white">{stats.statusCounts.attente}</h4>
-             </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           
           <div className="p-5 rounded-2xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/50 flex items-center gap-4">
              <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-orange-200 dark:border-orange-600 text-orange-500 text-xl"><FiCreditCard /></div>
@@ -261,11 +245,10 @@ export default function Statistiques() {
         </div>
       </div>
 
-      {/* 🔵 GRAPHIQUES DETAILLES (Finances & Catégories) */}
+      {/* GRAPHIQUES DETAILLES (Finances & Catégories) */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white mt-12 flex items-center gap-2"><FiDollarSign className="text-emerald-500"/> Suivi Financier & Ventes</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        {/* PAIEMENTS & FINANCES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
             <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Chiffre d'Affaires</h3>
             
@@ -313,7 +296,6 @@ export default function Statistiques() {
             </div>
         </div>
 
-        {/* CATEGORIES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
             <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Ventes par Catégories</h3>
             
