@@ -13,7 +13,6 @@ export default function Statistiques() {
     nonBoucles: 0,
     caTheorique: 0,
     caEncaisse: 0,
-    resteAEncaisser: 0,
     statusCounts: {
       attente: 0,
       acompte: 0,
@@ -125,7 +124,6 @@ export default function Statistiques() {
         nonBoucles: nonBoucles,
         caTheorique: caTheorique / 100,
         caEncaisse: caEncaisse / 100,
-        resteAEncaisser: Math.max(0, (caTheorique - caEncaisse) / 100),
         statusCounts: sCounts,
         methodCounts: mCounts,
         categorieCounts: cCounts
@@ -147,7 +145,6 @@ export default function Statistiques() {
     );
   }
 
-  const pourcentageEncaisse = stats.caTheorique > 0 ? (stats.caEncaisse / stats.caTheorique) * 100 : 0;
   const pourcentageBoucle = stats.totalActifs > 0 ? (stats.statusCounts.bouclee / stats.totalActifs) * 100 : 0;
   const totalPayementsHistory = (stats.methodCounts.especes + stats.methodCounts.cb + stats.methodCounts.stripe) / 100;
 
@@ -252,14 +249,10 @@ export default function Statistiques() {
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
             <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Chiffre d'Affaires</h3>
             
-            <div className="flex justify-between items-end mb-8 bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-700">
+            <div className="flex justify-center items-center mb-8 bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
                 <div>
                     <p className="text-xs font-bold text-slate-500 uppercase">C.A. Encaissé</p>
                     <p className="text-3xl font-black text-emerald-600">{stats.caEncaisse.toFixed(2)} €</p>
-                </div>
-                <div className="text-right">
-                    <p className="text-xs font-bold text-orange-500 uppercase">Reste à encaisser</p>
-                    <p className="text-xl font-black text-orange-600">{stats.resteAEncaisser.toFixed(2)} €</p>
                 </div>
             </div>
 
