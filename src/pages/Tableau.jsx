@@ -29,11 +29,9 @@ export default function Tableau({ changeTab, userRole }) {
   const [sendingMail, setSendingMail] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // --- NOUVEAUX ÉTATS POUR L'ÉDITION ---
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
-  // -------------------------------------
 
   const [showMailModal, setShowMailModal] = useState(false);
   const [customMailSubject, setCustomMailSubject] = useState("");
@@ -129,7 +127,7 @@ export default function Tableau({ changeTab, userRole }) {
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
     setLoadingHistory(true);
-    setIsEditing(false); // Reset edit mode when opening new order
+    setIsEditing(false); 
     try {
         const { data, error } = await supabase
             .from('historique_paiements')
@@ -152,7 +150,6 @@ export default function Tableau({ changeTab, userRole }) {
     setIsEditing(false);
   };
 
-  // --- FONCTIONS D'ÉDITION ---
   const startEditing = () => {
       setEditFormData({
           ...selectedOrder,
@@ -169,13 +166,13 @@ export default function Tableau({ changeTab, userRole }) {
   const handleSaveEdit = async () => {
       setIsSaving(true);
       try {
+          // ⚠️ Le champ numero_boucle a été retiré de la mise à jour
           const updatedData = {
               contact_last_name: editFormData.contact_last_name,
               contact_first_name: editFormData.contact_first_name,
               contact_phone: editFormData.contact_phone,
               contact_email: editFormData.contact_email,
               sacrifice_name: editFormData.sacrifice_name,
-              numero_boucle: editFormData.numero_boucle || null,
               creneau_id: editFormData.creneau_id || null,
               montant_total_cents: Math.round(parseFloat(editFormData.montant_total_euros || 0) * 100),
           };
@@ -201,7 +198,6 @@ export default function Tableau({ changeTab, userRole }) {
           setIsSaving(false);
       }
   };
-  // ---------------------------
 
   const handlePrendreEnCharge = () => {
     sessionStorage.setItem('pending_commande_id', selectedOrder.id);
@@ -387,7 +383,6 @@ export default function Tableau({ changeTab, userRole }) {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-fade-in">
       
-      {/* ... EN TÊTE ET BARRE DE RECHERCHE RESTENT INCHANGÉS ... */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white flex items-center gap-3">
@@ -448,7 +443,6 @@ export default function Tableau({ changeTab, userRole }) {
         </div>
       </div>
 
-      {/* ... TABLEAU RESTE INCHANGÉ ... */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -548,7 +542,6 @@ export default function Tableau({ changeTab, userRole }) {
                       </div>
                       <div className="flex items-center flex-wrap gap-3">
                           
-                          {/* --- BOUTONS D'ÉDITION --- */}
                           {!isEditing ? (
                               <button onClick={startEditing} className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-amber-500/30 transition-all flex items-center gap-2">
                                   <FiEdit className="text-lg" />
@@ -593,7 +586,6 @@ export default function Tableau({ changeTab, userRole }) {
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiUser/> Client</h4>
                               
-                              {/* --- VUE / ÉDITION CLIENT --- */}
                               {isEditing ? (
                                   <div className="space-y-3">
                                       <div>
@@ -645,7 +637,6 @@ export default function Tableau({ changeTab, userRole }) {
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiTag/> Agneau & Retrait</h4>
                               
-                              {/* --- VUE / ÉDITION SACRIFICE --- */}
                               {isEditing ? (
                                   <div className="space-y-3">
                                       <div>
@@ -653,8 +644,7 @@ export default function Tableau({ changeTab, userRole }) {
                                           <input type="text" value={editFormData.sacrifice_name} onChange={e => setEditFormData({...editFormData, sacrifice_name: e.target.value})} className="w-full p-2.5 text-sm border-2 rounded-xl dark:bg-slate-900 dark:border-slate-700 dark:text-white outline-none focus:border-amber-500" />
                                       </div>
                                       <div>
-                                          <label className="text-xs text-slate-500 mb-1 block">Numéro de boucle</label>
-                                          <input type="text" value={editFormData.numero_boucle || ""} onChange={e => setEditFormData({...editFormData, numero_boucle: e.target.value})} className="w-full p-2.5 text-sm border-2 rounded-xl dark:bg-slate-900 dark:border-slate-700 dark:text-white outline-none focus:border-amber-500" placeholder="Ex: 40012" />
+                                          <p className="text-sm text-slate-500 mb-2">Boucle : <strong className="text-emerald-600 font-black">{selectedOrder.numero_boucle || "En attente"}</strong> <span className="text-xs text-slate-400 font-normal italic">(Non modifiable ici)</span></p>
                                       </div>
                                       <div>
                                           <label className="text-xs text-slate-500 mb-1 block">Créneau de retrait</label>
@@ -687,7 +677,6 @@ export default function Tableau({ changeTab, userRole }) {
                           <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                               <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiDollarSign/> État Financier</h4>
                               
-                              {/* --- VUE / ÉDITION FINANCES --- */}
                               {isEditing ? (
                                   <div className="space-y-3">
                                       <div>
@@ -722,7 +711,6 @@ export default function Tableau({ changeTab, userRole }) {
                           </div>
                       </div>
 
-                      {/* L'historique ne s'affiche pas quand on est en mode édition pour clarifier l'écran */}
                       {!isEditing && (
                           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                               <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700">
@@ -758,7 +746,6 @@ export default function Tableau({ changeTab, userRole }) {
           </div>
       )}
 
-      {/* ... MODALES SMS ET MAIL RESTENT INCHANGÉES ... */}
       {showMailModal && selectedOrder && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in print:hidden">
               <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8">

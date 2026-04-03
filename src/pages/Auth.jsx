@@ -77,7 +77,9 @@ export default function Auth() {
       setError(error.message);
       setLoading(false);
     } else {
-      setMessage("Inscription réussie ! Vérifiez vos emails. Redirection en cours...");
+      // Message modifié ici
+      setMessage("Compte créé avec succès, vous allez être redirigé.");
+      
       // REDIRECTION VERS L'ACCUEIL APRES 3 SECONDES POUR LAISSER LE TEMPS DE LIRE
       setTimeout(() => {
         navigate("/");
