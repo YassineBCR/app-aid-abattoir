@@ -13,18 +13,8 @@ export default function Statistiques() {
     nonBoucles: 0,
     caTheorique: 0,
     caEncaisse: 0,
-    statusCounts: {
-      attente: 0,
-      acompte: 0,
-      paye: 0,
-      bouclee: 0,
-      annule: 0
-    },
-    methodCounts: {
-      especes: 0,
-      cb: 0,
-      stripe: 0
-    },
+    statusCounts: { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 },
+    methodCounts: { especes: 0, cb: 0, stripe: 0 },
     categorieCounts: {}
   });
 
@@ -36,96 +26,121 @@ export default function Statistiques() {
     try {
       setLoading(true);
 
-      // 1. Récupération de TOUTES les données depuis la table 'registre'
-      let toutLeRegistre = [];
-      let from = 0;
-      let to = 999;
-      let hasMore = true;
+      // ==========================================
+      // 1. RÉCUPÉRATION DE LA TABLE 'commandes'
+      // ==========================================
+      let toutesLesCommandes = [];
+      let fromCmd = 0; let toCmd = 999; let hasMoreCmd = true;
 
-      while (hasMore) {
+      while (hasMoreCmd) {
         const { data: batch, error } = await supabase
-          .from('registre')
+          .from('commandes')
           .select('*')
-          // On exclut les paniers abandonnés ou brouillons pour ne garder que le concret
           .neq('statut', 'brouillon')
           .neq('statut', 'en_attente') 
-          .range(from, to);
+          .range(fromCmd, toCmd);
 
         if (error) throw error;
-
         if (batch && batch.length > 0) {
-          toutLeRegistre = [...toutLeRegistre, ...batch];
-          from += 1000;
-          to += 1000;
-        } else {
-          hasMore = false;
-        }
+          toutesLesCommandes = [...toutesLesCommandes, ...batch];
+          fromCmd += 1000; toCmd += 1000;
+        } else { hasMoreCmd = false; }
       }
 
-      // 2. Initialisation des variables de calcul
-      let caTheorique = 0;
-      let caEncaisse = 0;
+      // ==========================================
+      // 2. RÉCUPÉRATION DE 'historique_paiements'
+      // ==========================================
+      let tousLesPaiements = [];
+      let fromPay = 0; let toPay = 999; let hasMorePay = true;
+
+      while (hasMorePay) {
+        const { data: batch, error } = await supabase
+          .from('historique_paiements')
+          .select('*')
+          .range(fromPay, toPay);
+
+        if (error) throw error;
+        if (batch && batch.length > 0) {
+          tousLesPaiements = [...tousLesPaiements, ...batch];
+          fromPay += 1000; toPay += 1000;
+        } else { hasMorePay = false; }
+      }
+
+      // ==========================================
+      // 3. CALCULS EN TEMPS RÉEL
+      // ==========================================
+      let caTheoriqueCents = 0;
+      let caEncaisseCents = 0;
       let sCounts = { attente: 0, acompte: 0, paye: 0, bouclee: 0, annule: 0 };
       let mCounts = { especes: 0, cb: 0, stripe: 0 };
       let cCounts = {};
       let totalNonBoucles = 0;
 
-      // 3. Boucle unique pour calculer toutes les statistiques en temps réel
-      toutLeRegistre.forEach(item => {
-        // --- Finances (Utilisation de tes vraies colonnes en EUROS) ---
-        caTheorique += (Number(item.prix_total_euros) || 0);
+      // Analyse des Commandes
+      toutesLesCommandes.forEach(cmd => {
+        caTheoriqueCents += (Number(cmd.montant_total_cents) || 0);
         
-        const montantPaye = Number(item.total_paye_euros) || 0;
-        caEncaisse += montantPaye;
+        const payeCents = cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0;
+        caEncaisseCents += Number(payeCents);
 
-        // --- Moyens de paiement ---
-        // Assure-toi d'avoir une colonne 'moyen_paiement' dans ta table !
-        if (item.moyen_paiement === 'especes') mCounts.especes += montantPaye;
-        if (item.moyen_paiement === 'cb') mCounts.cb += montantPaye;
-        if (item.moyen_paiement === 'stripe') mCounts.stripe += montantPaye;
-
-        // --- Catégories (hors annulés) ---
-        // Assure-toi d'avoir une colonne 'categorie' dans ta table !
-        if (item.categorie && item.statut !== 'annule') {
-          cCounts[item.categorie] = (cCounts[item.categorie] || 0) + 1;
+        // 🎯 RÈGLE STRIPE : Si on a un panier_id et que l'acompte est 10000 (100€)
+        if (cmd.panier_id && Number(cmd.acompte_cents) === 10000) {
+            mCounts.stripe += 100; // On ajoute 100 € directs à Stripe
         }
 
-        // --- Statuts ---
-        if (item.statut === 'acompte_paye') sCounts.acompte++;
-        else if (item.statut === 'paye_integralement' || item.statut === 'validee') sCounts.paye++;
-        else if (item.statut === 'bouclee') sCounts.bouclee++;
-        else if (item.statut === 'annule') sCounts.annule++;
+        // Catégories (hors annulés)
+        if (cmd.categorie && cmd.statut !== 'annule') {
+          cCounts[cmd.categorie] = (cCounts[cmd.categorie] || 0) + 1;
+        }
 
-        // --- Bêtes non bouclées ---
-        // On considère une bête non bouclée si la colonne numero_boucle est vide ET que la commande n'est pas annulée
-        if (!item.numero_boucle && item.statut !== 'annule') {
+        // Statuts
+        if (cmd.statut === 'acompte_paye') sCounts.acompte++;
+        else if (cmd.statut === 'paye_integralement' || cmd.statut === 'validee') sCounts.paye++;
+        else if (cmd.statut === 'bouclee') sCounts.bouclee++;
+        else if (cmd.statut === 'annule') sCounts.annule++;
+
+        // Bêtes non bouclées
+        if (!cmd.numero_boucle && cmd.statut !== 'annule') {
             totalNonBoucles++;
         }
       });
 
-      // 4. Calculs déduits
+      // Analyse des Paiements au Guichet (Espèces & CB)
+      // Les nombres négatifs (ex: -1000) se déduiront automatiquement du total !
+      tousLesPaiements.forEach(p => {
+         const montantEuros = (Number(p.montant_cents) || 0) / 100;
+         const moyenPaiement = String(p.moyen_paiement || '').toLowerCase().trim();
+
+         if (moyenPaiement.includes('espece') || moyenPaiement.includes('espèces')) {
+             mCounts.especes += montantEuros;
+         } else if (moyenPaiement === 'cb' || moyenPaiement.includes('carte')) {
+             mCounts.cb += montantEuros;
+         }
+      });
+
+      // ==========================================
+      // 4. SAUVEGARDE DANS LE STATE
+      // ==========================================
       const totalActifs = sCounts.acompte + sCounts.paye + sCounts.bouclee;
 
-      // 5. Mise à jour de l'état
       setStats({
-        totalCommandes: toutLeRegistre.length,
+        totalCommandes: toutesLesCommandes.length,
         totalActifs: totalActifs,
         nonBoucles: totalNonBoucles,
-        caTheorique: caTheorique, // Plus de division par 100, on est déjà en euros !
-        caEncaisse: caEncaisse,   // Plus de division par 100, on est déjà en euros !
+        caTheorique: caTheoriqueCents / 100, // On repasse en Euros
+        caEncaisse: caEncaisseCents / 100,   // On repasse en Euros
         statusCounts: sCounts,
         methodCounts: mCounts,
         categorieCounts: cCounts
       });
 
     } catch (err) {
-      console.error("Erreur lors du calcul des statistiques depuis le registre :", err);
+      console.error("Erreur lors du calcul des statistiques :", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- Affichage (Loader) ---
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 animate-pulse">
@@ -135,9 +150,7 @@ export default function Statistiques() {
     );
   }
 
-  // --- Variables pour les barres de progression ---
   const pourcentageBoucle = stats.totalActifs > 0 ? (stats.statusCounts.bouclee / stats.totalActifs) * 100 : 0;
-  // On ne divise plus par 100 ici non plus pour les moyens de paiement
   const totalPayementsHistory = stats.methodCounts.especes + stats.methodCounts.cb + stats.methodCounts.stripe;
 
   return (
@@ -152,7 +165,7 @@ export default function Statistiques() {
             </div>
             Statistiques & Suivi
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — calculée en temps réel depuis le registre.</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — calculée en temps réel depuis tes commandes et paiements.</p>
         </div>
       </div>
 
