@@ -94,9 +94,9 @@ export default function Tableau({ changeTab, userRole }) {
       if (debouncedSearch) {
           const isNumeric = /^\d+$/.test(debouncedSearch);
           if (isNumeric) {
-              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
           } else {
-              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
           }
       }
 
@@ -240,14 +240,12 @@ export default function Tableau({ changeTab, userRole }) {
       }
   };
 
-  // NOUVELLE FONCTION : SMS Automatique de confirmation (1 crédit max)
   const envoyerConfirmationSms = async (cmd) => {
       setSendingCustomSms(true);
       try {
           const jourStr = cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "Date inconnue";
           const heureStr = cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
           
-          // Ce format consomme moins de 160 caractères
           const messageSms = `Confirmation reservation\n${cmd.sacrifice_name}\nN : ${cmd.ticket_num}\n${jourStr} a ${heureStr}\nRDV a partir du 15/03 pour choisir l'agneau`;
 
           const response = await fetch("/api/send-sms", {
@@ -350,8 +348,8 @@ export default function Tableau({ changeTab, userRole }) {
 
     if (debouncedSearch) {
         const isNumeric = /^\d+$/.test(debouncedSearch);
-        if (isNumeric) exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
-        else exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+        if (isNumeric) exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+        else exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
     }
 
     const { data: allData, error } = await exportQuery.order("created_at", { ascending: false });
@@ -464,7 +462,7 @@ export default function Tableau({ changeTab, userRole }) {
             <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors text-lg" />
             <input 
                 type="text" 
-                placeholder="Nom, ticket, réf..." 
+                placeholder="Nom, email, ticket, réf..." 
                 value={searchTerm} 
                 onChange={e => setSearchTerm(e.target.value)} 
                 className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" 
