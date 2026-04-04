@@ -7,7 +7,7 @@ import {
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
   FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus, FiPrinter,
-  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck
+  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiEyeOff
 } from "react-icons/fi";
 import { logAction } from "../lib/logger";
 
@@ -40,7 +40,7 @@ export default function PriseEnCharge() {
   const [loadingPaiement, setLoadingPaiement] = useState(false);
 
   // ── Stripe guichet ──────────────────────────────────────────────
-  const [stripeModal, setStripeModal] = useState(null); // { url, sessionId, montantCents }
+  const [stripeModal, setStripeModal] = useState(null);
   const [checkingStripe, setCheckingStripe] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   // ────────────────────────────────────────────────────────────────
@@ -207,11 +207,15 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CORRECTION : openCreateModal — récupère le stock réel de chaque créneau
+  // (tous les créneaux, online ET offline) en comptant les tickets 'disponible'
+  // ─────────────────────────────────────────────────────────────────────────────
   const openCreateModal = async () => {
     if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
     setLoading(true);
     try {
-      // Modification ici : Récupération directe de tous les créneaux sans filtre "public"
+      // 1. Tous les créneaux (online ET offline) — le guichet peut réserver sur n'importe lequel
       const { data: slots, error: slotsError } = await supabase
         .from("creneaux_horaires")
         .select("*")
@@ -219,8 +223,26 @@ export default function PriseEnCharge() {
         .order("heure_debut", { ascending: true });
         
       if (slotsError) throw slotsError;
-      setCreneauxDispo(slots || []);
-      
+
+      // 2. Compter les tickets 'disponible' par créneau pour afficher le vrai stock
+      const { data: stockData } = await supabase
+        .from("commandes")
+        .select("creneau_id")
+        .eq("statut", "disponible");
+
+      const stockMap = {};
+      (stockData || []).forEach(t => {
+        stockMap[t.creneau_id] = (stockMap[t.creneau_id] || 0) + 1;
+      });
+
+      // 3. Fusionner : on ajoute places_restantes (stock réel) à chaque créneau
+      const slotsWithStock = (slots || []).map(s => ({
+        ...s,
+        places_restantes: stockMap[s.id] || 0
+      }));
+
+      setCreneauxDispo(slotsWithStock);
+
       const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
       setTarifs(prix || []);
       setNewResaForm({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0 });
@@ -244,7 +266,7 @@ export default function PriseEnCharge() {
         p_sacrifice_name: newResaForm.sacrifice_name, 
         p_categorie: newResaForm.tarif_categorie, 
         p_montant_total_cents: newResaForm.prix_cents, 
-        p_acompte_cents: 0 // Assure que la commande est sauvegardée sans encaissement forcé
+        p_acompte_cents: 0
       });
       
       if (error) throw error;
@@ -254,7 +276,6 @@ export default function PriseEnCharge() {
       
       setShowCreateModal(false);
       
-      // On affiche le dossier sans forcer l'encaissement (vous pouvez cliquer sur Client Suivant)
       const { data: fullCmd } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", data.commande_id).single();
       if(fullCmd) selectCommande(fullCmd);
       
@@ -266,7 +287,6 @@ export default function PriseEnCharge() {
     e.preventDefault();
     if (!activeCaisse) return showNotification("Ouvrez votre caisse !", "error");
 
-    // ── Stripe : on génère un lien au lieu d'encaisser directement
     if (modePaiement === 'stripe') {
       return lancerPaiementStripe();
     }
@@ -320,9 +340,7 @@ export default function PriseEnCharge() {
       const data = await response.json();
       if (!data.url) throw new Error(data.error || "Réponse Stripe invalide");
 
-      // Extraire l'ID de session depuis l'URL de succès renvoyée
       const sessionId = data.url.split("/pay/")[1]?.split("#")[0] || `guichet_${Date.now()}`;
-
       setStripeModal({ url: data.url, sessionId, montantCents });
     } catch (err) {
       showNotification("Erreur Stripe : " + err.message, "error");
@@ -336,12 +354,9 @@ export default function PriseEnCharge() {
     if (!stripeModal) return;
     setCheckingStripe(true);
     try {
-      // On appelle le backend pour vérifier la session
       const res = await fetch(`/api/verify-session/${stripeModal.sessionId}`);
       
-      // Si l'endpoint n'existe pas encore, on peut confirmer manuellement
       if (!res.ok) {
-        // Confirmation manuelle : l'opérateur valide visuellement
         await enregistrerPaiementStripe();
         return;
       }
@@ -352,20 +367,17 @@ export default function PriseEnCharge() {
         showNotification("Paiement pas encore effectué par le client.", "info");
       }
     } catch {
-      // Si le endpoint n'existe pas, on propose la confirmation manuelle
       await enregistrerPaiementStripe();
     } finally {
       setCheckingStripe(false);
     }
   };
 
-  // Confirmation manuelle (si le caissier voit que le client a payé)
   const enregistrerPaiementStripe = async () => {
     if (!stripeModal || !activeCaisse) return;
     try {
       const { montantCents } = stripeModal;
 
-      // Anti-doublon
       const { data: existing } = await supabase
         .from('historique_paiements')
         .select('id')
@@ -415,7 +427,6 @@ export default function PriseEnCharge() {
       setTimeout(() => setCopiedLink(false), 2000);
     });
   };
-  // ────────────────────────────────────────────────────────────────
 
   const appliquerCategorie = async () => {
     if (!commande) return;
@@ -612,8 +623,6 @@ export default function PriseEnCharge() {
                       <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
                       <h3 className="font-bold text-slate-700 dark:text-slate-200 text-xl">Dossier N°{commande.ticket_num}</h3>
                     </div>
-                    
-                    {/* -- Section Modifiée pour permettre l'enchaînement fluide -- */}
                     <div className="flex items-center gap-3">
                       {isPaye ? (
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
@@ -624,7 +633,6 @@ export default function PriseEnCharge() {
                         Client Suivant
                       </button>
                     </div>
-                    {/* ------------------------------------------------------------- */}
                   </div>
                   
                   <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
@@ -668,7 +676,6 @@ export default function PriseEnCharge() {
                           <form onSubmit={validerPaiement} className="space-y-4">
                             <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"><FiCreditCard className="text-indigo-500" /> Nouvel Encaissement</label>
                             
-                            {/* ── Grille des 3 modes ── */}
                             <div className="grid grid-cols-3 gap-3 mb-4">
                               {MODES_PAIEMENT.map(mode => (
                                 <button key={mode.key} type="button" onClick={() => setModePaiement(mode.key)}
@@ -688,7 +695,6 @@ export default function PriseEnCharge() {
                               ))}
                             </div>
 
-                            {/* Badge info si Stripe */}
                             {modePaiement === 'stripe' && (
                               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl px-4 py-3 flex items-center gap-3 text-sm">
                                 <FiSmartphone className="text-purple-500 text-xl shrink-0" />
@@ -821,7 +827,6 @@ export default function PriseEnCharge() {
             </div>
 
             <div className="p-6 space-y-5">
-              {/* QR Code */}
               <div className="flex flex-col items-center">
                 <p className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Le client scanne ce QR code</p>
                 <div className="bg-white p-4 rounded-2xl shadow-inner border-2 border-slate-100">
@@ -829,7 +834,6 @@ export default function PriseEnCharge() {
                 </div>
               </div>
 
-              {/* URL copiable */}
               <div className="bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3">
                 <p className="text-xs font-mono text-slate-500 truncate flex-1">{stripeModal.url}</p>
                 <div className="flex gap-2 shrink-0">
@@ -840,7 +844,6 @@ export default function PriseEnCharge() {
                 </div>
               </div>
 
-              {/* Boutons confirmation */}
               <div className="space-y-3 pt-2">
                 <button onClick={verifierPaiementStripe} disabled={checkingStripe}
                   className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
@@ -848,13 +851,11 @@ export default function PriseEnCharge() {
                   {checkingStripe ? <><FiRefreshCw className="animate-spin" /> Vérification…</> : <><FiCheckCircle className="text-xl" /> Confirmer le paiement (Auto)</>}
                 </button>
                 
-                {/* --- NOUVEAU BOUTON : Validation Manuelle --- */}
                 <button onClick={enregistrerPaiementStripe}
                   className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors flex items-center justify-center gap-2 text-sm"
                 >
                   <FiCheck className="text-lg" /> Forcer la validation (Vérifié manuellement)
                 </button>
-                {/* -------------------------------------------- */}
 
                 <p className="text-center text-xs text-slate-400">
                   Le système vérifiera automatiquement via Stripe, ou vous pouvez valider manuellement si vous avez déjà constaté l'encaissement.
@@ -868,7 +869,7 @@ export default function PriseEnCharge() {
         </div>
       )}
 
-      {/* ═══════════ MODALES STANDARD ═══════════ */}
+      {/* ═══════════ MODAL CRÉATION RÉSERVATION ═══════════ */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -882,8 +883,15 @@ export default function PriseEnCharge() {
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Créneau <span className="text-red-500">*</span></label>
                   <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({...newResaForm, creneau_id: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
                     <option value="">-- Choisir un créneau --</option>
-                    {creneauxDispo.map(c => (<option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>{getJourLabel(c.date)} à {c.heure_debut.slice(0,5)} ({c.places_restantes !== undefined ? c.places_restantes : '∞'} dispo)</option>))}
+                    {creneauxDispo.map(c => (
+                      <option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>
+                        {getJourLabel(c.date)} à {c.heure_debut.slice(0,5)}
+                        {!c.is_online && ' 🔒'}
+                        {' '}({c.places_restantes} ticket{c.places_restantes > 1 ? 's' : ''} en stock)
+                      </option>
+                    ))}
                   </select>
+                  <p className="text-[11px] text-slate-400 mt-1 font-medium">🔒 = créneau hors ligne (non visible en ligne, réservable au guichet uniquement)</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Catégorie <span className="text-red-500">*</span></label>
@@ -913,6 +921,7 @@ export default function PriseEnCharge() {
         </div>
       )}
 
+      {/* ═══════════ MODALES STANDARD ═══════════ */}
       {showCancelModal && transactionToCancel && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">

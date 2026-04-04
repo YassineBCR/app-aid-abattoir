@@ -166,7 +166,6 @@ export default function Tableau({ changeTab, userRole }) {
   const handleSaveEdit = async () => {
       setIsSaving(true);
       try {
-          // ⚠️ Le champ numero_boucle a été retiré de la mise à jour
           const updatedData = {
               contact_last_name: editFormData.contact_last_name,
               contact_first_name: editFormData.contact_first_name,
@@ -207,20 +206,20 @@ export default function Tableau({ changeTab, userRole }) {
   const renvoyerBillet = async (cmd) => {
       setSendingMail(true);
       try {
-          const dateFormatee = cmd.creneaux_horaires?.date ? new Date(cmd.creneaux_horaires.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : "Date inconnue";
-          const heureFormatee = cmd.creneaux_horaires?.heure_debut ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
+          // On prépare le QR Code de la même manière que dans PaiementReussi.jsx
           const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
 
-          const response = await fetch("http://localhost:3000/send-ticket-email", {
+          // On appelle l'API Vercel
+          const response = await fetch("/api/send-ticket-email", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                   email: cmd.contact_email,
                   firstName: cmd.contact_first_name,
+                  lastName: cmd.contact_last_name, // Requis par ton API
+                  phone: cmd.contact_phone,        // Requis par ton API
                   ticketNum: cmd.ticket_num,
                   sacrificeName: cmd.sacrifice_name,
-                  dateCreneau: dateFormatee,
-                  heureCreneau: heureFormatee,
                   qrData: qrData
               })
           });
@@ -245,18 +244,28 @@ export default function Tableau({ changeTab, userRole }) {
       
       setSendingCustomMail(true);
       try {
-          const response = await fetch("http://localhost:3000/send-custom-email", {
+          // Appel de la nouvelle API Vercel pour les mails custom
+          const response = await fetch("/api/send-custom-email", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ email: selectedOrder.contact_email, subject: customMailSubject, message: customMailBody })
+              body: JSON.stringify({ 
+                  email: selectedOrder.contact_email, 
+                  subject: customMailSubject, 
+                  message: customMailBody,
+                  firstName: selectedOrder.contact_first_name,
+                  lastName: selectedOrder.contact_last_name
+              })
           });
 
           if (response.ok) {
               showNotification("Email envoyé !", "success");
               logAction('CONTACT', 'COMMANDE', { action: 'Email client', ticket: selectedOrder.ticket_num, sujet: customMailSubject });
               setShowMailModal(false); setCustomMailSubject(""); setCustomMailBody("");
-          } else throw new Error("Erreur");
-      } catch (err) { showNotification("Erreur d'envoi.", "error"); } 
+          } else throw new Error("Erreur serveur");
+      } catch (err) { 
+          console.error(err);
+          showNotification("Erreur d'envoi.", "error"); 
+      } 
       finally { setSendingCustomMail(false); }
   };
 
@@ -266,7 +275,8 @@ export default function Tableau({ changeTab, userRole }) {
       
       setSendingCustomSms(true);
       try {
-          const response = await fetch("http://localhost:3000/send-sms", {
+          // Correction de localhost vers /api/ (si tu héberges aussi l'envoi SMS sur Vercel)
+          const response = await fetch("/api/send-sms", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ phone: selectedOrder.contact_phone, message: customSmsBody })
@@ -277,7 +287,10 @@ export default function Tableau({ changeTab, userRole }) {
               logAction('CONTACT', 'COMMANDE', { action: 'SMS client', ticket: selectedOrder.ticket_num });
               setShowSmsModal(false); setCustomSmsBody("");
           } else throw new Error("Erreur");
-      } catch (err) { showNotification("Erreur d'envoi SMS.", "error"); } 
+      } catch (err) { 
+          console.error(err);
+          showNotification("Erreur d'envoi SMS.", "error"); 
+      } 
       finally { setSendingCustomSms(false); }
   };
 
