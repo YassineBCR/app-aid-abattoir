@@ -206,20 +206,22 @@ export default function Tableau({ changeTab, userRole }) {
   const renvoyerBillet = async (cmd) => {
       setSendingMail(true);
       try {
-          // On prépare le QR Code de la même manière que dans PaiementReussi.jsx
+          const dateFormatee = cmd.creneaux_horaires?.date ? new Date(cmd.creneaux_horaires.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : "Date inconnue";
+          const heureFormatee = cmd.creneaux_horaires?.heure_debut ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
           const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
 
-          // On appelle l'API Vercel
           const response = await fetch("/api/send-ticket-email", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                   email: cmd.contact_email,
                   firstName: cmd.contact_first_name,
-                  lastName: cmd.contact_last_name, // Requis par ton API
-                  phone: cmd.contact_phone,        // Requis par ton API
+                  lastName: cmd.contact_last_name,
+                  phone: cmd.contact_phone,
                   ticketNum: cmd.ticket_num,
                   sacrificeName: cmd.sacrifice_name,
+                  dateCreneau: dateFormatee,
+                  heureCreneau: heureFormatee,
                   qrData: qrData
               })
           });
@@ -238,13 +240,40 @@ export default function Tableau({ changeTab, userRole }) {
       }
   };
 
+  // NOUVELLE FONCTION : SMS Automatique de confirmation (1 crédit max)
+  const envoyerConfirmationSms = async (cmd) => {
+      setSendingCustomSms(true);
+      try {
+          const jourStr = cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "Date inconnue";
+          const heureStr = cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
+          
+          // Ce format consomme moins de 160 caractères
+          const messageSms = `Confirmation reservation\n${cmd.sacrifice_name}\nN : ${cmd.ticket_num}\n${jourStr} a ${heureStr}\nRDV a partir du 15/03 pour choisir l'agneau`;
+
+          const response = await fetch("/api/send-sms", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ phone: cmd.contact_phone, message: messageSms })
+          });
+
+          if (response.ok) {
+              showNotification("SMS de confirmation envoyé !", "success");
+              logAction('CONTACT', 'COMMANDE', { action: 'SMS Confirmation Client', ticket: cmd.ticket_num });
+          } else throw new Error("Erreur serveur");
+      } catch (err) {
+          console.error(err);
+          showNotification("Erreur d'envoi SMS de confirmation.", "error");
+      } finally {
+          setSendingCustomSms(false);
+      }
+  };
+
   const handleSendCustomMail = async (e) => {
       e.preventDefault();
       if (!customMailSubject.trim() || !customMailBody.trim()) return showNotification("Veuillez remplir tous les champs.", "error");
       
       setSendingCustomMail(true);
       try {
-          // Appel de la nouvelle API Vercel pour les mails custom
           const response = await fetch("/api/send-custom-email", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -261,11 +290,8 @@ export default function Tableau({ changeTab, userRole }) {
               showNotification("Email envoyé !", "success");
               logAction('CONTACT', 'COMMANDE', { action: 'Email client', ticket: selectedOrder.ticket_num, sujet: customMailSubject });
               setShowMailModal(false); setCustomMailSubject(""); setCustomMailBody("");
-          } else throw new Error("Erreur serveur");
-      } catch (err) { 
-          console.error(err);
-          showNotification("Erreur d'envoi.", "error"); 
-      } 
+          } else throw new Error("Erreur");
+      } catch (err) { showNotification("Erreur d'envoi.", "error"); } 
       finally { setSendingCustomMail(false); }
   };
 
@@ -275,7 +301,6 @@ export default function Tableau({ changeTab, userRole }) {
       
       setSendingCustomSms(true);
       try {
-          // Correction de localhost vers /api/ (si tu héberges aussi l'envoi SMS sur Vercel)
           const response = await fetch("/api/send-sms", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -284,13 +309,10 @@ export default function Tableau({ changeTab, userRole }) {
 
           if (response.ok) {
               showNotification("SMS envoyé !", "success");
-              logAction('CONTACT', 'COMMANDE', { action: 'SMS client', ticket: selectedOrder.ticket_num });
+              logAction('CONTACT', 'COMMANDE', { action: 'SMS client libre', ticket: selectedOrder.ticket_num });
               setShowSmsModal(false); setCustomSmsBody("");
           } else throw new Error("Erreur");
-      } catch (err) { 
-          console.error(err);
-          showNotification("Erreur d'envoi SMS.", "error"); 
-      } 
+      } catch (err) { showNotification("Erreur d'envoi SMS.", "error"); } 
       finally { setSendingCustomSms(false); }
   };
 
@@ -634,7 +656,14 @@ export default function Tableau({ changeTab, userRole }) {
                                       )}
                                       {selectedOrder.contact_phone && (
                                           <button onClick={() => setShowSmsModal(true)} className="flex-1 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
-                                              <FiMessageSquare className="text-sm" /> SMS
+                                              <FiMessageSquare className="text-sm" /> SMS Libre
+                                          </button>
+                                      )}
+                                      {/* NOUVEAU BOUTON SMS AUTOMATIQUE DE CONFIRMATION */}
+                                      {selectedOrder.contact_phone && selectedOrder.statut !== 'en_attente' && selectedOrder.statut !== 'annule' && (
+                                          <button onClick={() => envoyerConfirmationSms(selectedOrder)} disabled={sendingCustomSms} className="w-full py-2 mt-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/60 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors">
+                                              {sendingCustomSms ? <FiLoader className="animate-spin text-sm" /> : <FiMessageSquare className="text-sm" />} 
+                                              {sendingCustomSms ? "Envoi en cours..." : "SMS de Confirmation"}
                                           </button>
                                       )}
                                       {selectedOrder.contact_email && selectedOrder.statut !== 'en_attente' && selectedOrder.statut !== 'annule' && (
