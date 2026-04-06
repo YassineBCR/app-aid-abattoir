@@ -246,7 +246,7 @@ export default function Tableau({ changeTab, userRole }) {
           const jourStr = cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "Date inconnue";
           const heureStr = cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0,5) : "";
           
-          const messageSms = `Confirmation reservation\n${cmd.sacrifice_name}\nN : ${cmd.ticket_num}\n${jourStr} a ${heureStr}\nRDV a partir du 15/03 pour choisir l'agneau`;
+          const messageSms = `Confirmation reservation\n${cmd.sacrifice_name}\nN : ${cmd.ticket_num}\n${jourStr} a ${heureStr}\nRDV a partir du 15/05 pour choisir l'agneau`;
 
           const response = await fetch("/api/send-sms", {
               method: "POST",
