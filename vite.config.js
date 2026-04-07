@@ -6,8 +6,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          exceljs: ['exceljs'] 
+        // CORRECTION ICI : On utilise une fonction au lieu d'un objet
+        manualChunks(id) {
+          if (id.includes('node_modules/exceljs')) {
+            return 'exceljs';
+          }
         }
       }
     }
