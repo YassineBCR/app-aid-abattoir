@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  // NOUVEAU : On force la séparation de la librairie exceljs pour alléger le fichier principal
   build: {
     rollupOptions: {
       output: {
@@ -16,12 +15,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      strategies: 'injectManifest',
-      srcDir: 'src',
-      filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-      injectManifest: {
+      workbox: {
         maximumFileSizeToCacheInBytes: 8000000, // Limite montée à 8 Mo
       },
       manifest: {
