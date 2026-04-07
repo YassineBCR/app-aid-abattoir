@@ -7,6 +7,8 @@ import {
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 export default function Tableau({ changeTab, userRole }) {
   const { showNotification } = useNotification();
@@ -327,8 +329,8 @@ export default function Tableau({ changeTab, userRole }) {
     finally { setIsDeleting(false); }
   };
 
-  const exportToCSV = async () => {
-    showNotification("Préparation de l'export...", "info");
+  const exportToExcel = async () => {
+    showNotification("Préparation de l'export Excel...", "info");
     
     let exportQuery = supabase
         .from("commandes")
@@ -359,43 +361,88 @@ export default function Tableau({ changeTab, userRole }) {
         return;
     }
 
-    const headers = ["Ticket", "Client", "Téléphone", "Email", "Sacrifice", "Boucle", "Date Retrait", "Acompte", "Payé Total", "Reste à payer", "Statut", "Ref Stripe"];
-    const rows = allData.map(c => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Registre Abattoir');
+
+    // Configuration des colonnes
+    worksheet.columns = [
+        { header: 'Ticket', key: 'ticket', width: 12 },
+        { header: 'Client', key: 'client', width: 25 },
+        { header: 'Téléphone', key: 'phone', width: 15 },
+        { header: 'Email', key: 'email', width: 30 },
+        { header: 'Sacrifice', key: 'sacrifice', width: 20 },
+        { header: 'Boucle', key: 'boucle', width: 15 },
+        { header: 'Date Retrait', key: 'retrait', width: 25 },
+        { header: 'Acompte', key: 'acompte', width: 12 },
+        { header: 'Payé Total', key: 'paye', width: 12 },
+        { header: 'Reste à payer', key: 'reste', width: 15 },
+        { header: 'Statut', key: 'statut', width: 20 },
+        { header: 'Ref Stripe', key: 'stripe', width: 35 },
+    ];
+
+    // Style de l'en-tête
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF1F5F9' } // Gris clair (Tailwind slate-100)
+    };
+
+    allData.forEach(c => {
       const dejaPaye = (Number(c.montant_paye_cents) || 0) / 100;
       const total = (Number(c.montant_total_cents) || 0) / 100;
       const reste = Math.max(0, total - dejaPaye);
+      
       let statutFr = "En Attente";
-      if (c.statut === 'annule') statutFr = 'Annulé';
-      else if (c.statut === 'bouclee') statutFr = 'Bouclée';
-      else if (reste <= 0.05 && dejaPaye > 0) statutFr = 'Totalement Payé';
-      else if (dejaPaye > 0) statutFr = 'Réservé';
+      let rowColorArgb = null; // Pas de couleur par défaut
 
-      return [
-          c.ticket_num,
-          `${c.contact_last_name} ${c.contact_first_name}`,
-          c.contact_phone,
-          c.contact_email,
-          c.sacrifice_name,
-          c.numero_boucle || c.ticket_num,
-          c.creneaux_horaires ? `${getJourLabel(c.creneaux_horaires.date)} à ${c.creneaux_horaires.heure_debut.slice(0,5)}` : "-",
-          `${(c.acompte_cents / 100).toFixed(2)} €`,
-          `${dejaPaye.toFixed(2)} €`,
-          `${reste.toFixed(2)} €`,
-          statutFr,
-          c.stripe_ref || ""
-      ];
+      if (c.statut === 'annule') {
+          statutFr = 'Annulé';
+          rowColorArgb = 'FFFEE2E2'; // Rouge (Tailwind red-100)
+      } else if (c.statut === 'bouclee') {
+          statutFr = 'Bouclée';
+          rowColorArgb = 'FFDBEAFE'; // Bleu (Tailwind blue-100)
+      } else if (reste <= 0.05 && dejaPaye > 0) {
+          statutFr = 'Totalement Payé';
+          rowColorArgb = 'FFD1FAE5'; // Vert (Tailwind emerald-100)
+      } else if (dejaPaye > 0) {
+          statutFr = 'Réservé';
+          rowColorArgb = 'FFFFEDD5'; // Orange (Tailwind orange-100)
+      }
+
+      const row = worksheet.addRow({
+          ticket: c.ticket_num,
+          client: `${c.contact_last_name} ${c.contact_first_name}`,
+          phone: c.contact_phone,
+          email: c.contact_email,
+          sacrifice: c.sacrifice_name,
+          boucle: c.numero_boucle || c.ticket_num,
+          retrait: c.creneaux_horaires ? `${getJourLabel(c.creneaux_horaires.date)} à ${c.creneaux_horaires.heure_debut.slice(0,5)}` : "-",
+          acompte: `${(c.acompte_cents / 100).toFixed(2)} €`,
+          paye: `${dejaPaye.toFixed(2)} €`,
+          reste: `${reste.toFixed(2)} €`,
+          statut: statutFr,
+          stripe: c.stripe_ref || ""
+      });
+
+      // Application de la couleur de fond sur toutes les cellules de la ligne
+      if (rowColorArgb) {
+          row.eachCell({ includeEmpty: true }, function(cell) {
+              cell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: rowColorArgb }
+              };
+          });
+      }
     });
-    
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Registre_Abattoir.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
 
-    logAction('EXPORT', 'COMMANDE', { action: `Export du registre (${allData.length} lignes)` });
+    // Générer et télécharger le fichier
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, "Registre_Abattoir.xlsx");
+
+    logAction('EXPORT', 'COMMANDE', { action: `Export Excel du registre (${allData.length} lignes)` });
   };
 
   const renderStatut = (cmd) => {
@@ -411,6 +458,25 @@ export default function Tableau({ changeTab, userRole }) {
 
   const getPaymentIcon = (moyen) => {
       switch(moyen) { case 'especes': return <FiDollarSign />; case 'cb': return <FiCreditCard />; case 'stripe': return <FiCreditCard/>; default: return <FiFileText />; }
+  };
+
+  const getRowClassName = (cmd, dejaPaye, reste) => {
+    const baseClass = "transition-all cursor-pointer group ";
+    
+    if (cmd.statut === 'annule') {
+      return baseClass + "bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40";
+    }
+    if (cmd.statut === 'bouclee') {
+      return baseClass + "bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40";
+    }
+    if (reste <= 0.05 && dejaPaye > 0) {
+      return baseClass + "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40";
+    }
+    if (dejaPaye > 0) {
+      return baseClass + "bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/40";
+    }
+    
+    return baseClass + "hover:bg-slate-50 dark:hover:bg-slate-700/30";
   };
 
   return (
@@ -469,7 +535,7 @@ export default function Tableau({ changeTab, userRole }) {
             />
           </div>
           
-          <button onClick={exportToCSV} className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20 shrink-0">
+          <button onClick={exportToExcel} className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20 shrink-0">
             <FiDownload /> Excel
           </button>
 
@@ -505,7 +571,7 @@ export default function Tableau({ changeTab, userRole }) {
                     <tr 
                       key={cmd.id} 
                       onClick={() => handleRowClick(cmd)}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-all cursor-pointer group"
+                      className={getRowClassName(cmd, dejaPaye, reste)}
                     >
                       <td className="p-5 font-black text-teal-600 dark:text-teal-400 text-base">#{cmd.ticket_num}</td>
                       <td className="p-5">
