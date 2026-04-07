@@ -3,25 +3,14 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  build: {
-    rollupOptions: {
-      output: {
-        // CORRECTION ICI : On utilise une fonction au lieu d'un objet
-        manualChunks(id) {
-          if (id.includes('node_modules/exceljs')) {
-            return 'exceljs';
-          }
-        }
-      }
-    }
-  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       workbox: {
-        maximumFileSizeToCacheInBytes: 8000000, // Limite montée à 8 Mo
+        // C'est cette ligne qui résout le problème de taille d'ExcelJS
+        maximumFileSizeToCacheInBytes: 10485760, // Limite montée à 10 Mo
       },
       manifest: {
         name: 'Abattoir Aïd',
