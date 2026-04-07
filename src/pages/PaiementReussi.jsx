@@ -195,7 +195,7 @@ export default function PaiementReussi() {
           <p className="text-lg text-slate-600 dark:text-slate-300 font-medium">
               Merci pour votre commande. Vos tickets{' '}
               <strong className="text-emerald-600">{listNumeros}</strong>{' '}
-              sont officiellement réservés et bloqués.
+              sont officiellement réservés.
           </p>
 
           {emailsSent && (

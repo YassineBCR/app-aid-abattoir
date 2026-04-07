@@ -7,7 +7,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Méthode non autorisée' });
   }
 
-  const { email, firstName, lastName, phone, ticketNum, sacrificeName, qrData } = req.body;
+  // 1. AJOUT ICI : récupération des variables jourPassage et heurePassage
+  const { email, firstName, lastName, phone, ticketNum, sacrificeName, qrData, jourPassage, heurePassage } = req.body;
 
   try {
     // Génération de l'URL du QR Code via QuickChart (plus fiable pour l'affichage en boîte mail)
@@ -46,6 +47,10 @@ export default async function handler(req, res) {
               <tr><td style="font-size: 16px; color: #334155; border-bottom: 1px solid #e2e8f0;"><strong>Prénom :</strong> ${firstName || 'Non renseigné'}</td></tr>
               <tr><td style="font-size: 16px; color: #334155; border-bottom: 1px solid #e2e8f0;"><strong>Email :</strong> ${email}</td></tr>
               <tr><td style="font-size: 16px; color: #334155; border-bottom: 1px solid #e2e8f0;"><strong>Téléphone :</strong> ${phone || 'Non renseigné'}</td></tr>
+              
+              <tr><td style="font-size: 16px; color: #334155; border-bottom: 1px solid #e2e8f0;"><strong>📅 Jour de passage :</strong> <span style="color: #10b981; font-weight: bold;">${jourPassage || 'Non renseigné'}</span></td></tr>
+              <tr><td style="font-size: 16px; color: #334155; border-bottom: 1px solid #e2e8f0;"><strong>⏰ Heure de passage :</strong> <span style="color: #10b981; font-weight: bold;">${heurePassage || 'Non renseignée'}</span></td></tr>
+              
               <tr>
                 <td style="font-size: 18px; color: #10b981; text-align: center; padding-top: 15px;">
                   <strong style="color:#0f172a; font-size: 14px; text-transform: uppercase;">Sacrifice au nom de :</strong><br/>
