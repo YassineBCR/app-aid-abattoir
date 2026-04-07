@@ -24,6 +24,7 @@ export default function PaiementOk() {
 
     const verifyAndValidate = async () => {
       try {
+        // Note: Pense aussi à remplacer ce lien par "/api/verify-session" si ce script tourne sur Vercel !
         const response = await fetch(`http://localhost:3000/verify-session/${sessionId}`);
         const sessionData = await response.json();
 
@@ -99,16 +100,19 @@ export default function PaiementOk() {
       const dateFormatee = new Date(cmd.creneaux_horaires?.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
       const qrData = JSON.stringify({ id: cmd.id, ticket: cmd.ticket_num, nom: cmd.contact_last_name });
 
-      await fetch("http://localhost:3000/send-ticket-email", {
+      // ICI : Remplacement de localhost par le lien relatif Vercel
+      await fetch("/api/send-ticket-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             email: cmd.contact_email,
             firstName: cmd.contact_first_name,
+            lastName: cmd.contact_last_name, // Correction ajoutée
+            phone: cmd.contact_phone,        // Correction ajoutée
             ticketNum: cmd.ticket_num,
             sacrificeName: cmd.sacrifice_name,
-            dateCreneau: dateFormatee,
-            heureCreneau: cmd.creneaux_horaires?.heure_debut?.slice(0,5),
+            jourPassage: dateFormatee,       // Correction ajoutée (remplace dateCreneau)
+            heurePassage: cmd.creneaux_horaires?.heure_debut?.slice(0,5), // Correction ajoutée (remplace heureCreneau)
             qrData: qrData
         })
       });
