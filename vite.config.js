@@ -11,6 +11,9 @@ export default defineConfig({
       filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      injectManifest: {
+        maximumFileSizeToCacheInBytes: 4000000, // Augmente la limite à ~4 Mo
+      },
       manifest: {
         name: 'Abattoir Aïd',
         short_name: 'Abattoir',
