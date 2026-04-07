@@ -3,16 +3,26 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // NOUVEAU : On force la séparation de la librairie exceljs pour alléger le fichier principal
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          exceljs: ['exceljs'] 
+        }
+      }
+    }
+  },
   plugins: [
     react(),
     VitePWA({
-      strategies: 'injectManifest', // <-- IMPORTANT : on utilise notre propre SW
+      strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       injectManifest: {
-        maximumFileSizeToCacheInBytes: 4000000, // Augmente la limite à ~4 Mo
+        maximumFileSizeToCacheInBytes: 8000000, // Limite montée à 8 Mo
       },
       manifest: {
         name: 'Abattoir Aïd',
