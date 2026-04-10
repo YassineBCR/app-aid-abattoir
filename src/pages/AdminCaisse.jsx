@@ -30,10 +30,10 @@ export default function Compta() {
       const { data, error } = await supabase
         .from('historique_paiements')
         .select('*')
-        // On filtre sur la journée sélectionnée
-        .gte('created_at', startOfDay.toISOString())
-        .lte('created_at', endOfDay.toISOString())
-        .order('created_at', { ascending: false });
+        // CORRECTION ICI : On utilise date_paiement au lieu de created_at
+        .gte('date_paiement', startOfDay.toISOString())
+        .lte('date_paiement', endOfDay.toISOString())
+        .order('date_paiement', { ascending: false });
 
       if (error) throw error;
       setTransactions(data || []);
@@ -184,7 +184,8 @@ export default function Compta() {
                     {transactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="p-4 whitespace-nowrap text-sm font-bold text-slate-600 dark:text-slate-300">
-                          {formatTime(tx.created_at)}
+                          {/* CORRECTION ICI : tx.date_paiement au lieu de tx.created_at */}
+                          {formatTime(tx.date_paiement)}
                         </td>
                         <td className="p-4 whitespace-nowrap">
                           {getPaiementBadge(tx.moyen_paiement)}

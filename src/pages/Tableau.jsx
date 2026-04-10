@@ -93,12 +93,15 @@ export default function Tableau({ changeTab, userRole }) {
           }
       }
 
+      // CORRECTION APPORTÉE ICI
       if (debouncedSearch) {
           const isNumeric = /^\d+$/.test(debouncedSearch);
-          if (isNumeric) {
-              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+          const isTicketNum = isNumeric && debouncedSearch.length < 8; 
+
+          if (isTicketNum) {
+              query = query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
           } else {
-              query = query.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+              query = query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
           }
       }
 
@@ -348,10 +351,16 @@ export default function Tableau({ changeTab, userRole }) {
         if (ids.length > 0) exportQuery = exportQuery.in('creneau_id', ids);
     }
 
+    // CORRECTION APPORTÉE ICI AUSSI POUR L'EXPORT
     if (debouncedSearch) {
         const isNumeric = /^\d+$/.test(debouncedSearch);
-        if (isNumeric) exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
-        else exportQuery = exportQuery.or(`contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+        const isTicketNum = isNumeric && debouncedSearch.length < 8;
+
+        if (isTicketNum) {
+            exportQuery = exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`);
+        } else {
+            exportQuery = exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+        }
     }
 
     const { data: allData, error } = await exportQuery.order("created_at", { ascending: false });
@@ -528,7 +537,7 @@ export default function Tableau({ changeTab, userRole }) {
             <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors text-lg" />
             <input 
                 type="text" 
-                placeholder="Nom, email, ticket, réf..." 
+                placeholder="Nom, email, tél, ticket..." 
                 value={searchTerm} 
                 onChange={e => setSearchTerm(e.target.value)} 
                 className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-2xl dark:bg-slate-800 dark:border-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium dark:text-white" 
