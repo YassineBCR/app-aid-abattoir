@@ -12,14 +12,15 @@ import { saveAs } from 'file-saver';
 
 // ─── Constantes de statut ─────────────────────────────────────────────────────
 const STATUT_OPTIONS = [
-  { value: "",          label: "Tous les statuts",  color: "text-slate-500"  },
-  { value: "reserve",   label: "Réservé",           color: "text-orange-600" },
-  { value: "paye",      label: "Payé",              color: "text-blue-600"   },
-  { value: "bouclee",   label: "Bouclée",           color: "text-emerald-600"},
-  { value: "annule",    label: "Annulé",            color: "text-red-600"    },
+  { value: "",        label: "Tous les statuts", color: "text-slate-500"   },
+  { value: "attente", label: "En attente",       color: "text-slate-600"   },
+  { value: "reserve", label: "Réservé",          color: "text-orange-600"  },
+  { value: "paye",    label: "Payé",             color: "text-blue-600"    },
+  { value: "bouclee", label: "Bouclée",          color: "text-emerald-600" },
+  { value: "annule",  label: "Annulé",           color: "text-red-600"     },
 ];
 
-// Dérive le statut métier d'une commande (pour le filtrage côté client)
+// Dérive le statut métier d'une commande — 100 % côté client, aucune ambiguïté
 function getStatutMetier(cmd) {
   if (cmd.statut === "annule")  return "annule";
   if (cmd.statut === "bouclee") return "bouclee";
@@ -121,9 +122,7 @@ export default function Tableau({ changeTab, userRole }) {
           : query.eq('creneau_id', '00000000-0000-0000-0000-000000000000');
       }
 
-      // Filtre statut DB (annule / bouclee sont dans la DB)
-      if (filterStatut === "annule")  query = query.eq('statut', 'annule');
-      if (filterStatut === "bouclee") query = query.eq('statut', 'bouclee');
+      // ⚠️ Pas de filtre statut ici — tout est géré côté client dans filteredCommandes
 
       // Recherche texte
       if (debouncedSearch) {
@@ -149,20 +148,20 @@ export default function Tableau({ changeTab, userRole }) {
     }
   }
 
-  // ── Filtre côté client pour statuts dérivés (paye / reserve) ──────────────
+  // ── Filtre statut 100 % côté client ──────────────────────────────────────
+  // commandes contient toujours TOUS les statuts pour le jour/créneau/search actifs
+  // → les compteurs sont donc toujours exacts, quel que soit le filtre choisi
   const filteredCommandes = useMemo(() => {
-    if (!filterStatut || filterStatut === "annule" || filterStatut === "bouclee") {
-      return commandes; // Déjà filtré côté serveur
-    }
+    if (!filterStatut) return commandes;
     return commandes.filter(cmd => getStatutMetier(cmd) === filterStatut);
   }, [commandes, filterStatut]);
 
-  // ── Compteurs de statuts ───────────────────────────────────────────────────
+  // ── Compteurs — calculés sur commandes (sans filtre statut) → toujours exacts
   const countsByStatut = useMemo(() => {
-    const counts = { annule: 0, bouclee: 0, paye: 0, reserve: 0, attente: 0 };
+    const counts = { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 };
     commandes.forEach(cmd => {
       const s = getStatutMetier(cmd);
-      if (counts[s] !== undefined) counts[s]++;
+      if (s in counts) counts[s]++;
     });
     return counts;
   }, [commandes]);
@@ -345,8 +344,6 @@ export default function Tableau({ changeTab, userRole }) {
       const ids = creneauxConfig.filter(c => c.date === filterDate).map(c => c.id);
       if (ids.length > 0) exportQuery = exportQuery.in('creneau_id', ids);
     }
-    if (filterStatut === "annule")  exportQuery = exportQuery.eq('statut', 'annule');
-    if (filterStatut === "bouclee") exportQuery = exportQuery.eq('statut', 'bouclee');
 
     if (debouncedSearch) {
       const isNumeric   = /^\d+$/.test(debouncedSearch);
@@ -359,8 +356,8 @@ export default function Tableau({ changeTab, userRole }) {
     const { data: allData, error } = await exportQuery.order("created_at", { ascending: false });
     if (error) { showNotification("Erreur lors de l'export", "error"); return; }
 
-    // Filtre côté client pour paye/reserve si nécessaire
-    const exportData = (filterStatut === "paye" || filterStatut === "reserve")
+    // Filtre statut côté client (identique à filteredCommandes)
+    const exportData = filterStatut
       ? allData.filter(cmd => getStatutMetier(cmd) === filterStatut)
       : allData;
 
@@ -556,10 +553,11 @@ export default function Tableau({ changeTab, userRole }) {
         {/* ── Compteurs par statut ── */}
         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
           {[
-            { key: "reserve", label: "Réservé",  bg: "bg-orange-50 dark:bg-orange-900/20",  text: "text-orange-700 dark:text-orange-300",  border: "border-orange-200 dark:border-orange-800" },
-            { key: "paye",    label: "Payé",     bg: "bg-blue-50 dark:bg-blue-900/20",      text: "text-blue-700 dark:text-blue-300",      border: "border-blue-200 dark:border-blue-800"     },
-            { key: "bouclee", label: "Bouclée",  bg: "bg-emerald-50 dark:bg-emerald-900/20",text: "text-emerald-700 dark:text-emerald-300",border: "border-emerald-200 dark:border-emerald-800"},
-            { key: "annule",  label: "Annulé",   bg: "bg-red-50 dark:bg-red-900/20",        text: "text-red-700 dark:text-red-300",        border: "border-red-200 dark:border-red-800"       },
+            { key: "attente", label: "Attente",  bg: "bg-slate-100 dark:bg-slate-700",          text: "text-slate-700 dark:text-slate-300",    border: "border-slate-300 dark:border-slate-600"   },
+            { key: "reserve", label: "Réservé",  bg: "bg-orange-50 dark:bg-orange-900/20",       text: "text-orange-700 dark:text-orange-300",  border: "border-orange-200 dark:border-orange-800" },
+            { key: "paye",    label: "Payé",     bg: "bg-blue-50 dark:bg-blue-900/20",           text: "text-blue-700 dark:text-blue-300",      border: "border-blue-200 dark:border-blue-800"     },
+            { key: "bouclee", label: "Bouclée",  bg: "bg-emerald-50 dark:bg-emerald-900/20",     text: "text-emerald-700 dark:text-emerald-300",border: "border-emerald-200 dark:border-emerald-800"},
+            { key: "annule",  label: "Annulé",   bg: "bg-red-50 dark:bg-red-900/20",             text: "text-red-700 dark:text-red-300",        border: "border-red-200 dark:border-red-800"       },
           ].map(({ key, label, bg, text, border }) => (
             <button
               key={key}
