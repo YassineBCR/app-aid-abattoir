@@ -74,7 +74,7 @@ export default function Compta() {
     let rows = [];
 
     if (isComplete) {
-      // 1. EXPORT COMPLET : On récupère dynamiquement toutes les colonnes de Supabase
+      // 1. EXPORT COMPLET
       headers = Object.keys(dataToExport[0]);
       
       rows = dataToExport.map(row => {
@@ -82,25 +82,24 @@ export default function Compta() {
           let val = row[header];
           if (val === null || val === undefined) val = "";
           
-          // Formatage du montant pour qu'Excel le lise comme un chiffre (avec virgule)
           if (header === 'montant_cents' && val !== "") {
             val = (Number(val) / 100).toFixed(2).replace('.', ',');
           }
           
-          // Echappement des caractères pour Excel
           return `"${String(val).replace(/"/g, '""')}"`;
         }).join(";");
       });
     } else {
-      // 2. EXPORT JOURNÉE : Tableau simplifié et renommé ("Joli")
-      headers = ["Date", "Heure", "Moyen de Paiement", "Reference Commande", "Montant Euros"];
+      // 2. EXPORT JOURNÉE
+      headers = ["Date", "Heure", "Moyen de Paiement", "Numero Ticket", "Montant Euros"];
       
       rows = dataToExport.map(tx => {
         const d = new Date(tx.date_paiement);
         const dateStr = d.toLocaleDateString('fr-FR');
         const heureStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         const moyen = tx.moyen_paiement || "Inconnu";
-        const ref = tx.commande_id || tx.id_commande || "Non lié";
+        // CORRECTION ICI : Utilisation de ticket_num
+        const ref = tx.ticket_num || tx.commande_id || tx.id_commande || "Non lié";
         const montant = tx.montant_cents ? (Number(tx.montant_cents) / 100).toFixed(2).replace('.', ',') : "0,00";
 
         return [dateStr, heureStr, moyen, ref, montant]
@@ -109,7 +108,6 @@ export default function Compta() {
       });
     }
 
-    // Création du fichier CSV / Excel
     const csvContent = "\uFEFF" + headers.join(";") + "\n" + rows.join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -150,12 +148,13 @@ export default function Compta() {
     }
   };
 
+  // CORRECTION ICI : Filtrage avec ticket_num
   const filteredHistory = allTransactions.filter(tx => {
     const searchStr = searchTerm.toLowerCase();
     return (
       tx.date_paiement?.toLowerCase().includes(searchStr) ||
       tx.moyen_paiement?.toLowerCase().includes(searchStr) ||
-      String(tx.commande_id || tx.id_commande).toLowerCase().includes(searchStr)
+      String(tx.ticket_num || tx.commande_id || tx.id_commande).toLowerCase().includes(searchStr)
     );
   });
 
@@ -237,7 +236,6 @@ export default function Compta() {
               <h3 className="font-black text-slate-800 dark:text-white text-lg">Transactions du {new Date(selectedDate).toLocaleDateString('fr-FR')}</h3>
               <div className="flex gap-2">
                 <button 
-                  /* NOTER LE "FALSE" ICI : On garde la vue simplifiée pour la journée */
                   onClick={() => handleExportExcel(transactions, `compta_jour_${selectedDate}`, false)}
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl font-bold text-sm"
                 >
@@ -253,7 +251,7 @@ export default function Compta() {
                   <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
                     <th className="p-4 text-xs font-black text-slate-400 uppercase">Heure</th>
                     <th className="p-4 text-xs font-black text-slate-400 uppercase">Moyen</th>
-                    <th className="p-4 text-xs font-black text-slate-400 uppercase">Commande</th>
+                    <th className="p-4 text-xs font-black text-slate-400 uppercase">N° Ticket</th>
                     <th className="p-4 text-xs font-black text-slate-400 uppercase text-right">Montant</th>
                   </tr>
                 </thead>
@@ -265,7 +263,8 @@ export default function Compta() {
                       <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4 font-bold text-slate-600 dark:text-slate-300">{formatTime(tx.date_paiement)}</td>
                         <td className="p-4">{getPaiementBadge(tx.moyen_paiement)}</td>
-                        <td className="p-4 text-sm font-mono text-slate-400">#{tx.commande_id || tx.id_commande || "N/A"}</td>
+                        {/* CORRECTION ICI : tx.ticket_num */}
+                        <td className="p-4 text-sm font-mono text-slate-400">#{tx.ticket_num || tx.commande_id || tx.id_commande || "N/A"}</td>
                         <td className="p-4 text-right font-black">{(Number(tx.montant_cents) / 100).toFixed(2)} €</td>
                       </tr>
                     ))
@@ -299,14 +298,13 @@ export default function Compta() {
                 <FiSearch className="text-slate-400 text-lg"/>
                 <input 
                   type="text" 
-                  placeholder="Rechercher par date, référence ou paiement..." 
+                  placeholder="Rechercher par date, N° de ticket ou paiement..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="bg-transparent border-none focus:ring-0 text-slate-700 dark:text-white font-medium w-full"
                 />
               </div>
               <button 
-                /* NOTER LE "TRUE" ICI : Déclenche l'export de toutes les colonnes ! */
                 onClick={() => handleExportExcel(allTransactions, "export_compta_complet_DB", true)}
                 className="flex justify-center items-center gap-3 px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl transition-all font-bold shadow-lg shadow-emerald-600/20"
               >
@@ -323,7 +321,7 @@ export default function Compta() {
                     <tr>
                       <th className="p-5 text-xs font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">Date & Heure</th>
                       <th className="p-5 text-xs font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">Paiement</th>
-                      <th className="p-5 text-xs font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">Commande</th>
+                      <th className="p-5 text-xs font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">N° Ticket</th>
                       <th className="p-5 text-xs font-black text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700 text-right">Montant</th>
                     </tr>
                   </thead>
@@ -332,7 +330,8 @@ export default function Compta() {
                       <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors group">
                         <td className="p-5 text-sm font-bold text-slate-600 dark:text-slate-300">{formatTime(tx.date_paiement, true)}</td>
                         <td className="p-5">{getPaiementBadge(tx.moyen_paiement)}</td>
-                        <td className="p-5 text-sm font-mono text-slate-500">#{tx.commande_id || tx.id_commande || "N/A"}</td>
+                        {/* CORRECTION ICI : tx.ticket_num */}
+                        <td className="p-5 text-sm font-mono text-slate-500">#{tx.ticket_num || tx.commande_id || tx.id_commande || "N/A"}</td>
                         <td className="p-5 text-right font-black text-slate-800 dark:text-white">{(Number(tx.montant_cents) / 100).toFixed(2)} €</td>
                       </tr>
                     ))}

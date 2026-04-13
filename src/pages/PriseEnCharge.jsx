@@ -58,6 +58,9 @@ export default function PriseEnCharge() {
     first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "",
     creneau_id: "", tarif_categorie: "", prix_cents: 0
   });
+  
+  // Nouvel état pour gérer l'auto-remplissage intelligent
+  const [autoFillSacrifice, setAutoFillSacrifice] = useState(true);
 
   useEffect(() => {
     checkActiveCaisse();
@@ -207,15 +210,10 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // CORRECTION : openCreateModal — récupère le stock réel de chaque créneau
-  // (tous les créneaux, online ET offline) en comptant les tickets 'disponible'
-  // ─────────────────────────────────────────────────────────────────────────────
   const openCreateModal = async () => {
     if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
     setLoading(true);
     try {
-      // 1. Tous les créneaux (online ET offline) — le guichet peut réserver sur n'importe lequel
       const { data: slots, error: slotsError } = await supabase
         .from("creneaux_horaires")
         .select("*")
@@ -224,7 +222,6 @@ export default function PriseEnCharge() {
         
       if (slotsError) throw slotsError;
 
-      // 2. Compter les tickets 'disponible' par créneau pour afficher le vrai stock
       const { data: stockData } = await supabase
         .from("commandes")
         .select("creneau_id")
@@ -235,7 +232,6 @@ export default function PriseEnCharge() {
         stockMap[t.creneau_id] = (stockMap[t.creneau_id] || 0) + 1;
       });
 
-      // 3. Fusionner : on ajoute places_restantes (stock réel) à chaque créneau
       const slotsWithStock = (slots || []).map(s => ({
         ...s,
         places_restantes: stockMap[s.id] || 0
@@ -246,8 +242,20 @@ export default function PriseEnCharge() {
       const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
       setTarifs(prix || []);
       setNewResaForm({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0 });
+      setAutoFillSacrifice(true); // Réinitialiser l'auto-remplissage
       setShowCreateModal(true);
     } catch(err) { showNotification("Erreur de chargement des données.", "error"); } finally { setLoading(false); }
+  };
+
+  // Nouvelle fonction pour gérer la saisie des noms et remplir le sacrifice_name
+  const handleNameChange = (field, value) => {
+    setNewResaForm(prev => {
+      const updated = { ...prev, [field]: value };
+      if (autoFillSacrifice) {
+        updated.sacrifice_name = `${updated.last_name} ${updated.first_name}`.trim();
+      }
+      return updated;
+    });
   };
 
   const handleCreateReservation = async (e) => {
@@ -320,7 +328,6 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur d'encaissement.", "error"); } finally { setLoadingPaiement(false); }
   };
 
-  // ── Stripe guichet : génère un lien de paiement ─────────────────
   const lancerPaiementStripe = async () => {
     const montantAsaisi = parseFloat(montantEncaisse) || 0;
     if (montantAsaisi <= 0) return showNotification("Saisissez un montant avant de générer le lien Stripe.", "info");
@@ -349,7 +356,6 @@ export default function PriseEnCharge() {
     }
   };
 
-  // ── Stripe guichet : vérifie si le client a payé ─────────────────
   const verifierPaiementStripe = async () => {
     if (!stripeModal) return;
     setCheckingStripe(true);
@@ -900,12 +906,33 @@ export default function PriseEnCharge() {
                     {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} - {t.nom} ({(t.prix_cents/100).toFixed(2)}€)</option>))}
                   </select>
                 </div>
-                <div><label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Prénom <span className="text-red-500">*</span></label><input required type="text" value={newResaForm.first_name} onChange={e => setNewResaForm({...newResaForm, first_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" /></div>
-                <div><label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom <span className="text-red-500">*</span></label><input required type="text" value={newResaForm.last_name} onChange={e => setNewResaForm({...newResaForm, last_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" /></div>
-                <div><label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Téléphone <span className="text-red-500">*</span></label><input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({...newResaForm, phone: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" /></div>
-                <div><label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Optionnel)</label><input type="email" placeholder="client@email.com" value={newResaForm.email} onChange={e => setNewResaForm({...newResaForm, email: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" /></div>
-                <div className="md:col-span-2"><label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom pour le sacrifice <span className="text-red-500">*</span></label><input required type="text" placeholder="Ex: Famille X..." value={newResaForm.sacrifice_name} onChange={e => setNewResaForm({...newResaForm, sacrifice_name: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" /></div>
+                
+                {/* ── Utilisation de handleNameChange pour Nom et Prénom ── */}
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Prénom <span className="text-red-500">*</span></label>
+                  <input required type="text" value={newResaForm.first_name} onChange={e => handleNameChange('first_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom <span className="text-red-500">*</span></label>
+                  <input required type="text" value={newResaForm.last_name} onChange={e => handleNameChange('last_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Téléphone <span className="text-red-500">*</span></label>
+                  <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({...newResaForm, phone: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Optionnel)</label>
+                  <input type="email" placeholder="client@email.com" value={newResaForm.email} onChange={e => setNewResaForm({...newResaForm, email: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                
+                {/* ── Désactivation de l'autoFillSacrifice si l'utilisateur modifie ce champ manuellement ── */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom pour le sacrifice <span className="text-red-500">*</span></label>
+                  <input required type="text" placeholder="Ex: Famille X..." value={newResaForm.sacrifice_name} onChange={e => { setAutoFillSacrifice(false); setNewResaForm({...newResaForm, sacrifice_name: e.target.value}); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
               </div>
+              
               <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
                 <span className="text-indigo-800 dark:text-indigo-300 font-bold">Total à encaisser ensuite :</span>
                 <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents/100).toFixed(2)} €</span>
