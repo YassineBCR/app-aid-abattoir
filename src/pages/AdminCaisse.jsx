@@ -8,17 +8,16 @@ import {
 
 export default function Compta() {
   // --- ÉTATS ---
-  const [transactions, setTransactions] = useState([]); // Données du jour
+  const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // États pour la modale Historique Complet
+  // États Modale
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [allTransactions, setAllTransactions] = useState([]); // Toute la table
+  const [allTransactions, setAllTransactions] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // --- CHARGEMENT DES DONNÉES DU JOUR ---
   useEffect(() => {
     fetchDailyTransactions(selectedDate);
   }, [selectedDate]);
@@ -47,7 +46,6 @@ export default function Compta() {
     }
   };
 
-  // --- CHARGEMENT DE TOUTE LA TABLE (Lazy Loading) ---
   const openHistoryModal = async () => {
     setIsHistoryModalOpen(true);
     if (allTransactions.length === 0) {
@@ -68,31 +66,51 @@ export default function Compta() {
     }
   };
 
-  // --- FONCTION D'EXPORT EXCEL PROPRE (Format Français) ---
-  const handleExportExcel = (dataToExport, filename) => {
+  // --- FONCTION D'EXPORT INTELLIGENTE ---
+  const handleExportExcel = (dataToExport, filename, isComplete = false) => {
     if (dataToExport.length === 0) return alert("Aucune donnée à exporter.");
 
-    // 1. Définition des colonnes visibles pour l'export
-    const headers = ["Date", "Heure", "Moyen de Paiement", "Reference Commande", "Montant Euros"];
+    let headers = [];
+    let rows = [];
 
-    // 2. Transformation des données pour Excel
-    const rows = dataToExport.map(tx => {
-      const d = new Date(tx.date_paiement);
-      const dateStr = d.toLocaleDateString('fr-FR');
-      const heureStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      const moyen = tx.moyen_paiement || "Inconnu";
-      const ref = tx.commande_id || tx.id_commande || "Non lié";
-      const montant = tx.montant_cents ? (Number(tx.montant_cents) / 100).toFixed(2).replace('.', ',') : "0,00";
+    if (isComplete) {
+      // 1. EXPORT COMPLET : On récupère dynamiquement toutes les colonnes de Supabase
+      headers = Object.keys(dataToExport[0]);
+      
+      rows = dataToExport.map(row => {
+        return headers.map(header => {
+          let val = row[header];
+          if (val === null || val === undefined) val = "";
+          
+          // Formatage du montant pour qu'Excel le lise comme un chiffre (avec virgule)
+          if (header === 'montant_cents' && val !== "") {
+            val = (Number(val) / 100).toFixed(2).replace('.', ',');
+          }
+          
+          // Echappement des caractères pour Excel
+          return `"${String(val).replace(/"/g, '""')}"`;
+        }).join(";");
+      });
+    } else {
+      // 2. EXPORT JOURNÉE : Tableau simplifié et renommé ("Joli")
+      headers = ["Date", "Heure", "Moyen de Paiement", "Reference Commande", "Montant Euros"];
+      
+      rows = dataToExport.map(tx => {
+        const d = new Date(tx.date_paiement);
+        const dateStr = d.toLocaleDateString('fr-FR');
+        const heureStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const moyen = tx.moyen_paiement || "Inconnu";
+        const ref = tx.commande_id || tx.id_commande || "Non lié";
+        const montant = tx.montant_cents ? (Number(tx.montant_cents) / 100).toFixed(2).replace('.', ',') : "0,00";
 
-      // On entoure de guillemets et on sépare par des points-virgules
-      return [dateStr, heureStr, moyen, ref, montant]
-        .map(val => `"${String(val).replace(/"/g, '""')}"`)
-        .join(";");
-    });
+        return [dateStr, heureStr, moyen, ref, montant]
+          .map(val => `"${String(val).replace(/"/g, '""')}"`)
+          .join(";");
+      });
+    }
 
-    // 3. Construction du fichier avec le BOM (Byte Order Mark) pour forcer l'UTF-8 dans Excel
+    // Création du fichier CSV / Excel
     const csvContent = "\uFEFF" + headers.join(";") + "\n" + rows.join("\n");
-
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -103,7 +121,7 @@ export default function Compta() {
     document.body.removeChild(link);
   };
 
-  // --- CALCULS DES TOTAUX (Page principale - Journée) ---
+  // --- CALCULS DES TOTAUX ---
   let totalStripe = 0, totalCB = 0, totalEspeces = 0;
   transactions.forEach(tx => {
     const montant = (Number(tx.montant_cents) || 0) / 100;
@@ -114,7 +132,6 @@ export default function Compta() {
   const totalGlobal = totalStripe + totalCB + totalEspeces;
   const totalCaissePhysique = totalCB + totalEspeces;
 
-  // --- UTILITAIRES D'AFFICHAGE ---
   const formatTime = (dateString, includeDate = false) => {
     if (!dateString) return "-";
     const date = new Date(dateString);
@@ -133,7 +150,6 @@ export default function Compta() {
     }
   };
 
-  // Filtrage pour la modale
   const filteredHistory = allTransactions.filter(tx => {
     const searchStr = searchTerm.toLowerCase();
     return (
@@ -146,7 +162,7 @@ export default function Compta() {
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20 animate-fade-in relative">
       
-      {/* HEADER & FILTRE DE DATE */}
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white flex items-center gap-3">
@@ -182,7 +198,7 @@ export default function Compta() {
         <div className="flex flex-col items-center justify-center py-20 animate-pulse text-slate-500 font-bold">Calcul en cours...</div>
       ) : (
         <>
-          {/* STATS KPIs (Journée) */}
+          {/* STATS */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-slate-900 p-6 rounded-3xl shadow-xl text-white">
               <p className="text-sm font-bold text-slate-400 uppercase">Total Journée</p>
@@ -221,7 +237,8 @@ export default function Compta() {
               <h3 className="font-black text-slate-800 dark:text-white text-lg">Transactions du {new Date(selectedDate).toLocaleDateString('fr-FR')}</h3>
               <div className="flex gap-2">
                 <button 
-                  onClick={() => handleExportExcel(transactions, `compta_jour_${selectedDate}`)}
+                  /* NOTER LE "FALSE" ICI : On garde la vue simplifiée pour la journée */
+                  onClick={() => handleExportExcel(transactions, `compta_jour_${selectedDate}`, false)}
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl font-bold text-sm"
                 >
                   <FiDownload /> Export Excel
@@ -260,25 +277,23 @@ export default function Compta() {
         </>
       )}
 
-      {/* --- MODALE : HISTORIQUE COMPLET --- */}
+      {/* --- MODALE --- */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
           <div className="bg-white dark:bg-slate-800 w-full max-w-6xl h-full max-h-[92vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden">
             
-            {/* Header Modale */}
             <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
               <div>
                 <h3 className="font-black text-2xl text-slate-800 dark:text-white flex items-center gap-3">
                   <FiDatabase className="text-emerald-500" /> Historique de toute la table
                 </h3>
-                <p className="text-slate-500 font-medium mt-1">Exportation et visualisation globale</p>
+                <p className="text-slate-500 font-medium mt-1">Exportation exhaustive de la base de données</p>
               </div>
               <button onClick={() => setIsHistoryModalOpen(false)} className="p-3 bg-white dark:bg-slate-700 rounded-full shadow-sm hover:rotate-90 transition-all">
                 <FiX className="text-xl" />
               </button>
             </div>
 
-            {/* Barre de Recherche et Export Global */}
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-4 bg-white dark:bg-slate-800">
               <div className="flex-1 flex items-center gap-3 bg-slate-50 dark:bg-slate-900 px-5 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700">
                 <FiSearch className="text-slate-400 text-lg"/>
@@ -291,14 +306,14 @@ export default function Compta() {
                 />
               </div>
               <button 
-                onClick={() => handleExportExcel(allTransactions, "export_compta_complet")}
+                /* NOTER LE "TRUE" ICI : Déclenche l'export de toutes les colonnes ! */
+                onClick={() => handleExportExcel(allTransactions, "export_compta_complet_DB", true)}
                 className="flex justify-center items-center gap-3 px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl transition-all font-bold shadow-lg shadow-emerald-600/20"
               >
                 <FiDownload className="text-lg"/> EXPORTER TOUTE LA TABLE
               </button>
             </div>
 
-            {/* Table Modale */}
             <div className="flex-1 overflow-y-auto px-2">
               {loadingHistory ? (
                 <div className="flex justify-center items-center h-full text-slate-500 font-bold">Chargement de la base de données...</div>
