@@ -29,6 +29,31 @@ export default function PaiementReussi() {
             return;
         }
 
+        // --- CREATION DE LA RESERVATION UNIQUEMENT APRÈS LE PAIEMENT ! ---
+        const reserveNow = searchParams.get('reserve_now');
+        if (reserveNow === "true") {
+            const { error: rpcError } = await supabase.rpc("reserver_prochain_ticket", {
+                p_creneau_id: searchParams.get('c_id'),
+                p_client_id: user.id,
+                p_nom: searchParams.get('ln'),
+                p_prenom: searchParams.get('fn'),
+                p_email: searchParams.get('em'),
+                p_tel: searchParams.get('ph'),
+                p_sacrifice_name: searchParams.get('sac'),
+                p_categorie: searchParams.get('cat'),
+                p_montant_total_cents: parseInt(searchParams.get('prix') || '0', 10),
+                p_acompte_cents: 5000
+            });
+            
+            if (rpcError) console.error("Erreur de création ticket :", rpcError);
+            
+            // On nettoie l'URL pour éviter de recréer un ticket si l'utilisateur rafraichit la page
+            const newUrl = window.location.pathname + "?session_id=" + sessionId;
+            window.history.replaceState({}, document.title, newUrl);
+        }
+        // -----------------------------------------------------------------
+
+        // Le reste de ton code ne bouge pas : on traite les billets fraichement créés
         let queryTickets = supabase
           .from('commandes')
           .select('*')
