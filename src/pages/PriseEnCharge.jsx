@@ -8,9 +8,43 @@ import {
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
   FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus, FiPrinter,
-  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiEyeOff, FiTag
+  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiTag, FiLoader,
+  FiTrendingUp, FiMinusCircle, FiInfo
 } from "react-icons/fi";
 import { logAction } from "../lib/logger";
+
+// ─── Helper : calcule les totaux financiers depuis les transactions comptabilité ─
+function computeFinancesFromHistory(history, montantTotalCents) {
+  let totalEncaisseCents = 0;
+  let totalAnnuleCents   = 0;
+
+  history.forEach(tx => {
+    const montant = Number(tx.montant_cents) || 0;
+    if (tx.type_mouvement === 'encaissement' && montant > 0) {
+      totalEncaisseCents += montant;
+    } else if (tx.type_mouvement === 'annulation' && montant < 0) {
+      totalAnnuleCents += Math.abs(montant);
+    }
+  });
+
+  const netEncaisseCents = totalEncaisseCents - totalAnnuleCents;
+  const prixVenteCents   = Number(montantTotalCents) || 0;
+  const resteAPayerCents = Math.max(0, prixVenteCents - netEncaisseCents);
+
+  return {
+    totalEncaisseCents,
+    totalAnnuleCents,
+    netEncaisseCents,
+    prixVenteCents,
+    resteAPayerCents,
+    totalEncaisse: totalEncaisseCents / 100,
+    totalAnnule:   totalAnnuleCents   / 100,
+    netEncaisse:   netEncaisseCents   / 100,
+    prixVente:     prixVenteCents     / 100,
+    resteAPayer:   resteAPayerCents   / 100,
+    estSolde:      resteAPayerCents   <= 5,
+  };
+}
 
 // ─── Badge moyen de paiement + type mouvement ──────────────────────────────
 function MouvementBadge({ tx }) {
@@ -35,9 +69,9 @@ function MouvementBadge({ tx }) {
   }
 
   switch (tx.moyen_paiement) {
-    case 'especes':      return <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiDollarSign /> Espèces</span>;
-    case 'cb':           return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiCreditCard /> CB</span>;
-    case 'stripe_web':   return <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiFileText /> Stripe Web</span>;
+    case 'especes':        return <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiDollarSign /> Espèces</span>;
+    case 'cb':             return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiCreditCard /> CB</span>;
+    case 'stripe_web':     return <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiFileText /> Stripe Web</span>;
     case 'stripe_guichet': return <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiSmartphone /> Stripe Guichet</span>;
     default: return <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold w-max">{tx.moyen_paiement}</span>;
   }
@@ -45,46 +79,50 @@ function MouvementBadge({ tx }) {
 
 export default function PriseEnCharge() {
   const { showNotification } = useNotification();
-  const [loading, setLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
+  const [loading, setLoading]       = useState(false);
+  const [userEmail, setUserEmail]   = useState("");
   
-  const [activeCaisse, setActiveCaisse] = useState(null);
+  const [activeCaisse, setActiveCaisse]           = useState(null);
   const [showOuvertureModal, setShowOuvertureModal] = useState(false);
-  const [showClotureModal, setShowClotureModal] = useState(false);
-  const [fondDeCaisse, setFondDeCaisse] = useState("");
-  const [reelEspeces, setReelEspeces] = useState("");
-  const [reelCb, setReelCb] = useState("");
-  const [justification, setJustification] = useState("");
-  const [theoriqueCaisse, setTheoriqueCaisse] = useState({ especes: 0, cb: 0 });
+  const [showClotureModal, setShowClotureModal]     = useState(false);
+  const [fondDeCaisse, setFondDeCaisse]             = useState("");
+  const [reelEspeces, setReelEspeces]               = useState("");
+  const [reelCb, setReelCb]                         = useState("");
+  const [justification, setJustification]           = useState("");
+  const [theoriqueCaisse, setTheoriqueCaisse]       = useState({ especes: 0, cb: 0 });
 
-  const [searchInput, setSearchInput] = useState("");
-  const [showScanner, setShowScanner] = useState(false);
-  const [commande, setCommande] = useState(null);
+  const [searchInput, setSearchInput]   = useState("");
+  const [showScanner, setShowScanner]   = useState(false);
+  const [commande, setCommande]         = useState(null);
   const [searchResults, setSearchResults] = useState([]);
-  const [historique, setHistorique] = useState([]);
-  const [categorieChoisie, setCategorieChoisie] = useState("");
-  const [loadingCategorie, setLoadingCategorie] = useState(false);
+  const [historique, setHistorique]     = useState([]);
+  const [loadingHistorique, setLoadingHistorique] = useState(false);
+
+  // ── NOUVEAU : finances calculées depuis la table comptabilite ──
+  const [computedFinances, setComputedFinances] = useState(null);
+
+  const [categorieChoisie, setCategorieChoisie]     = useState("");
+  const [loadingCategorie, setLoadingCategorie]     = useState(false);
   
   const [joursConfig, setJoursConfig] = useState([]);
-  const [tarifs, setTarifs] = useState([]);
+  const [tarifs, setTarifs]           = useState([]);
 
-  const [montantEncaisse, setMontantEncaisse] = useState("");
-  const [modePaiement, setModePaiement] = useState("especes");
-  const [loadingPaiement, setLoadingPaiement] = useState(false);
+  const [montantEncaisse, setMontantEncaisse]   = useState("");
+  const [modePaiement, setModePaiement]         = useState("especes");
+  const [loadingPaiement, setLoadingPaiement]   = useState(false);
 
-  // ── Stripe guichet ─────────────────────────────────────────────────────────
-  const [stripeModal, setStripeModal] = useState(null);
+  const [stripeModal, setStripeModal]       = useState(null);
   const [checkingStripe, setCheckingStripe] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedLink, setCopiedLink]         = useState(false);
 
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [transactionToCancel, setTransactionToCancel] = useState(null);
-  const [cancelReason, setCancelReason] = useState("");
-  const [loadingCancel, setLoadingCancel] = useState(false);
+  const [showCancelModal, setShowCancelModal]           = useState(false);
+  const [transactionToCancel, setTransactionToCancel]   = useState(null);
+  const [cancelReason, setCancelReason]                 = useState("");
+  const [loadingCancel, setLoadingCancel]               = useState(false);
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [creneauxDispo, setCreneauxDispo] = useState([]);
-  const [loadingCreate, setLoadingCreate] = useState(false);
+  const [showCreateModal, setShowCreateModal]   = useState(false);
+  const [creneauxDispo, setCreneauxDispo]       = useState([]);
+  const [loadingCreate, setLoadingCreate]       = useState(false);
   const [newResaForm, setNewResaForm] = useState({
     first_name: "", last_name: "", phone: "", email: "",
     sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0
@@ -156,13 +194,20 @@ export default function PriseEnCharge() {
     }
   }, [activeCaisse]);
 
-  // ── Chargement de l'historique comptable d'une commande ───────────────────
-  const loadHistorique = async (id) => {
+  // ── Chargement de l'historique + calcul des finances depuis comptabilite ─────
+  const loadHistorique = async (commandeId, montantTotalCents) => {
+    setLoadingHistorique(true);
+    setComputedFinances(null);
     try {
-      const data = await getHistoriqueCommande(id);
+      const data = await getHistoriqueCommande(commandeId);
       setHistorique(data);
+      // Calcul des finances basé UNIQUEMENT sur les transactions de la table comptabilite
+      const finances = computeFinancesFromHistory(data, montantTotalCents);
+      setComputedFinances(finances);
     } catch (err) {
       console.error("Erreur chargement historique:", err);
+    } finally {
+      setLoadingHistorique(false);
     }
   };
 
@@ -171,10 +216,21 @@ export default function PriseEnCharge() {
     setSearchInput(cmd.ticket_num?.toString() || "");
     setMontantEncaisse("");
     setCategorieChoisie(cmd.categorie || "");
-    loadHistorique(cmd.id);
+    setComputedFinances(null);
+    setHistorique([]);
+    // Calcul du prix de vente réel (tarif ou champ montant_total_cents)
+    const tarifCmd = tarifs.find(t => String(t.categorie) === String(cmd.categorie));
+    const prixCents = tarifCmd ? tarifCmd.prix_cents : (cmd.montant_total_cents || 0);
+    loadHistorique(cmd.id, prixCents);
   };
 
-  const handleBackToList = () => { setCommande(null); setSearchInput(""); setMontantEncaisse(""); };
+  const handleBackToList = () => { 
+    setCommande(null); 
+    setSearchInput(""); 
+    setMontantEncaisse(""); 
+    setComputedFinances(null);
+    setHistorique([]);
+  };
 
   const handleScan = (result) => {
     if (result) {
@@ -198,7 +254,18 @@ export default function PriseEnCharge() {
     setLoading(false);
   };
 
-  // ── Ouverture de caisse ───────────────────────────────────────────────────
+  // ── Rafraîchissement complet du dossier ──────────────────────────────────────
+  const refreshCommande = async (commandeId) => {
+    const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commandeId).single();
+    if (data) {
+      setCommande(data);
+      const tarifCmd = tarifs.find(t => String(t.categorie) === String(data.categorie));
+      const prixCents = tarifCmd ? tarifCmd.prix_cents : (data.montant_total_cents || 0);
+      await loadHistorique(commandeId, prixCents);
+    }
+  };
+
+  // ── Ouverture de caisse ────────────────────────────────────────────────────
   const handleOuvrirCaisse = async (e) => {
     e.preventDefault();
     const fondCents = Math.round((parseFloat(fondDeCaisse) || 0) * 100);
@@ -210,14 +277,13 @@ export default function PriseEnCharge() {
       }).select().single();
       if (error) throw error;
 
-      // ── Enregistrement du fond de caisse dans la comptabilité ──
       if (fondCents > 0) {
         await enregistrerMouvement({
-          type_mouvement:   'fond_caisse',
-          montant_cents:    fondCents,
-          moyen_paiement:   'especes',
-          caisse_id:        data.id,
-          notes:            `Fond de caisse déclaré à l'ouverture`,
+          type_mouvement: 'fond_caisse',
+          montant_cents:  fondCents,
+          moyen_paiement: 'especes',
+          caisse_id:      data.id,
+          notes:          `Fond de caisse déclaré à l'ouverture`,
         });
       }
 
@@ -228,15 +294,12 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur lors de l'ouverture de caisse.", "error"); }
   };
 
-  // ── Préparation de la clôture ──────────────────────────────────────────────
   const preparerCloture = async () => {
     try {
       const th = await getTheoriqueCaisse(activeCaisse.id, activeCaisse.fond_caisse_initial_cents || 0);
       setTheoriqueCaisse(th);
       setShowClotureModal(true);
-    } catch (err) {
-      showNotification("Erreur calcul clôture.", "error");
-    }
+    } catch (err) { showNotification("Erreur calcul clôture.", "error"); }
   };
 
   const handleCloturerCaisse = async (e) => {
@@ -263,9 +326,9 @@ export default function PriseEnCharge() {
       }).eq('id', activeCaisse.id);
       if (error) throw error;
       logAction('MODIFICATION', 'CAISSE', {
-        action: 'Clôture de caisse',
-        ecart_especes: ecartEspeces / 100,
-        ecart_cb:      ecartCb / 100,
+        action:           'Clôture de caisse',
+        ecart_especes:    ecartEspeces / 100,
+        ecart_cb:         ecartCb / 100,
         justification
       });
       setActiveCaisse(null); setShowClotureModal(false);
@@ -273,7 +336,7 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
   };
 
-  // ── Création réservation guichet ──────────────────────────────────────────
+  // ── Création réservation guichet ─────────────────────────────────────────
   const openCreateModal = async () => {
     if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
     setLoading(true);
@@ -327,9 +390,9 @@ export default function PriseEnCharge() {
       if (error) throw error;
 
       logAction('CREATION', 'COMMANDE', {
-        ticket: data.ticket_num,
-        source: 'guichet_sur_place',
-        client: `${newResaForm.first_name} ${newResaForm.last_name}`
+        ticket:  data.ticket_num,
+        source:  'guichet_sur_place',
+        client:  `${newResaForm.first_name} ${newResaForm.last_name}`
       });
       showNotification(`Réservation enregistrée ! Ticket N°${data.ticket_num}`, "success");
       setShowCreateModal(false);
@@ -350,40 +413,40 @@ export default function PriseEnCharge() {
     try {
       const montantAjouteCents = Math.round(montantAsaisi * 100);
 
-      // ── Ligne comptabilité ──
       await enregistrerMouvement({
-        type_mouvement:    'encaissement',
-        montant_cents:     montantAjouteCents,
-        moyen_paiement:    modePaiement,   // 'especes' ou 'cb'
-        commande_id:       commande.id,
-        ticket_num:        commande.ticket_num,
-        caisse_id:         activeCaisse.id,
-        notes:             `Encaissement guichet — ${commande.sacrifice_name}`,
+        type_mouvement: 'encaissement',
+        montant_cents:  montantAjouteCents,
+        moyen_paiement: modePaiement,
+        commande_id:    commande.id,
+        ticket_num:     commande.ticket_num,
+        caisse_id:      activeCaisse.id,
+        notes:          `Encaissement guichet — ${commande.sacrifice_name}`,
       });
 
-      const ancienPayeCents    = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
-      const nouveauTotalPayeCents = ancienPayeCents + montantAjouteCents;
+      // ── Mise à jour du champ montant_paye_cents dans la table commandes ──
+      // On utilise le net encaissé depuis la comptabilite comme base de vérité
+      const ancienNetCents    = computedFinances ? computedFinances.netEncaisseCents : (commande.montant_paye_cents ?? commande.acompte_cents ?? 0);
+      const nouveauTotalPaye  = ancienNetCents + montantAjouteCents;
+      const tarifActuel       = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+      const totalCents        = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
 
       let nouveauStatut = commande.statut;
-      const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents  = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
-
-      if (nouveauTotalPayeCents >= totalCents)                          nouveauStatut = 'paye_integralement';
-      else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) nouveauStatut = 'acompte_paye';
+      if (nouveauTotalPaye >= totalCents)                                    nouveauStatut = 'paye_integralement';
+      else if (nouveauStatut === 'en_attente' && nouveauTotalPaye > 0)       nouveauStatut = 'acompte_paye';
 
       await supabase.from('commandes').update({
-        montant_paye_cents: nouveauTotalPayeCents,
-        statut: nouveauStatut
+        montant_paye_cents: nouveauTotalPaye,
+        statut:             nouveauStatut
       }).eq('id', commande.id);
 
       logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant_encaisse: montantAsaisi, moyen: modePaiement });
       showNotification("Paiement encaissé avec succès.", "success");
-      const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
-      if (data) selectCommande(data);
+      setMontantEncaisse("");
+      await refreshCommande(commande.id);
     } catch (err) { showNotification("Erreur d'encaissement : " + err.message, "error"); } finally { setLoadingPaiement(false); }
   };
 
-  // ── Génération lien Stripe guichet ────────────────────────────────────────
+  // ── Génération lien Stripe guichet ───────────────────────────────────────
   const lancerPaiementStripe = async () => {
     const montantAsaisi = parseFloat(montantEncaisse) || 0;
     if (montantAsaisi <= 0) return showNotification("Saisissez un montant avant de générer le lien Stripe.", "info");
@@ -427,7 +490,6 @@ export default function PriseEnCharge() {
     try {
       const { montantCents, sessionId } = stripeModal;
 
-      // ── Vérification anti-doublon ──
       const dejaEnregistre = await paiementDejaEnregistre(sessionId);
       if (dejaEnregistre) {
         showNotification("Ce paiement Stripe a déjà été enregistré.", "info");
@@ -435,7 +497,6 @@ export default function PriseEnCharge() {
         return;
       }
 
-      // ── Ligne comptabilité ──
       await enregistrerMouvement({
         type_mouvement:    'encaissement',
         montant_cents:     montantCents,
@@ -447,22 +508,21 @@ export default function PriseEnCharge() {
         notes:             `Lien Stripe généré au guichet — ${commande.sacrifice_name}`,
       });
 
-      const ancienPayeCents       = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
-      const nouveauTotalPayeCents = ancienPayeCents + montantCents;
-      const tarifActuel           = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents            = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
-      const nouveauStatut         = nouveauTotalPayeCents >= totalCents ? 'paye_integralement' : 'acompte_paye';
+      const ancienNetCents   = computedFinances ? computedFinances.netEncaisseCents : (commande.montant_paye_cents ?? commande.acompte_cents ?? 0);
+      const nouveauTotalPaye = ancienNetCents + montantCents;
+      const tarifActuel      = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+      const totalCents       = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const nouveauStatut    = nouveauTotalPaye >= totalCents ? 'paye_integralement' : 'acompte_paye';
 
       await supabase.from('commandes').update({
-        montant_paye_cents: nouveauTotalPayeCents,
-        statut: nouveauStatut
+        montant_paye_cents: nouveauTotalPaye,
+        statut:             nouveauStatut
       }).eq('id', commande.id);
 
       logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant: montantCents / 100, moyen: 'stripe_guichet' });
       showNotification("Paiement Stripe confirmé et enregistré !", "success");
       setStripeModal(null); setMontantEncaisse("");
-      const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
-      if (data) selectCommande(data);
+      await refreshCommande(commande.id);
     } catch (err) { showNotification("Erreur enregistrement : " + err.message, "error"); }
   };
 
@@ -474,7 +534,7 @@ export default function PriseEnCharge() {
     });
   };
 
-  // ── Changement de catégorie ───────────────────────────────────────────────
+  // ── Changement de catégorie ──────────────────────────────────────────────
   const appliquerCategorie = async () => {
     if (!commande) return;
     if (!categorieChoisie) return showNotification("Sélectionnez une catégorie.", "error");
@@ -487,20 +547,19 @@ export default function PriseEnCharge() {
         .eq("id", commande.id);
       if (error) throw error;
       logAction('MODIFICATION', 'COMMANDE', {
-        ticket: commande.ticket_num,
-        nouvelle_categorie: categorieChoisie,
+        ticket:               commande.ticket_num,
+        nouvelle_categorie:   categorieChoisie,
         nouveau_montant_total: tarif.prix_cents / 100
       });
       showNotification("Catégorie appliquée.", "success");
-      const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
-      if (data) selectCommande(data);
+      // Rechargement complet + recalcul des finances avec le nouveau prix
+      await refreshCommande(commande.id);
     } catch (err) { showNotification("Erreur : " + err.message, "error"); } finally { setLoadingCategorie(false); }
   };
 
-  // ── Annulation d'une transaction ──────────────────────────────────────────
+  // ── Annulation d'une transaction ─────────────────────────────────────────
   const promptAnnulerTransaction = (transaction) => {
     if (!activeCaisse) return showNotification("Caisse fermée.", "error");
-    // On ne peut pas annuler les paiements Stripe (gérés côté Stripe)
     if (transaction.moyen_paiement === 'stripe_web' || transaction.moyen_paiement === 'stripe_guichet') {
       return showNotification("Impossible d'annuler un paiement Stripe ici. Utilisez le dashboard Stripe.", "error");
     }
@@ -514,30 +573,30 @@ export default function PriseEnCharge() {
     if (!cancelReason.trim()) return showNotification("Saisissez un motif.", "info");
     setLoadingCancel(true);
     try {
-      // ── Ligne comptabilité négative ──
       await enregistrerMouvement({
-        type_mouvement:    'annulation',
-        montant_cents:     -Math.abs(transactionToCancel.montant_cents),
-        moyen_paiement:    transactionToCancel.moyen_paiement,
-        commande_id:       commande.id,
-        ticket_num:        commande.ticket_num,
-        caisse_id:         activeCaisse.id,
-        motif:             cancelReason,
-        notes:             `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
+        type_mouvement: 'annulation',
+        montant_cents:  -Math.abs(transactionToCancel.montant_cents),
+        moyen_paiement: transactionToCancel.moyen_paiement,
+        commande_id:    commande.id,
+        ticket_num:     commande.ticket_num,
+        caisse_id:      activeCaisse.id,
+        motif:          cancelReason,
+        notes:          `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
       });
 
-      const ancienPayeCents   = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
-      const nouveauPayeCents  = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
-      let nouveauStatut       = commande.statut;
-      const tarifActuel       = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents        = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      // Mise à jour du statut basée sur le net après annulation
+      const ancienNetCents  = computedFinances ? computedFinances.netEncaisseCents : 0;
+      const nouveauNetCents = Math.max(0, ancienNetCents - Math.abs(transactionToCancel.montant_cents));
+      const tarifActuel     = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+      const totalCents      = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
 
-      if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') {
-        nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente';
+      let nouveauStatut = commande.statut;
+      if (nouveauNetCents < totalCents && commande.statut === 'paye_integralement') {
+        nouveauStatut = nouveauNetCents > 0 ? 'acompte_paye' : 'en_attente';
       }
       await supabase.from('commandes').update({
-        montant_paye_cents: nouveauPayeCents,
-        statut: nouveauStatut
+        montant_paye_cents: nouveauNetCents,
+        statut:             nouveauStatut
       }).eq('id', commande.id);
 
       logAction('SUPPRESSION', 'CAISSE', {
@@ -547,11 +606,11 @@ export default function PriseEnCharge() {
       });
       showNotification("Annulation tracée.", "success");
       setShowCancelModal(false); setTransactionToCancel(null);
-      loadCommandeById(commande.id);
+      await refreshCommande(commande.id);
     } catch (err) { showNotification("Erreur d'annulation : " + err.message, "error"); } finally { setLoadingCancel(false); }
   };
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────
   const getJourLabel = (dateStr) => {
     if (!dateStr) return "SANS CRÉNEAU";
     const j = joursConfig.find(jd => jd.date_fete === dateStr);
@@ -567,17 +626,19 @@ export default function PriseEnCharge() {
 
   const handlePrint = () => { window.print(); };
 
-  const tarifActuel    = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
-  const total          = commande ? (tarifActuel?.prix_cents ? tarifActuel.prix_cents / 100 : (commande.montant_total_cents / 100)) : 0;
-  const dejaPayeCents  = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
-  const dejaPaye       = dejaPayeCents / 100;
-  const resteAPayer    = Math.max(0, total - dejaPaye);
-  const isPaye         = resteAPayer <= 0.05;
+  // ── Calculs financiers — basés sur computedFinances (table comptabilite) ─
+  const tarifActuel   = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
+  const prixVenteCents = commande ? (tarifActuel?.prix_cents || commande.montant_total_cents || 0) : 0;
+  const total          = prixVenteCents / 100;
+  const dejaPaye       = computedFinances ? computedFinances.netEncaisse : 0;
+  const dejaPayeCents  = computedFinances ? computedFinances.netEncaisseCents : 0;
+  const resteAPayer    = computedFinances ? computedFinances.resteAPayer : total;
+  const isPaye         = computedFinances ? computedFinances.estSolde : false;
 
   const MODES_PAIEMENT = [
-    { key: 'especes',        label: 'Espèces',        icon: <FiDollarSign />,  color: 'emerald' },
-    { key: 'cb',             label: 'Carte Bancaire',  icon: <FiCreditCard />,  color: 'blue'    },
-    { key: 'stripe',         label: 'Lien Stripe',     icon: <FiSmartphone />,  color: 'purple'  },
+    { key: 'especes', label: 'Espèces',       icon: <FiDollarSign />, color: 'emerald' },
+    { key: 'cb',      label: 'Carte Bancaire', icon: <FiCreditCard />, color: 'blue'    },
+    { key: 'stripe',  label: 'Lien Stripe',    icon: <FiSmartphone />, color: 'purple'  },
   ];
 
   return (
@@ -602,7 +663,7 @@ export default function PriseEnCharge() {
               <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
               Caisse & Encaissement
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement espèces, CB ou lien Stripe — tout est tracé.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Finances calculées en temps réel depuis la table <code className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">comptabilite</code>.</p>
           </div>
 
           <div>
@@ -638,7 +699,7 @@ export default function PriseEnCharge() {
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in mt-8">
 
-            {/* ── Colonne gauche : recherche ─────────────────────────────── */}
+            {/* ── Colonne gauche : recherche ───────────────────────────────── */}
             <div className="xl:col-span-1 space-y-6">
               <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
                 <div className="p-5 space-y-5">
@@ -682,7 +743,7 @@ export default function PriseEnCharge() {
               )}
             </div>
 
-            {/* ── Colonne droite : dossier + encaissement ────────────────── */}
+            {/* ── Colonne droite : dossier + encaissement ──────────────────── */}
             <div className="xl:col-span-2">
               {commande ? (
                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
@@ -693,7 +754,11 @@ export default function PriseEnCharge() {
                       <h3 className="font-bold text-slate-700 dark:text-slate-200 text-xl">Dossier N°{commande.ticket_num}</h3>
                     </div>
                     <div className="flex items-center gap-3">
-                      {isPaye ? (
+                      {loadingHistorique ? (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 flex items-center gap-1 animate-pulse">
+                          <FiLoader className="animate-spin" /> Calcul...
+                        </span>
+                      ) : isPaye ? (
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
                       ) : (
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
@@ -705,7 +770,8 @@ export default function PriseEnCharge() {
                   </div>
 
                   <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
-                    {/* Info client */}
+                    
+                    {/* ── Info client + résumé financier ──────────────────── */}
                     <div className="lg:w-1/3 space-y-6">
                       <div className="text-center lg:text-left">
                         <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto lg:mx-0 mb-3 text-2xl text-slate-400"><FiUser /></div>
@@ -727,17 +793,82 @@ export default function PriseEnCharge() {
                         </div>
                       )}
 
-                      <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
-                        <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
-                        <div className="flex justify-between text-sm items-center"><span className="text-slate-500">Total Payé</span><span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span></div>
-                        <div className="flex justify-between text-base pt-2 border-t border-slate-100 dark:border-slate-700">
-                          <span className="font-bold text-slate-700 dark:text-slate-300">Reste à payer</span>
-                          <span className={`font-black ${resteAPayer < 0.05 ? 'text-emerald-500' : 'text-slate-900 dark:text-white'}`}>{resteAPayer < 0.05 ? "0.00 €" : `${resteAPayer.toFixed(2)} €`}</span>
+                      {/* ── RÉSUMÉ FINANCIER DEPUIS COMPTABILITE ─────────── */}
+                      <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
+                        <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                            <FiTrendingUp className="text-teal-500" /> Résumé Financier
+                          </p>
+                          <span className="text-[9px] font-bold bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 px-1.5 py-0.5 rounded">
+                            comptabilite
+                          </span>
                         </div>
+
+                        {loadingHistorique ? (
+                          <div className="p-6 flex items-center justify-center">
+                            <FiLoader className="animate-spin text-indigo-500 text-xl" />
+                            <span className="ml-2 text-sm text-slate-400 font-medium">Calcul en cours...</span>
+                          </div>
+                        ) : computedFinances ? (
+                          <div className="p-4 space-y-2.5">
+                            {/* Prix de vente */}
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-slate-500">Prix de vente</span>
+                              <span className="font-bold text-slate-700 dark:text-slate-200">{computedFinances.prixVente.toFixed(2)} €</span>
+                            </div>
+
+                            {/* Encaissements bruts */}
+                            {computedFinances.totalEncaisseCents > 0 && (
+                              <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                                  Encaissements bruts
+                                </span>
+                                <span className="font-bold text-emerald-600">+{computedFinances.totalEncaisse.toFixed(2)} €</span>
+                              </div>
+                            )}
+
+                            {/* Annulations */}
+                            {computedFinances.totalAnnuleCents > 0 && (
+                              <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
+                                  Annulations
+                                </span>
+                                <span className="font-bold text-red-500">-{computedFinances.totalAnnule.toFixed(2)} €</span>
+                              </div>
+                            )}
+
+                            {/* Net encaissé */}
+                            <div className="flex justify-between items-center text-sm pt-2 border-t border-slate-100 dark:border-slate-700">
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">Net encaissé</span>
+                              <span className="font-black text-teal-600 dark:text-teal-400">{computedFinances.netEncaisse.toFixed(2)} €</span>
+                            </div>
+
+                            {/* Reste à payer */}
+                            <div className={`flex justify-between items-center px-3 py-3 rounded-xl mt-1 ${
+                              computedFinances.estSolde
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
+                                : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                            }`}>
+                              <span className={`text-sm font-bold ${computedFinances.estSolde ? 'text-emerald-700 dark:text-emerald-400' : 'text-orange-700 dark:text-orange-400'}`}>
+                                {computedFinances.estSolde ? '✅ Soldé' : '⏳ Reste à payer'}
+                              </span>
+                              <span className={`text-xl font-black ${computedFinances.estSolde ? 'text-emerald-600' : 'text-orange-600 dark:text-orange-400'}`}>
+                                {computedFinances.estSolde ? '0.00 €' : `${computedFinances.resteAPayer.toFixed(2)} €`}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center">
+                            <p className="text-xs text-slate-400 italic">Aucune transaction enregistrée</p>
+                            <p className="text-sm font-black text-orange-600 mt-1">{total.toFixed(2)} € à encaisser</p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Formulaire encaissement */}
+                    {/* ── Formulaire encaissement + historique ─────────────── */}
                     <div className="lg:w-2/3 flex flex-col gap-6">
 
                       {!isPaye ? (
@@ -790,14 +921,27 @@ export default function PriseEnCharge() {
                         </div>
                       )}
 
-                      {/* ── Historique comptable du ticket ── */}
+                      {/* ── Historique comptable du ticket (depuis comptabilite) ── */}
                       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
-                        <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique comptable du ticket</h4>
+                        <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                            <FiClock className="text-indigo-500" /> Transactions (table comptabilite)
+                          </h4>
+                          {loadingHistorique && <FiLoader className="animate-spin text-indigo-400 text-sm" />}
+                          {!loadingHistorique && historique.length > 0 && (
+                            <span className="text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">
+                              {historique.length} ligne{historique.length > 1 ? 's' : ''}
+                            </span>
+                          )}
                         </div>
                         <div className="p-4 max-h-72 overflow-y-auto">
-                          {historique.length === 0 ? (
-                            <p className="text-center text-slate-400 text-sm py-4">Aucun encaissement enregistré.</p>
+                          {loadingHistorique ? (
+                            <p className="text-center text-slate-400 text-sm py-4 animate-pulse">Chargement des transactions...</p>
+                          ) : historique.length === 0 ? (
+                            <div className="flex flex-col items-center py-6 text-slate-400">
+                              <FiInfo className="text-3xl mb-2 opacity-40" />
+                              <p className="text-sm font-medium">Aucune transaction enregistrée.</p>
+                            </div>
                           ) : (
                             <div className="space-y-3">
                               {historique.map(tx => (
