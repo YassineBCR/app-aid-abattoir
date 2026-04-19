@@ -31,6 +31,40 @@ function getStatutMetier(cmd) {
   return "attente";
 }
 
+// ─── Calcule les totaux financiers depuis les transactions comptabilité ───────
+function computeFinancesFromHistory(history, montantTotalCents) {
+  let totalEncaisseCents = 0;
+  let totalAnnuleCents   = 0;
+
+  history.forEach(tx => {
+    const montant = Number(tx.montant_cents) || 0;
+    if (tx.type_mouvement === 'encaissement' && montant > 0) {
+      totalEncaisseCents += montant;
+    } else if (tx.type_mouvement === 'annulation' && montant < 0) {
+      totalAnnuleCents += Math.abs(montant);
+    }
+  });
+
+  const netEncaisseCents = totalEncaisseCents - totalAnnuleCents;
+  const prixVenteCents   = Number(montantTotalCents) || 0;
+  const resteAPayer      = Math.max(0, prixVenteCents - netEncaisseCents);
+
+  return {
+    totalEncaisseCents,
+    totalAnnuleCents,
+    netEncaisseCents,
+    prixVenteCents,
+    resteAPayerCents: resteAPayer,
+    // En euros
+    totalEncaisse: totalEncaisseCents / 100,
+    totalAnnule:   totalAnnuleCents / 100,
+    netEncaisse:   netEncaisseCents / 100,
+    prixVente:     prixVenteCents / 100,
+    resteAPayer:   resteAPayer / 100,
+    estSolde:      resteAPayer <= 5, // 5 centimes de tolérance
+  };
+}
+
 export default function Tableau({ changeTab, userRole }) {
   const { showNotification } = useNotification();
   const [commandes, setCommandes]           = useState([]);
@@ -49,6 +83,7 @@ export default function Tableau({ changeTab, userRole }) {
 
   const [selectedOrder, setSelectedOrder]     = useState(null);
   const [orderHistory, setOrderHistory]       = useState([]);
+  const [computedFinances, setComputedFinances] = useState(null); // ← NOUVEAU
   const [loadingHistory, setLoadingHistory]   = useState(false);
   const [sendingMail, setSendingMail]         = useState(false);
   const [isDeleting, setIsDeleting]           = useState(false);
@@ -163,20 +198,27 @@ export default function Tableau({ changeTab, userRole }) {
 
   const uniqueDates = [...new Set(creneauxConfig.map(c => c.date))];
 
-  // ── Chargement historique depuis comptabilite ──────────────────────────────
+  // ── Chargement historique + calcul finances depuis comptabilite ────────────
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
     setLoadingHistory(true);
+    setComputedFinances(null); // reset
     setIsEditing(false);
     try {
-      // ← Lecture depuis la nouvelle table comptabilite
       const { data, error } = await supabase
         .from('comptabilite')
         .select('*')
         .eq('commande_id', cmd.id)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setOrderHistory(data || []);
+
+      const history = data || [];
+      setOrderHistory(history);
+
+      // ← Calcul des finances depuis les transactions
+      const finances = computeFinancesFromHistory(history, cmd.montant_total_cents);
+      setComputedFinances(finances);
+
     } catch (err) {
       console.error(err);
       showNotification("Erreur chargement historique", "error");
@@ -185,7 +227,7 @@ export default function Tableau({ changeTab, userRole }) {
     }
   };
 
-  const handleCloseModal  = () => { setSelectedOrder(null); setIsEditing(false); };
+  const handleCloseModal  = () => { setSelectedOrder(null); setIsEditing(false); setComputedFinances(null); };
   const startEditing      = () => {
     setEditFormData({ ...selectedOrder, montant_total_euros: (selectedOrder.montant_total_cents / 100).toFixed(2) });
     setIsEditing(true);
@@ -210,6 +252,9 @@ export default function Tableau({ changeTab, userRole }) {
       if (error) throw error;
       showNotification("Modifications enregistrées avec succès", "success");
       logAction('MODIFICATION', 'COMMANDE', { action: 'Modification manuelle du dossier', ticket: selectedOrder.ticket_num });
+      // Recalculer les finances avec le nouveau prix
+      const finances = computeFinancesFromHistory(orderHistory, data.montant_total_cents);
+      setComputedFinances(finances);
       setSelectedOrder(data);
       setIsEditing(false);
     } catch (err) {
@@ -319,6 +364,7 @@ export default function Tableau({ changeTab, userRole }) {
       showNotification("Supprimée avec succès", "success");
       logAction('SUPPRESSION', 'COMMANDE', { action: 'Suppression définitive', ticket: selectedOrder.ticket_num });
       setSelectedOrder(null);
+      setComputedFinances(null);
     } catch (err) { showNotification("Erreur suppression", "error"); }
     finally { setIsDeleting(false); }
   };
@@ -421,7 +467,6 @@ export default function Tableau({ changeTab, userRole }) {
     return <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><FiClock /> Attente</span>;
   };
 
-  // ← Mise à jour pour les nouveaux moyens de paiement
   const getPaymentIcon = (moyen) => {
     switch (moyen) {
       case 'especes':         return <FiDollarSign />;
@@ -762,42 +807,111 @@ export default function Tableau({ changeTab, userRole }) {
                   )}
                 </div>
 
-                {/* Bloc Finances */}
+                {/* ─── Bloc Finances — calculé depuis comptabilite ─────────────── */}
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-                  <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2"><FiDollarSign /> État Financier</h4>
+                  <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <FiDollarSign /> État Financier
+                    <span className="ml-auto text-[9px] font-bold bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded">comptabilite</span>
+                  </h4>
+
                   {isEditing ? (
                     <div>
                       <label className="text-xs text-slate-500 mb-1 block">Prix de vente total (€)</label>
                       <input type="number" step="0.01" value={editFormData.montant_total_euros} onChange={e => setEditFormData({ ...editFormData, montant_total_euros: e.target.value })} className="w-full p-2.5 text-sm border-2 rounded-xl dark:bg-slate-900 dark:border-slate-700 dark:text-white outline-none focus:border-amber-500" />
-                      <p className="text-[10px] text-amber-600 mt-1.5 font-medium leading-tight">Attention: Changer ce prix recalculera le "Reste à payer".</p>
+                      <p className="text-[10px] text-amber-600 mt-1.5 font-medium leading-tight">Attention : changer ce prix recalculera le "Reste à payer".</p>
                     </div>
-                  ) : (
+                  ) : loadingHistory ? (
+                    <div className="flex items-center justify-center py-6">
+                      <FiLoader className="animate-spin text-teal-500 text-2xl" />
+                    </div>
+                  ) : computedFinances ? (
                     <div className="space-y-2">
-                      <div className="flex justify-between text-sm"><span className="text-slate-500">Prix de vente:</span><span className="font-bold dark:text-white">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-slate-500">Total Encaissé:</span><span className="font-bold text-emerald-600">{((selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0) / 100).toFixed(2)} €</span></div>
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Reste</span>
-                        <span className="font-black text-lg text-slate-800 dark:text-white">{Math.max(0, ((selectedOrder.montant_total_cents || 0) - (selectedOrder.montant_paye_cents || selectedOrder.acompte_cents || 0)) / 100).toFixed(2)} €</span>
+                      {/* Prix de vente */}
+                      <div className="flex justify-between items-center text-sm py-1.5 border-b border-slate-100 dark:border-slate-700">
+                        <span className="text-slate-500">Prix de vente</span>
+                        <span className="font-bold dark:text-white">{computedFinances.prixVente.toFixed(2)} €</span>
                       </div>
+
+                      {/* Total encaissé brut */}
+                      <div className="flex justify-between items-center text-sm py-1.5">
+                        <span className="text-slate-500 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                          Encaissements
+                        </span>
+                        <span className="font-bold text-emerald-600">+{computedFinances.totalEncaisse.toFixed(2)} €</span>
+                      </div>
+
+                      {/* Annulations (si existantes) */}
+                      {computedFinances.totalAnnule > 0 && (
+                        <div className="flex justify-between items-center text-sm py-1.5">
+                          <span className="text-slate-500 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
+                            Annulations
+                          </span>
+                          <span className="font-bold text-red-500">-{computedFinances.totalAnnule.toFixed(2)} €</span>
+                        </div>
+                      )}
+
+                      {/* Net encaissé */}
+                      <div className="flex justify-between items-center text-sm py-1.5 border-t border-slate-100 dark:border-slate-700">
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">Net encaissé</span>
+                        <span className="font-black text-teal-600 dark:text-teal-400">{computedFinances.netEncaisse.toFixed(2)} €</span>
+                      </div>
+
+                      {/* Reste à payer — mise en valeur */}
+                      <div className={`flex justify-between items-center px-3 py-3 rounded-xl mt-1 ${
+                        computedFinances.estSolde
+                          ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
+                          : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                      }`}>
+                        <span className={`text-sm font-bold ${computedFinances.estSolde ? 'text-emerald-700 dark:text-emerald-400' : 'text-orange-700 dark:text-orange-400'}`}>
+                          {computedFinances.estSolde ? '✅ Soldé' : '⏳ Reste à payer'}
+                        </span>
+                        <span className={`text-xl font-black ${computedFinances.estSolde ? 'text-emerald-600' : 'text-orange-600 dark:text-orange-400'}`}>
+                          {computedFinances.estSolde ? '0.00 €' : `${computedFinances.resteAPayer.toFixed(2)} €`}
+                        </span>
+                      </div>
+
+                      {/* Référence Stripe si présente */}
                       {selectedOrder.stripe_ref && (
-                        <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700">
+                        <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700">
                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
                           <p className="text-[11px] font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 break-all select-all">{selectedOrder.stripe_ref}</p>
                         </div>
                       )}
                     </div>
+                  ) : (
+                    // Aucune transaction en base
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-sm py-1.5 border-b border-slate-100 dark:border-slate-700">
+                        <span className="text-slate-500">Prix de vente</span>
+                        <span className="font-bold dark:text-white">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span>
+                      </div>
+                      <div className="flex justify-between items-center px-3 py-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 mt-2">
+                        <span className="text-sm font-bold text-orange-700 dark:text-orange-400">⏳ Reste à payer</span>
+                        <span className="text-xl font-black text-orange-600">{(selectedOrder.montant_total_cents / 100).toFixed(2)} €</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 text-center italic mt-1">Aucune transaction enregistrée</p>
+                    </div>
                   )}
                 </div>
+                {/* ────────────────────────────────────────────────────────────── */}
+
               </div>
 
               {/* ── Historique paiements (depuis comptabilite) ── */}
               {!isEditing && (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                  <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700">
+                  <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
                     <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                      <FiClock className="text-indigo-500" /> Historique des paiements
+                      <FiClock className="text-indigo-500" /> Historique des transactions
                       <span className="text-xs text-slate-400 font-medium ml-1">(table <code className="font-mono">comptabilite</code>)</span>
                     </h4>
+                    {orderHistory.length > 0 && (
+                      <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg font-bold">
+                        {orderHistory.length} ligne{orderHistory.length > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                   <div className="p-4">
                     {loadingHistory ? (
@@ -808,39 +922,42 @@ export default function Tableau({ changeTab, userRole }) {
                       <div className="space-y-3">
                         {orderHistory.map(tx => (
                           <div key={tx.id} className={`flex flex-col sm:flex-row sm:items-start justify-between p-3 rounded-xl border gap-3 ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100 dark:bg-red-900/10 dark:border-red-900/50' : 'bg-slate-50 border-slate-100 dark:bg-slate-800 dark:border-slate-700'}`}>
-                          <div className="flex-1">
-                            <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm">
-                              {getPaymentIcon(tx.moyen_paiement)}
-                              <span className="uppercase">{getMoyenLabel(tx.moyen_paiement)}</span>
-                              {tx.type_mouvement === 'fond_caisse' && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-black">FOND</span>}
-                            </p>
-                            {/* ← created_at remplace date_paiement */}
-                            <p className="text-xs text-slate-500 mt-1">
-                              Le {new Date(tx.created_at).toLocaleString('fr-FR')}
-                            </p>
-                            {/* ← operateur_email remplace encaisse_par */}
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong>
-                            </p>
-                            {/* ← nouveau : affichage du motif d'annulation */}
-                            {tx.motif && (
-                              <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-900/20 inline-block px-2 py-1 rounded mt-1.5">
-                                Motif: {tx.motif}
+                            <div className="flex-1">
+                              <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm">
+                                {getPaymentIcon(tx.moyen_paiement)}
+                                <span className="uppercase">{getMoyenLabel(tx.moyen_paiement)}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-black ml-1 ${
+                                  tx.type_mouvement === 'encaissement' ? 'bg-emerald-100 text-emerald-700' :
+                                  tx.type_mouvement === 'annulation'   ? 'bg-red-100 text-red-700' :
+                                  'bg-slate-200 text-slate-600'
+                                }`}>
+                                  {tx.type_mouvement}
+                                </span>
                               </p>
-                            )}
-                            {tx.notes && !tx.motif && (
-                              <p className="text-[11px] text-slate-400 italic mt-1">{tx.notes}</p>
-                            )}
-                            {tx.reference_externe && (
-                              <p className="text-[10px] text-indigo-400 font-mono mt-1 truncate max-w-[200px]" title={tx.reference_externe}>
-                                Ref: {tx.reference_externe}
+                              <p className="text-xs text-slate-500 mt-1">
+                                Le {new Date(tx.created_at).toLocaleString('fr-FR')}
                               </p>
-                            )}
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong>
+                              </p>
+                              {tx.motif && (
+                                <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-900/20 inline-block px-2 py-1 rounded mt-1.5">
+                                  Motif : {tx.motif}
+                                </p>
+                              )}
+                              {tx.notes && !tx.motif && (
+                                <p className="text-[11px] text-slate-400 italic mt-1">{tx.notes}</p>
+                              )}
+                              {tx.reference_externe && (
+                                <p className="text-[10px] text-indigo-400 font-mono mt-1 truncate max-w-[200px]" title={tx.reference_externe}>
+                                  Ref : {tx.reference_externe}
+                                </p>
+                              )}
+                            </div>
+                            <div className={`text-right font-black text-lg mt-2 sm:mt-0 shrink-0 ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
+                            </div>
                           </div>
-                          <div className={`text-right font-black text-lg mt-2 sm:mt-0 shrink-0 ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                            {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
-                          </div>
-                        </div>
                         ))}
                       </div>
                     )}
