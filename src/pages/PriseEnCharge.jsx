@@ -167,7 +167,6 @@ export default function PriseEnCharge() {
   };
 
   const selectCommande = (cmd) => {
-    setHistorique([]); // On vide l'historique pour éviter les flashs d'anciennes données
     setCommande(cmd);
     setSearchInput(cmd.ticket_num?.toString() || "");
     setMontantEncaisse("");
@@ -362,10 +361,8 @@ export default function PriseEnCharge() {
         notes:             `Encaissement guichet — ${commande.sacrifice_name}`,
       });
 
-      // --- CALCUL DU NOUVEAU TOTAL PAYÉ VIA COMPTABILITÉ ---
-      // On additionne l'historique actuel + le mouvement qu'on vient de faire
-      const dejaPayeLocalCents = historique.reduce((acc, tx) => acc + Number(tx.montant_cents || 0), 0);
-      const nouveauTotalPayeCents = dejaPayeLocalCents + montantAjouteCents;
+      const ancienPayeCents    = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+      const nouveauTotalPayeCents = ancienPayeCents + montantAjouteCents;
 
       let nouveauStatut = commande.statut;
       const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
@@ -450,10 +447,8 @@ export default function PriseEnCharge() {
         notes:             `Lien Stripe généré au guichet — ${commande.sacrifice_name}`,
       });
 
-      // --- CALCUL DU NOUVEAU TOTAL PAYÉ VIA COMPTABILITÉ ---
-      const dejaPayeLocalCents = historique.reduce((acc, tx) => acc + Number(tx.montant_cents || 0), 0);
-      const nouveauTotalPayeCents = dejaPayeLocalCents + montantCents;
-      
+      const ancienPayeCents       = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+      const nouveauTotalPayeCents = ancienPayeCents + montantCents;
       const tarifActuel           = tarifs.find(t => String(t.categorie) === String(commande.categorie));
       const totalCents            = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
       const nouveauStatut         = nouveauTotalPayeCents >= totalCents ? 'paye_integralement' : 'acompte_paye';
@@ -531,10 +526,8 @@ export default function PriseEnCharge() {
         notes:             `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
       });
 
-      // --- CALCUL DU NOUVEAU TOTAL PAYÉ VIA COMPTABILITÉ (en soustrayant le montant annulé) ---
-      const dejaPayeLocalCents = historique.reduce((acc, tx) => acc + Number(tx.montant_cents || 0), 0);
-      const nouveauPayeCents  = Math.max(0, dejaPayeLocalCents - Math.abs(transactionToCancel.montant_cents));
-
+      const ancienPayeCents   = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+      const nouveauPayeCents  = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
       let nouveauStatut       = commande.statut;
       const tarifActuel       = tarifs.find(t => String(t.categorie) === String(commande.categorie));
       const totalCents        = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
@@ -574,17 +567,12 @@ export default function PriseEnCharge() {
 
   const handlePrint = () => { window.print(); };
 
-  // --- NOUVEAU SYSTÈME DE CALCUL BASÉ SUR LA TABLE COMPTABILITÉ (State historique) ---
-  const tarifActuel      = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
-  const total            = commande ? (tarifActuel?.prix_cents ? tarifActuel.prix_cents / 100 : (commande.montant_total_cents / 100)) : 0;
-  
-  // Somme de tous les montant_cents de l'historique chargé depuis la table comptabilite
-  const dejaPayeCents    = historique.reduce((acc, tx) => acc + Number(tx.montant_cents || 0), 0);
-  const dejaPaye         = dejaPayeCents / 100;
-  
-  const resteAPayer      = Math.max(0, total - dejaPaye);
-  // Seuil de tolérance de 5 centimes pour marquer comme payé
-  const isPaye           = commande ? (resteAPayer <= 0.05 && total > 0) : false;
+  const tarifActuel    = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
+  const total          = commande ? (tarifActuel?.prix_cents ? tarifActuel.prix_cents / 100 : (commande.montant_total_cents / 100)) : 0;
+  const dejaPayeCents  = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
+  const dejaPaye       = dejaPayeCents / 100;
+  const resteAPayer    = Math.max(0, total - dejaPaye);
+  const isPaye         = resteAPayer <= 0.05;
 
   const MODES_PAIEMENT = [
     { key: 'especes',        label: 'Espèces',        icon: <FiDollarSign />,  color: 'emerald' },
@@ -698,6 +686,7 @@ export default function PriseEnCharge() {
             <div className="xl:col-span-2">
               {commande ? (
                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
+
                   <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
@@ -709,7 +698,9 @@ export default function PriseEnCharge() {
                       ) : (
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
                       )}
-                      <button onClick={handleBackToList} className="hidden sm:flex px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-sm rounded-xl transition-colors"> Client Suivant </button>
+                      <button onClick={handleBackToList} className="hidden sm:flex px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-sm rounded-xl transition-colors">
+                        Client Suivant
+                      </button>
                     </div>
                   </div>
 
@@ -738,7 +729,7 @@ export default function PriseEnCharge() {
 
                       <div className="border-t border-slate-100 dark:border-slate-700 pt-6 space-y-3">
                         <div className="flex justify-between text-sm"><span className="text-slate-500">Prix Total</span><span className="font-bold dark:text-white">{total.toFixed(2)} €</span></div>
-                        <div className="flex justify-between text-sm items-center"><span className="text-slate-500">Total Payé (Comptabilité)</span><span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span></div>
+                        <div className="flex justify-between text-sm items-center"><span className="text-slate-500">Total Payé</span><span className="font-bold text-emerald-600">- {dejaPaye.toFixed(2)} €</span></div>
                         <div className="flex justify-between text-base pt-2 border-t border-slate-100 dark:border-slate-700">
                           <span className="font-bold text-slate-700 dark:text-slate-300">Reste à payer</span>
                           <span className={`font-black ${resteAPayer < 0.05 ? 'text-emerald-500' : 'text-slate-900 dark:text-white'}`}>{resteAPayer < 0.05 ? "0.00 €" : `${resteAPayer.toFixed(2)} €`}</span>
@@ -748,67 +739,96 @@ export default function PriseEnCharge() {
 
                     {/* Formulaire encaissement */}
                     <div className="lg:w-2/3 flex flex-col gap-6">
+
                       {!isPaye ? (
                         <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
                           <form onSubmit={validerPaiement} className="space-y-4">
                             <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"><FiCreditCard className="text-indigo-500" /> Nouvel Encaissement</label>
-                            
+
                             <div className="grid grid-cols-3 gap-3 mb-4">
                               {MODES_PAIEMENT.map(mode => (
-                                <button key={mode.key} type="button" onClick={() => setModePaiement(mode.key)} className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${modePaiement === mode.key ? `border-${mode.color}-500 bg-${mode.color}-50 text-${mode.color}-700 dark:bg-${mode.color}-900/20` : 'border-transparent bg-white dark:bg-slate-800 text-slate-500'}`}>
+                                <button key={mode.key} type="button" onClick={() => setModePaiement(mode.key)}
+                                  className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${modePaiement === mode.key ? mode.key === 'stripe' ? "border-purple-600 bg-purple-50 text-purple-700 ring-2 ring-purple-200 dark:bg-purple-900/20 dark:text-purple-400" : mode.key === 'cb' ? "border-blue-600 bg-blue-50 text-blue-700 ring-2 ring-blue-200" : "border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200" : "border-slate-200 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50"}`}
+                                >
                                   <div className="text-2xl">{mode.icon}</div>
-                                  <span className="text-[10px] font-black uppercase tracking-tighter">{mode.label}</span>
+                                  <span className="text-xs font-bold leading-tight text-center">{mode.label}</span>
                                 </button>
                               ))}
                             </div>
 
+                            {modePaiement === 'stripe' && (
+                              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl px-4 py-3 flex items-center gap-3 text-sm">
+                                <FiSmartphone className="text-purple-500 text-xl shrink-0" />
+                                <p className="text-purple-700 dark:text-purple-300 font-medium">
+                                  Un lien de paiement sera généré. Le client paie via son téléphone.
+                                </p>
+                              </div>
+                            )}
+
                             <div className="relative">
-                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl">€</span>
-                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} placeholder={resteAPayer.toFixed(2)} className="w-full pl-10 pr-4 py-5 bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 rounded-2xl text-2xl font-black outline-none focus:border-indigo-500 transition-all dark:text-white" />
-                              <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-bold rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors">MAX</button>
+                              <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"><span className="text-slate-400 text-xl font-bold">€</span></div>
+                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
+                              <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
                             </div>
 
-                            <button type="submit" disabled={loadingPaiement || !montantEncaisse} className="w-full py-5 bg-slate-900 dark:bg-indigo-600 hover:bg-black dark:hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg shadow-xl flex items-center justify-center gap-3 transition-all disabled:opacity-50">
-                              {loadingPaiement ? <FiRefreshCw className="animate-spin" /> : <FiCheckCircle />}
-                              {modePaiement === 'stripe' ? "Générer Lien Stripe" : `Encaisser ${montantEncaisse ? montantEncaisse + ' €' : ''}`}
+                            <button type="submit" disabled={loadingPaiement || !montantEncaisse}
+                              className={`w-full py-5 mt-2 font-bold text-lg rounded-xl shadow-lg flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-white ${modePaiement === 'stripe' ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30'}`}
+                            >
+                              {loadingPaiement ? "Traitement..." : modePaiement === 'stripe' ? <><FiSmartphone /> Générer le lien Stripe</> : <><FiCheckCircle /> Encaisser ce montant</>}
                             </button>
                           </form>
                         </div>
                       ) : (
-                        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-10 border-2 border-dashed border-emerald-200 dark:border-emerald-800 flex flex-col items-center justify-center text-center">
-                           <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-800/50 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4 animate-bounce-slow">
-                             <FiCheckCircle className="text-4xl" />
-                           </div>
-                           <h3 className="text-2xl font-black text-emerald-800 dark:text-emerald-400">Dossier Complet</h3>
-                           <p className="text-emerald-600 dark:text-emerald-500 mt-2 font-medium">Le paiement a été intégralement régularisé.</p>
-                           <button onClick={handlePrint} className="mt-8 px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center gap-2 transition-all">
-                             <FiPrinter /> Imprimer le ticket
-                           </button>
+                        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center animate-fade-in shadow-inner">
+                          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><FiCheckCircle className="text-3xl" /></div>
+                          <h3 className="text-2xl font-bold text-emerald-800 dark:text-emerald-400">Paiement Terminé</h3>
+                          <p className="text-emerald-600 dark:text-emerald-500 mt-1 mb-6 font-medium">Le client a réglé la totalité de sa commande.</p>
+                          <button onClick={handlePrint} className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all">
+                            <FiPrinter className="text-2xl" /> IMPRIMER LE TICKET ZEBRA
+                          </button>
+                          <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">IMPORTANT : Choisir "Format : 102x76mm" à l'impression.</p>
                         </div>
                       )}
 
-                      {/* Historique des paiements */}
-                      <div className="space-y-4">
-                        <h4 className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 text-sm uppercase tracking-widest"><FiClock className="text-indigo-500" /> Historique Transactions</h4>
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden">
+                      {/* ── Historique comptable du ticket ── */}
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique comptable du ticket</h4>
+                        </div>
+                        <div className="p-4 max-h-72 overflow-y-auto">
                           {historique.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400 text-sm italic">Aucun mouvement enregistré pour ce dossier.</div>
+                            <p className="text-center text-slate-400 text-sm py-4">Aucun encaissement enregistré.</p>
                           ) : (
-                            <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                              {historique.map((tx) => (
-                                <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
-                                  <div className="flex items-center gap-4">
+                            <div className="space-y-3">
+                              {historique.map(tx => (
+                                <div key={tx.id} className={`flex justify-between items-start p-3 rounded-xl border transition-all ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100 dark:bg-red-900/10 dark:border-red-900/50' : 'bg-white border-slate-100 dark:bg-slate-800 dark:border-slate-700'} shadow-sm`}>
+                                  <div className="space-y-1 flex-1">
                                     <MouvementBadge tx={tx} />
-                                    <div>
-                                      <p className="text-sm font-bold text-slate-800 dark:text-white">{(tx.montant_cents / 100).toFixed(2)} €</p>
-                                      <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">{new Date(tx.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
-                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                                      {new Date(tx.created_at).toLocaleString('fr-FR')}
+                                    </p>
+                                    <p className="text-[11px] text-slate-400">par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong></p>
+                                    {tx.reference_externe && (
+                                      <p className="text-[10px] text-indigo-400 font-mono truncate max-w-[200px]" title={tx.reference_externe}>
+                                        Ref: {tx.reference_externe.slice(0, 20)}…
+                                      </p>
+                                    )}
+                                    {tx.motif && (
+                                      <p className="text-[11px] text-red-600 font-bold bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded mt-1">
+                                        Motif: {tx.motif}
+                                      </p>
+                                    )}
                                   </div>
-                                  {tx.montant_cents > 0 && (
-                                    <button onClick={() => promptAnnulerTransaction(tx)} className="p-2 text-slate-300 hover:text-red-500 transition-colors" title="Annuler cet encaissement">
-                                      <FiTrash2 />
-                                    </button>
-                                  )}
+                                  <div className="text-right flex flex-col items-end gap-2 ml-3">
+                                    <span className={`font-black text-lg ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                      {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
+                                    </span>
+                                    {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe_web' && tx.moyen_paiement !== 'stripe_guichet' && tx.type_mouvement === 'encaissement' && (
+                                      <button onClick={() => promptAnnulerTransaction(tx)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
+                                        <FiTrash2 className="text-sm" />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -819,12 +839,10 @@ export default function PriseEnCharge() {
                   </div>
                 </div>
               ) : (
-                <div className="h-full min-h-[500px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                  <div className="w-20 h-20 bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center mb-6 text-slate-300 dark:text-slate-600">
-                    <FiFileText className="text-4xl" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-400 dark:text-slate-500">Sélectionnez une réservation</h3>
-                  <p className="text-slate-400 text-sm mt-2">Utilisez la recherche ou le scanner à gauche</p>
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-12 text-center opacity-70 animate-fade-in">
+                  <div className="w-24 h-24 bg-indigo-50 dark:bg-slate-700 rounded-full flex items-center justify-center mb-6 text-indigo-300 dark:text-slate-500"><FiCreditCard className="text-5xl" /></div>
+                  <h3 className="text-xl font-bold text-slate-400">Guichet Caisse Prêt</h3>
+                  <p className="text-slate-400 mt-2 max-w-sm mx-auto">Scannez un ticket ou créez une réservation pour encaisser.</p>
                 </div>
               )}
             </div>
@@ -832,202 +850,238 @@ export default function PriseEnCharge() {
         )}
       </div>
 
-      {/* ═══════════ TICKET CAISSE (INVISIBLE SAUF PRINT) ═══════════ */}
+      {/* ═══════════ TICKET ZEBRA (impression) ═══════════ */}
       {commande && (
         <div id="ticket-zebra" style={{ display: 'none' }}>
-          <div style={{ borderBottom: '1px dashed black', paddingBottom: '2mm', marginBottom: '2mm' }}>
-             <h2 style={{ fontSize: '14pt', fontWeight: '900', margin: '0 0 1mm 0' }}>REÇU DE PAIEMENT</h2>
-             <p style={{ fontSize: '9pt', margin: '0' }}>Abattoir — Aïd Al Adha</p>
+          <div style={{ width: '100%', borderBottom: '2px solid black', paddingBottom: '2mm', marginBottom: '2mm' }}>
+            <h1 style={{ fontSize: '13pt', fontWeight: '900', margin: 0, letterSpacing: '0.5px' }}>AÏD AL ADHA 2026</h1>
           </div>
-          
-          <div style={{ textAlign: 'left', fontSize: '10pt', marginBottom: '3mm' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Ticket: <strong>#{commande.ticket_num}</strong></span>
-              <span>Date: {new Date().toLocaleDateString('fr-FR')}</span>
+          <div style={{ display: 'block', width: '100%', marginTop: '4mm' }}>
+            <p style={{ fontSize: '16pt', fontWeight: 'bold', margin: '0 0 1mm 0' }}>Ticket :</p>
+            <div style={{ fontSize: '65pt', fontWeight: '900', lineHeight: 1, margin: '0 0 4mm 0' }}>{commande.ticket_num}</div>
+            <div style={{ fontSize: '20pt', fontWeight: 'bold', margin: '0 0 2mm 0', textTransform: 'uppercase' }}>
+              {commande.creneaux_horaires ? `${getJourLabel(commande.creneaux_horaires.date)} - ${formatHeure(commande.creneaux_horaires.heure_debut)}` : "SANS CRÉNEAU"}
             </div>
-            <div style={{ marginTop: '1mm' }}>
-              Client: <strong>{commande.contact_last_name} {commande.contact_first_name}</strong>
-            </div>
-            <div>Sacrifice: {commande.sacrifice_name}</div>
+            <div style={{ fontSize: '16pt', fontWeight: 'bold', margin: 0 }}>Catégorie {commande.categorie}</div>
           </div>
-
-          <div style={{ borderTop: '1px solid black', paddingTop: '2mm', marginBottom: '3mm' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10pt' }}>
-              <span>Catégorie {commande.categorie}</span>
-              <span>{total.toFixed(2)} €</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10pt', color: '#444' }}>
-              <span>Déjà réglé (Compta)</span>
-              <span>- {dejaPaye.toFixed(2)} €</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12pt', fontWeight: '900', marginTop: '1mm' }}>
-              <span>SOLDE</span>
-              <span>{resteAPayer.toFixed(2)} €</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <QRCodeCanvas value={JSON.stringify({ id: commande.id, ticket_num: commande.ticket_num })} size={80} />
-          </div>
-          <p style={{ fontSize: '7pt', marginTop: '2mm' }}>Veuillez conserver ce ticket pour le retrait.</p>
-        </div>
-      )}
-
-      {/* ═══════════ MODALES ═══════════ */}
-
-      {/* Modale Ouverture Caisse */}
-      {showOuvertureModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-zoom-in">
-            <div className="p-8">
-              <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-6 text-3xl mx-auto"><FiUnlock /></div>
-              <h2 className="text-2xl font-black text-center text-slate-900 dark:text-white">Ouverture de Caisse</h2>
-              <p className="text-slate-500 dark:text-slate-400 text-center mt-2">Saisissez votre fond de caisse initial pour commencer.</p>
-              
-              <form onSubmit={handleOuvrirCaisse} className="mt-8 space-y-6">
-                <div>
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fond de caisse (€)</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">€</span>
-                    <input type="number" step="0.01" value={fondDeCaisse} onChange={(e) => setFondDeCaisse(e.target.value)} required placeholder="0.00" className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-xl font-bold outline-none focus:border-indigo-500 dark:text-white" />
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setShowOuvertureModal(false)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-2xl hover:bg-slate-200 transition-colors">Annuler</button>
-                  <button type="submit" className="flex-2 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-all px-8">Ouvrir la session</button>
-                </div>
-              </form>
-            </div>
+          <div style={{ position: 'absolute', bottom: '3mm', left: '3mm', right: '3mm', borderTop: '2px dashed black', paddingTop: '2mm' }}>
+            <p style={{ fontSize: '8pt', fontWeight: 'bold', margin: '0 0 1mm 0', lineHeight: 1.1 }}>Aucun remboursement en cas de retard ou de saisie par la DDPP.</p>
+            <p style={{ fontSize: '7pt', fontWeight: 'bold', margin: 0, lineHeight: 1.1 }}>Interdiction au sac poubelle, merci de respecter les règles d'hygiène.</p>
           </div>
         </div>
       )}
 
-      {/* Modale Clôture Caisse */}
-      {showClotureModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl my-8 animate-zoom-in">
-            <div className="p-8">
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Clôture de Caisse</h2>
-                <div className="px-3 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 text-[10px] font-black rounded-lg uppercase tracking-wider">{new Date().toLocaleDateString('fr-FR')}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-100 dark:border-emerald-800">
-                  <p className="text-[10px] font-black text-emerald-800 dark:text-emerald-400 uppercase tracking-widest mb-1">Théorique Espèces</p>
-                  <p className="text-2xl font-black text-emerald-900 dark:text-emerald-300">{(theoriqueCaisse.especes / 100).toFixed(2)} €</p>
-                </div>
-                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                  <p className="text-[10px] font-black text-blue-800 dark:text-blue-400 uppercase tracking-widest mb-1">Théorique CB</p>
-                  <p className="text-2xl font-black text-blue-900 dark:text-blue-300">{(theoriqueCaisse.cb / 100).toFixed(2)} €</p>
-                </div>
-              </div>
-
-              <form onSubmit={handleCloturerCaisse} className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Réel Espèces (€)</label>
-                    <input type="number" step="0.01" value={reelEspeces} onChange={(e) => setReelEspeces(e.target.value)} required className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-lg font-bold outline-none focus:border-indigo-500 dark:text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Réel CB (€)</label>
-                    <input type="number" step="0.01" value={reelCb} onChange={(e) => setReelCb(e.target.value)} required className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-lg font-bold outline-none focus:border-indigo-500 dark:text-white" />
-                  </div>
-                </div>
-
-                {(reelEspeces !== "" || reelCb !== "") && (
-                  <div className={`p-4 rounded-2xl border-2 flex items-center justify-between ${ (Math.round(parseFloat(reelEspeces || 0)*100) - theoriqueCaisse.especes === 0 && Math.round(parseFloat(reelCb || 0)*100) - theoriqueCaisse.cb === 0) ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-orange-50 border-orange-100 text-orange-700'}`}>
-                    <div className="flex items-center gap-2">
-                      <FiAlertTriangle />
-                      <span className="text-sm font-bold">Écart total: {( (Math.round(parseFloat(reelEspeces || 0)*100) + Math.round(parseFloat(reelCb || 0)*100) - (theoriqueCaisse.especes + theoriqueCaisse.cb)) / 100).toFixed(2)} €</span>
-                    </div>
-                  </div>
-                )}
-
-                { (Math.round(parseFloat(reelEspeces || 0)*100) - theoriqueCaisse.especes !== 0 || Math.round(parseFloat(reelCb || 0)*100) - theoriqueCaisse.cb !== 0) && (
-                  <div className="animate-fade-in">
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Justification de l'écart</label>
-                    <textarea value={justification} onChange={(e) => setJustification(e.target.value)} required placeholder="Ex: Erreur rendu monnaie, client parti sans payer..." className="w-full p-4 bg-white dark:bg-slate-950 border-2 border-orange-200 dark:border-orange-900/50 rounded-xl text-sm outline-none focus:border-orange-500 dark:text-white" rows="3"></textarea>
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
-                  <button type="button" onClick={() => setShowClotureModal(false)} className="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors">Annuler</button>
-                  <button type="submit" className="flex-2 py-4 bg-slate-900 dark:bg-white dark:text-slate-900 text-white font-black rounded-2xl shadow-xl hover:scale-105 transition-all px-8">Confirmer la Clôture</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale Scanner */}
-      {showScanner && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[200] flex flex-col items-center justify-center p-6 animate-fade-in">
-          <button onClick={() => setShowScanner(false)} className="absolute top-8 right-8 text-white bg-white/10 p-4 rounded-full hover:bg-white/20 transition-all"><FiX className="text-3xl" /></button>
-          <div className="w-full max-w-lg aspect-square rounded-3xl overflow-hidden border-4 border-white/20 relative shadow-2xl">
-            <Scanner onScan={handleScan} />
-            <div className="absolute inset-0 border-[40px] border-black/40 pointer-events-none"></div>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-indigo-400 rounded-2xl animate-pulse"></div>
-          </div>
-          <h2 className="text-white text-2xl font-black mt-8">Scannez le Ticket</h2>
-          <p className="text-indigo-300 mt-2">Placez le QR Code dans le cadre</p>
-        </div>
-      )}
-
-      {/* Modale Annulation Transaction */}
-      {showCancelModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
-            <div className="p-8">
-              <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2 text-red-600"><FiTrash2 /> Annuler une transaction</h2>
-              <p className="text-slate-500 dark:text-slate-400 mt-3 text-sm">Vous êtes sur le point d'annuler un encaissement de <strong>{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> ({transactionToCancel.moyen_paiement}).</p>
-              
-              <form onSubmit={confirmAnnulerTransaction} className="mt-6 space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Motif de l'annulation</label>
-                  <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} required placeholder="Ex: Erreur de montant, client a changé d'avis..." className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-sm outline-none focus:border-red-500 dark:text-white" rows="2"></textarea>
-                </div>
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setShowCancelModal(false)} className="flex-1 py-3 text-slate-500 font-bold">Retour</button>
-                  <button type="submit" disabled={loadingCancel} className="flex-2 py-3 bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-500/30 hover:bg-red-700 disabled:opacity-50"> {loadingCancel ? "Traitement..." : "Confirmer l'annulation"} </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale Stripe (Lien) */}
+      {/* ═══════════ MODALE STRIPE GUICHET ═══════════ */}
       {stripeModal && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[300] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-zoom-in">
-            <div className="p-8 text-center">
-              <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/50 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl"><FiSmartphone /></div>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white">Paiement Stripe prêt</h2>
-              <p className="text-slate-500 mt-2">Faites scanner ce code au client ou envoyez-lui le lien.</p>
-              
-              <div className="mt-8 flex flex-col items-center gap-6">
-                <div className="p-4 bg-white rounded-3xl shadow-inner border border-slate-100">
-                  <QRCodeCanvas value={stripeModal.url} size={200} />
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-purple-200 dark:border-purple-800">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-6 text-white">
+              <div className="flex justify-between items-center mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><FiSmartphone className="text-xl" /></div>
+                  <div>
+                    <h3 className="text-xl font-black">Lien Stripe Généré</h3>
+                    <p className="text-purple-200 text-xs font-medium">Le client doit scanner ou cliquer le lien</p>
+                  </div>
                 </div>
-                
-                <div className="w-full space-y-3">
-                  <button onClick={copierLien} className="w-full py-4 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-200 transition-all active:scale-95">
-                    {copiedLink ? <><FiCheck className="text-emerald-500" /> Lien copié !</> : <><FiCopy /> Copier le lien de paiement</>}
-                  </button>
-                  <button onClick={verifierPaiementStripe} disabled={checkingStripe} className="w-full py-5 bg-purple-600 text-white font-black rounded-2xl shadow-xl shadow-purple-500/30 hover:bg-purple-700 flex items-center justify-center gap-3 transition-all">
-                    {checkingStripe ? <FiRefreshCw className="animate-spin" /> : <FiSearch />}
-                    Vérifier le statut du paiement
-                  </button>
-                  <button onClick={() => setStripeModal(null)} className="text-slate-400 text-sm font-bold hover:text-slate-600">Fermer sans enregistrer</button>
+                <button onClick={() => setStripeModal(null)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><FiX /></button>
+              </div>
+              <div className="bg-white/10 rounded-xl px-4 py-2 mt-2 text-center">
+                <span className="text-2xl font-black">{(stripeModal.montantCents / 100).toFixed(2)} €</span>
+                <span className="text-purple-200 text-sm ml-2">à encaisser</span>
+              </div>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="flex flex-col items-center">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Le client scanne ce QR code</p>
+                <div className="bg-white p-4 rounded-2xl shadow-inner border-2 border-slate-100">
+                  <QRCodeCanvas value={stripeModal.url} size={180} level="H" />
                 </div>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3">
+                <p className="text-xs font-mono text-slate-500 truncate flex-1">{stripeModal.url}</p>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={copierLien} className={`p-2 rounded-lg transition-all text-sm font-bold flex items-center gap-1 ${copiedLink ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
+                    {copiedLink ? <><FiCheck /> Copié !</> : <><FiCopy /> Copier</>}
+                  </button>
+                  <a href={stripeModal.url} target="_blank" rel="noreferrer" className="p-2 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors"><FiExternalLink /></a>
+                </div>
+              </div>
+              <div className="space-y-3 pt-2">
+                <button onClick={verifierPaiementStripe} disabled={checkingStripe} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50">
+                  {checkingStripe ? <><FiRefreshCw className="animate-spin" /> Vérification…</> : <><FiCheckCircle className="text-xl" /> Confirmer le paiement (Auto)</>}
+                </button>
+                <button onClick={enregistrerPaiementStripe} className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors flex items-center justify-center gap-2 text-sm">
+                  <FiCheck className="text-lg" /> Forcer la validation (Vérifié manuellement)
+                </button>
+                <button onClick={() => setStripeModal(null)} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">
+                  Fermer (le lien reste valide)
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* ═══════════ MODAL CRÉATION RÉSERVATION ═══════════ */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
+              <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2"><FiPlus className="text-indigo-500" /> Créer une réservation</h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
+            </div>
+            <form onSubmit={handleCreateReservation} className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Créneau <span className="text-red-500">*</span></label>
+                  <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({ ...newResaForm, creneau_id: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                    <option value="">-- Choisir un créneau --</option>
+                    {creneauxDispo.map(c => (
+                      <option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>
+                        {getJourLabel(c.date)} à {c.heure_debut.slice(0, 5)}{!c.is_online && ' 🔒'} ({c.places_restantes} tickets)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Catégorie <span className="text-red-500">*</span></label>
+                  <select required value={newResaForm.tarif_categorie} onChange={e => { const t = tarifs.find(tar => tar.categorie === e.target.value); setNewResaForm({ ...newResaForm, tarif_categorie: e.target.value, prix_cents: t ? t.prix_cents : 0 }); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                    <option value="">-- Choisir une catégorie --</option>
+                    {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} - {t.nom} ({(t.prix_cents / 100).toFixed(2)}€)</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Prénom <span className="text-red-500">*</span></label>
+                  <input required type="text" value={newResaForm.first_name} onChange={e => handleNameChange('first_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom <span className="text-red-500">*</span></label>
+                  <input required type="text" value={newResaForm.last_name} onChange={e => handleNameChange('last_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Téléphone <span className="text-red-500">*</span></label>
+                  <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({ ...newResaForm, phone: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Optionnel)</label>
+                  <input type="email" value={newResaForm.email} onChange={e => setNewResaForm({ ...newResaForm, email: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom pour le sacrifice <span className="text-red-500">*</span></label>
+                  <input required type="text" value={newResaForm.sacrifice_name} onChange={e => { setAutoFillSacrifice(false); setNewResaForm({ ...newResaForm, sacrifice_name: e.target.value }); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                </div>
+              </div>
+              <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
+                <span className="text-indigo-800 dark:text-indigo-300 font-bold">Total à encaisser ensuite :</span>
+                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents / 100).toFixed(2)} €</span>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
+                <button type="submit" disabled={loadingCreate} className="flex-1 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 flex justify-center items-center gap-2 transition-all disabled:opacity-50">
+                  {loadingCreate ? "Création..." : <>Enregistrer la réservation <FiCheck /></>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ MODAL ANNULATION TRANSACTION ═══════════ */}
+      {showCancelModal && transactionToCancel && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0"><FiAlertTriangle className="text-2xl" /></div>
+              <h3 className="text-xl font-black text-slate-800 dark:text-white">Annuler l'encaissement</h3>
+            </div>
+            <div className="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800 rounded-xl p-4 mb-6">
+              <p className="text-slate-600 dark:text-slate-400 text-sm">
+                Vous annulez <strong className="text-slate-900 dark:text-white">{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> en <strong className="uppercase">{transactionToCancel.moyen_paiement}</strong> du {new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}.
+              </p>
+              <p className="text-xs text-red-600 font-bold mt-2">⚠️ Cette annulation sera tracée de façon immuable dans la comptabilité.</p>
+            </div>
+            <form onSubmit={confirmAnnulerTransaction} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Motif de l'annulation <span className="text-red-500">*</span></label>
+                <textarea required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Ex: Erreur de frappe, trop perçu..." className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:border-red-500 dark:text-white resize-none" rows="3"></textarea>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowCancelModal(false)} disabled={loadingCancel} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 transition-colors">Retour</button>
+                <button type="submit" disabled={loadingCancel || !cancelReason.trim()} className="flex-1 py-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 flex justify-center items-center gap-2 disabled:opacity-50 transition-all">
+                  {loadingCancel ? "Traitement..." : <>Confirmer <FiTrash2 /></>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ MODAL OUVERTURE CAISSE ═══════════ */}
+      {showOuvertureModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Ouverture de Caisse</h3>
+            <p className="text-slate-500 mb-6 text-sm">Déclarez la monnaie en espèces présente dans votre tiroir-caisse. Ce montant sera enregistré dans la comptabilité.</p>
+            <form onSubmit={handleOuvrirCaisse}>
+              <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Fond de caisse (Espèces)</label>
+              <div className="relative mb-6">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><span className="text-slate-400 font-bold">€</span></div>
+                <input type="number" step="0.01" value={fondDeCaisse} onChange={(e) => setFondDeCaisse(e.target.value)} required className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="Ex: 50.00" />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowOuvertureModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200">Annuler</button>
+                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Ouvrir la caisse</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ MODAL CLÔTURE CAISSE ═══════════ */}
+      {showClotureModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2 flex items-center gap-2"><FiArchive /> Clôture de Caisse</h3>
+            <p className="text-slate-500 mb-6 text-sm">Fin de journée. Comptez physiquement votre caisse.</p>
+            <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl mb-6 space-y-2 border border-slate-200 dark:border-slate-700">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Attendu par le système (comptabilité)</p>
+              <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Espèces (inclut fond initial)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.especes / 100).toFixed(2)} €</span></div>
+              <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Carte Bancaire (TPE)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.cb / 100).toFixed(2)} €</span></div>
+            </div>
+            <form onSubmit={handleCloturerCaisse} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Espèces réelles</label>
+                  <div className="relative"><input type="number" step="0.01" value={reelEspeces} onChange={(e) => setReelEspeces(e.target.value)} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Total CB réel</label>
+                  <div className="relative"><input type="number" step="0.01" value={reelCb} onChange={(e) => setReelCb(e.target.value)} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
+                </div>
+              </div>
+              {((parseFloat(reelEspeces) * 100 || 0) !== theoriqueCaisse.especes || (parseFloat(reelCb) * 100 || 0) !== theoriqueCaisse.cb) && (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl mt-4">
+                  <p className="text-orange-800 font-bold flex items-center gap-2 mb-2"><FiAlertTriangle /> Un écart a été détecté</p>
+                  <textarea value={justification} onChange={(e) => setJustification(e.target.value)} required placeholder="Justifiez cet écart pour la comptabilité..." className="w-full p-3 border border-orange-200 rounded-lg text-sm outline-none focus:border-orange-500 bg-white" rows="2"></textarea>
+                </div>
+              )}
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowClotureModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200">Annuler</button>
+                <button type="submit" className="flex-1 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-black">Valider Clôture</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ MODALE SCANNER ═══════════ */}
+      {showScanner && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4 print:hidden">
+          <button onClick={() => setShowScanner(false)} className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20"><FiX className="text-3xl" /></button>
+          <div className="w-full max-w-md bg-black rounded-3xl overflow-hidden border-4 border-indigo-500 shadow-2xl relative aspect-square"><Scanner onScan={handleScan} /></div>
+        </div>
+      )}
     </div>
   );
 }
