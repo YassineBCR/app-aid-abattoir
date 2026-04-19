@@ -91,31 +91,45 @@ export default function AdminCaisse() {
     finally { setLoadingDaily(false); }
   };
 
-  // ── Export CSV enrichi ─────────────────────────────────────────────────────
+  // ── Export CSV enrichi pour la nouvelle table comptabilite ─────────────────
   const handleExportCSV = (dataToExport, filename) => {
-    if (dataToExport.length === 0) return alert("Aucune donnée à exporter.");
+    if (!dataToExport || dataToExport.length === 0) return alert("Aucune donnée à exporter.");
 
+    // En-têtes mis à jour pour correspondre exactement à la table comptabilite
     const headers = [
-      "Date & Heure", "Type", "Moyen de Paiement", "Référence Ticket",
-      "Commande ID", "Opérateur", "Montant (€)", "Motif / Notes", "Référence Externe"
+      "ID Transaction", 
+      "Date & Heure", 
+      "Type de Mouvement", 
+      "Moyen de Paiement", 
+      "Numéro Ticket",
+      "Commande ID", 
+      "Email Opérateur", 
+      "Montant (€)", 
+      "Motif", 
+      "Notes", 
+      "Référence Externe"
     ];
 
     const rows = dataToExport.map(tx => {
+      // Conversion du montant en euros avec format français (virgule)
       const montant = (Number(tx.montant_cents) / 100).toFixed(2).replace('.', ',');
+      
       return [
+        tx.id || "",
         new Date(tx.created_at).toLocaleString('fr-FR'),
-        tx.type_mouvement,
-        tx.moyen_paiement,
-        tx.ticket_num ? `#${tx.ticket_num}` : "",
+        tx.type_mouvement || "",
+        tx.moyen_paiement || "",
+        tx.ticket_num || "",
         tx.commande_id || "",
-        tx.operateur_email,
+        tx.operateur_email || "",
         montant,
-        [tx.motif, tx.notes].filter(Boolean).join(' | '),
+        tx.motif || "",
+        tx.notes || "",
         tx.reference_externe || "",
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(";");
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(";"); // Formatage robuste pour éviter les bugs avec les points-virgules dans les notes
     });
 
-    const csv   = "\uFEFF" + headers.join(";") + "\n" + rows.join("\n");
+    const csv   = "\uFEFF" + headers.join(";") + "\n" + rows.join("\n"); // \uFEFF pour forcer l'UTF-8 sur Excel
     const blob  = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url   = URL.createObjectURL(blob);
     const link  = document.createElement("a");
@@ -143,13 +157,13 @@ export default function AdminCaisse() {
   const daily  = calcTotaux(transactions);
 
   // ── Opérateurs uniques ─────────────────────────────────────────────────────
-  const operateurs = [...new Set(allTransactions.map(tx => tx.operateur_email))];
+  const operateurs = [...new Set(allTransactions.map(tx => tx.operateur_email).filter(Boolean))];
 
   // ── Filtres historique ─────────────────────────────────────────────────────
   const filteredHistory = allTransactions.filter(tx => {
     const s = searchTerm.toLowerCase();
     const matchSearch = (
-      (tx.ticket_num ? `#${tx.ticket_num}` : "").includes(s) ||
+      (tx.ticket_num ? `#${tx.ticket_num}` : "").toLowerCase().includes(s) ||
       (tx.operateur_email || "").toLowerCase().includes(s) ||
       (tx.motif || "").toLowerCase().includes(s) ||
       (tx.notes || "").toLowerCase().includes(s) ||
