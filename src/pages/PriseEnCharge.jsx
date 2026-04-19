@@ -1,15 +1,47 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
+import { enregistrerMouvement, paiementDejaEnregistre, getHistoriqueCommande, getTheoriqueCaisse } from "../lib/comptabilite";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { QRCodeCanvas } from "qrcode.react";
 import { 
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
   FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus, FiPrinter,
-  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiEyeOff
+  FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiEyeOff, FiTag
 } from "react-icons/fi";
 import { logAction } from "../lib/logger";
+
+// ─── Badge moyen de paiement + type mouvement ──────────────────────────────
+function MouvementBadge({ tx }) {
+  const montant = Number(tx.montant_cents);
+  const isNegatif = montant < 0;
+
+  if (isNegatif) {
+    return (
+      <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold flex items-center gap-1 w-max">
+        <FiTrash2 /> Annulation
+      </span>
+    );
+  }
+
+  switch (tx.type_mouvement) {
+    case 'fond_caisse':
+      return <span className="px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiUnlock /> Fond de Caisse</span>;
+    case 'ajout_caisse':
+      return <span className="px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiPlus /> Ajout Caisse</span>;
+    default:
+      break;
+  }
+
+  switch (tx.moyen_paiement) {
+    case 'especes':      return <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiDollarSign /> Espèces</span>;
+    case 'cb':           return <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiCreditCard /> CB</span>;
+    case 'stripe_web':   return <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiFileText /> Stripe Web</span>;
+    case 'stripe_guichet': return <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold flex items-center gap-1 w-max"><FiSmartphone /> Stripe Guichet</span>;
+    default: return <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold w-max">{tx.moyen_paiement}</span>;
+  }
+}
 
 export default function PriseEnCharge() {
   const { showNotification } = useNotification();
@@ -28,22 +60,22 @@ export default function PriseEnCharge() {
   const [searchInput, setSearchInput] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [commande, setCommande] = useState(null);
-  const [searchResults, setSearchResults] = useState([]); 
+  const [searchResults, setSearchResults] = useState([]);
   const [historique, setHistorique] = useState([]);
   const [categorieChoisie, setCategorieChoisie] = useState("");
   const [loadingCategorie, setLoadingCategorie] = useState(false);
   
   const [joursConfig, setJoursConfig] = useState([]);
+  const [tarifs, setTarifs] = useState([]);
 
   const [montantEncaisse, setMontantEncaisse] = useState("");
   const [modePaiement, setModePaiement] = useState("especes");
   const [loadingPaiement, setLoadingPaiement] = useState(false);
 
-  // ── Stripe guichet ──────────────────────────────────────────────
+  // ── Stripe guichet ─────────────────────────────────────────────────────────
   const [stripeModal, setStripeModal] = useState(null);
   const [checkingStripe, setCheckingStripe] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  // ────────────────────────────────────────────────────────────────
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [transactionToCancel, setTransactionToCancel] = useState(null);
@@ -52,14 +84,11 @@ export default function PriseEnCharge() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creneauxDispo, setCreneauxDispo] = useState([]);
-  const [tarifs, setTarifs] = useState([]);
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [newResaForm, setNewResaForm] = useState({
-    first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "",
-    creneau_id: "", tarif_categorie: "", prix_cents: 0
+    first_name: "", last_name: "", phone: "", email: "",
+    sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0
   });
-  
-  // Nouvel état pour gérer l'auto-remplissage intelligent
   const [autoFillSacrifice, setAutoFillSacrifice] = useState(true);
 
   useEffect(() => {
@@ -84,7 +113,12 @@ export default function PriseEnCharge() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserEmail(user.email);
-    const { data } = await supabase.from('caisses_vendeurs').select('*').eq('vendeur_email', user.email).eq('statut', 'ouverte').maybeSingle();
+    const { data } = await supabase
+      .from('caisses_vendeurs')
+      .select('*')
+      .eq('vendeur_email', user.email)
+      .eq('statut', 'ouverte')
+      .maybeSingle();
     if (data) setActiveCaisse(data);
     else setActiveCaisse(null);
   };
@@ -122,19 +156,24 @@ export default function PriseEnCharge() {
     }
   }, [activeCaisse]);
 
+  // ── Chargement de l'historique comptable d'une commande ───────────────────
   const loadHistorique = async (id) => {
-    const { data } = await supabase.from('historique_paiements').select('*').eq('commande_id', id).order('date_paiement', { ascending: false });
-    setHistorique(data || []);
+    try {
+      const data = await getHistoriqueCommande(id);
+      setHistorique(data);
+    } catch (err) {
+      console.error("Erreur chargement historique:", err);
+    }
   };
 
-  const selectCommande = (cmd) => { 
-    setCommande(cmd); 
-    setSearchInput(cmd.ticket_num?.toString() || ""); 
-    setMontantEncaisse(""); 
+  const selectCommande = (cmd) => {
+    setCommande(cmd);
+    setSearchInput(cmd.ticket_num?.toString() || "");
+    setMontantEncaisse("");
     setCategorieChoisie(cmd.categorie || "");
     loadHistorique(cmd.id);
   };
-  
+
   const handleBackToList = () => { setCommande(null); setSearchInput(""); setMontantEncaisse(""); };
 
   const handleScan = (result) => {
@@ -154,19 +193,34 @@ export default function PriseEnCharge() {
   const loadCommandeById = async (uuid) => {
     setLoading(true);
     const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", uuid).maybeSingle();
-    if (data) { selectCommande(data); setShowScanner(false); } 
+    if (data) { selectCommande(data); setShowScanner(false); }
     else { showNotification("Commande introuvable.", "error"); }
     setLoading(false);
   };
 
+  // ── Ouverture de caisse ───────────────────────────────────────────────────
   const handleOuvrirCaisse = async (e) => {
     e.preventDefault();
     const fondCents = Math.round((parseFloat(fondDeCaisse) || 0) * 100);
     try {
       const { data, error } = await supabase.from('caisses_vendeurs').insert({
-        vendeur_email: userEmail, fond_caisse_initial_cents: fondCents, statut: 'ouverte'
+        vendeur_email: userEmail,
+        fond_caisse_initial_cents: fondCents,
+        statut: 'ouverte'
       }).select().single();
       if (error) throw error;
+
+      // ── Enregistrement du fond de caisse dans la comptabilité ──
+      if (fondCents > 0) {
+        await enregistrerMouvement({
+          type_mouvement:   'fond_caisse',
+          montant_cents:    fondCents,
+          moyen_paiement:   'especes',
+          caisse_id:        data.id,
+          notes:            `Fond de caisse déclaré à l'ouverture`,
+        });
+      }
+
       setActiveCaisse(data);
       setShowOuvertureModal(false);
       showNotification("Caisse ouverte avec succès.", "success");
@@ -174,160 +228,162 @@ export default function PriseEnCharge() {
     } catch (err) { showNotification("Erreur lors de l'ouverture de caisse.", "error"); }
   };
 
+  // ── Préparation de la clôture ──────────────────────────────────────────────
   const preparerCloture = async () => {
-    const { data: transactions } = await supabase.from('historique_paiements').select('montant_cents, moyen_paiement').eq('caisse_id', activeCaisse.id);
-    let sumEspeces = activeCaisse.fond_caisse_initial_cents || 0;
-    let sumCb = 0;
-    if (transactions) {
-      transactions.forEach(tx => {
-        if (tx.moyen_paiement === 'especes') sumEspeces += tx.montant_cents;
-        if (tx.moyen_paiement === 'cb') sumCb += tx.montant_cents;
-      });
+    try {
+      const th = await getTheoriqueCaisse(activeCaisse.id, activeCaisse.fond_caisse_initial_cents || 0);
+      setTheoriqueCaisse(th);
+      setShowClotureModal(true);
+    } catch (err) {
+      showNotification("Erreur calcul clôture.", "error");
     }
-    setTheoriqueCaisse({ especes: sumEspeces, cb: sumCb });
-    setShowClotureModal(true);
   };
 
   const handleCloturerCaisse = async (e) => {
     e.preventDefault();
     const reelEspecesCents = Math.round((parseFloat(reelEspeces) || 0) * 100);
-    const reelCbCents = Math.round((parseFloat(reelCb) || 0) * 100);
-    const ecartEspeces = reelEspecesCents - theoriqueCaisse.especes;
-    const ecartCb = reelCbCents - theoriqueCaisse.cb;
+    const reelCbCents      = Math.round((parseFloat(reelCb) || 0) * 100);
+    const ecartEspeces     = reelEspecesCents - theoriqueCaisse.especes;
+    const ecartCb          = reelCbCents - theoriqueCaisse.cb;
+
     if ((ecartEspeces !== 0 || ecartCb !== 0) && !justification.trim()) {
       return showNotification("Un écart a été détecté. Une justification est obligatoire.", "error");
     }
     try {
       const { error } = await supabase.from('caisses_vendeurs').update({
-        total_theorique_especes_cents: theoriqueCaisse.especes, total_theorique_cb_cents: theoriqueCaisse.cb,
-        total_reel_especes_cents: reelEspecesCents, total_reel_cb_cents: reelCbCents,
-        ecart_especes_cents: ecartEspeces, ecart_cb_cents: ecartCb,
-        justification_ecart: justification, statut: 'cloturee', heure_cloture: new Date().toISOString()
+        total_theorique_especes_cents: theoriqueCaisse.especes,
+        total_theorique_cb_cents:      theoriqueCaisse.cb,
+        total_reel_especes_cents:      reelEspecesCents,
+        total_reel_cb_cents:           reelCbCents,
+        ecart_especes_cents:           ecartEspeces,
+        ecart_cb_cents:                ecartCb,
+        justification_ecart:           justification,
+        statut:                        'cloturee',
+        heure_cloture:                 new Date().toISOString()
       }).eq('id', activeCaisse.id);
       if (error) throw error;
-      logAction('MODIFICATION', 'CAISSE', { action: 'Clôture de caisse', ecart_especes: ecartEspeces/100, ecart_cb: ecartCb/100, justification: justification });
-      setActiveCaisse(null); setShowClotureModal(false); showNotification("Caisse clôturée.", "success"); setCommande(null);
+      logAction('MODIFICATION', 'CAISSE', {
+        action: 'Clôture de caisse',
+        ecart_especes: ecartEspeces / 100,
+        ecart_cb:      ecartCb / 100,
+        justification
+      });
+      setActiveCaisse(null); setShowClotureModal(false);
+      showNotification("Caisse clôturée.", "success"); setCommande(null);
     } catch (err) { showNotification("Erreur lors de la clôture.", "error"); }
   };
 
+  // ── Création réservation guichet ──────────────────────────────────────────
   const openCreateModal = async () => {
     if (!activeCaisse) return showNotification("Ouvrez votre caisse d'abord !", "error");
     setLoading(true);
     try {
       const { data: slots, error: slotsError } = await supabase
-        .from("creneaux_horaires")
-        .select("*")
-        .order("date", { ascending: true })
-        .order("heure_debut", { ascending: true });
-        
+        .from("creneaux_horaires").select("*")
+        .order("date", { ascending: true }).order("heure_debut", { ascending: true });
       if (slotsError) throw slotsError;
 
       const { data: stockData } = await supabase
-        .from("commandes")
-        .select("creneau_id")
-        .eq("statut", "disponible");
-
+        .from("commandes").select("creneau_id").eq("statut", "disponible");
       const stockMap = {};
-      (stockData || []).forEach(t => {
-        stockMap[t.creneau_id] = (stockMap[t.creneau_id] || 0) + 1;
-      });
+      (stockData || []).forEach(t => { stockMap[t.creneau_id] = (stockMap[t.creneau_id] || 0) + 1; });
 
-      const slotsWithStock = (slots || []).map(s => ({
-        ...s,
-        places_restantes: stockMap[s.id] || 0
-      }));
-
-      setCreneauxDispo(slotsWithStock);
-
+      setCreneauxDispo((slots || []).map(s => ({ ...s, places_restantes: stockMap[s.id] || 0 })));
       const { data: prix } = await supabase.from("tarifs").select("*").order("prix_cents");
       setTarifs(prix || []);
       setNewResaForm({ first_name: "", last_name: "", phone: "", email: "", sacrifice_name: "", creneau_id: "", tarif_categorie: "", prix_cents: 0 });
-      setAutoFillSacrifice(true); // Réinitialiser l'auto-remplissage
+      setAutoFillSacrifice(true);
       setShowCreateModal(true);
-    } catch(err) { showNotification("Erreur de chargement des données.", "error"); } finally { setLoading(false); }
+    } catch (err) { showNotification("Erreur de chargement des données.", "error"); } finally { setLoading(false); }
   };
 
-  // Nouvelle fonction pour gérer la saisie des noms et remplir le sacrifice_name
   const handleNameChange = (field, value) => {
     setNewResaForm(prev => {
       const updated = { ...prev, [field]: value };
-      if (autoFillSacrifice) {
-        updated.sacrifice_name = `${updated.last_name} ${updated.first_name}`.trim();
-      }
+      if (autoFillSacrifice) updated.sacrifice_name = `${updated.last_name} ${updated.first_name}`.trim();
       return updated;
     });
   };
 
   const handleCreateReservation = async (e) => {
     e.preventDefault();
-    if (!newResaForm.creneau_id || !newResaForm.tarif_categorie) return showNotification("Sélectionnez un créneau et un tarif.", "error");
+    if (!newResaForm.creneau_id || !newResaForm.tarif_categorie)
+      return showNotification("Sélectionnez un créneau et un tarif.", "error");
     setLoadingCreate(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase.rpc("reserver_prochain_ticket", {
-        p_creneau_id: newResaForm.creneau_id, 
-        p_client_id: user.id, 
-        p_nom: newResaForm.last_name, 
-        p_prenom: newResaForm.first_name, 
-        p_email: newResaForm.email || "surplace@abattoir.local",
-        p_tel: newResaForm.phone, 
-        p_sacrifice_name: newResaForm.sacrifice_name, 
-        p_categorie: newResaForm.tarif_categorie, 
-        p_montant_total_cents: newResaForm.prix_cents, 
-        p_acompte_cents: 0
+        p_creneau_id:          newResaForm.creneau_id,
+        p_client_id:           user.id,
+        p_nom:                 newResaForm.last_name,
+        p_prenom:              newResaForm.first_name,
+        p_email:               newResaForm.email || "surplace@abattoir.local",
+        p_tel:                 newResaForm.phone,
+        p_sacrifice_name:      newResaForm.sacrifice_name,
+        p_categorie:           newResaForm.tarif_categorie,
+        p_montant_total_cents: newResaForm.prix_cents,
+        p_acompte_cents:       0
       });
-      
       if (error) throw error;
-      
-      logAction('CREATION', 'COMMANDE', { ticket: data.ticket_num, source: 'guichet_sur_place', client: `${newResaForm.first_name} ${newResaForm.last_name}` });
+
+      logAction('CREATION', 'COMMANDE', {
+        ticket: data.ticket_num,
+        source: 'guichet_sur_place',
+        client: `${newResaForm.first_name} ${newResaForm.last_name}`
+      });
       showNotification(`Réservation enregistrée ! Ticket N°${data.ticket_num}`, "success");
-      
       setShowCreateModal(false);
-      
       const { data: fullCmd } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", data.commande_id).single();
-      if(fullCmd) selectCommande(fullCmd);
-      
+      if (fullCmd) selectCommande(fullCmd);
     } catch (err) { showNotification("Erreur lors de la création.", "error"); } finally { setLoadingCreate(false); }
   };
 
-  // ── Encaissement standard (espèces / CB) ────────────────────────
+  // ── Encaissement standard (espèces / CB) ─────────────────────────────────
   const validerPaiement = async (e) => {
     e.preventDefault();
     if (!activeCaisse) return showNotification("Ouvrez votre caisse !", "error");
-
-    if (modePaiement === 'stripe') {
-      return lancerPaiementStripe();
-    }
+    if (modePaiement === 'stripe') return lancerPaiementStripe();
 
     const montantAsaisi = parseFloat(montantEncaisse) || 0;
     if (montantAsaisi <= 0) return showNotification("Saisissez un montant.", "info");
     setLoadingPaiement(true);
     try {
       const montantAjouteCents = Math.round(montantAsaisi * 100);
-      const { error: errHistory } = await supabase.from('historique_paiements').insert({
-        commande_id: commande.id, caisse_id: activeCaisse.id, ticket_num: commande.ticket_num,
-        montant_cents: montantAjouteCents, moyen_paiement: modePaiement, encaisse_par: userEmail
+
+      // ── Ligne comptabilité ──
+      await enregistrerMouvement({
+        type_mouvement:    'encaissement',
+        montant_cents:     montantAjouteCents,
+        moyen_paiement:    modePaiement,   // 'especes' ou 'cb'
+        commande_id:       commande.id,
+        ticket_num:        commande.ticket_num,
+        caisse_id:         activeCaisse.id,
+        notes:             `Encaissement guichet — ${commande.sacrifice_name}`,
       });
-      if (errHistory) throw errHistory;
-      
-      const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+
+      const ancienPayeCents    = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
       const nouveauTotalPayeCents = ancienPayeCents + montantAjouteCents;
-      
+
       let nouveauStatut = commande.statut;
       const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const totalCents  = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
 
-      if (nouveauTotalPayeCents >= totalCents) { nouveauStatut = 'paye_integralement'; }
-      else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) { nouveauStatut = 'acompte_paye'; }
-      
-      await supabase.from('commandes').update({ montant_paye_cents: nouveauTotalPayeCents, statut: nouveauStatut }).eq('id', commande.id);
+      if (nouveauTotalPayeCents >= totalCents)                          nouveauStatut = 'paye_integralement';
+      else if (nouveauStatut === 'en_attente' && nouveauTotalPayeCents > 0) nouveauStatut = 'acompte_paye';
+
+      await supabase.from('commandes').update({
+        montant_paye_cents: nouveauTotalPayeCents,
+        statut: nouveauStatut
+      }).eq('id', commande.id);
+
       logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant_encaisse: montantAsaisi, moyen: modePaiement });
       showNotification("Paiement encaissé avec succès.", "success");
       const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
-      if(data) selectCommande(data);
-    } catch (err) { showNotification("Erreur d'encaissement.", "error"); } finally { setLoadingPaiement(false); }
+      if (data) selectCommande(data);
+    } catch (err) { showNotification("Erreur d'encaissement : " + err.message, "error"); } finally { setLoadingPaiement(false); }
   };
 
+  // ── Génération lien Stripe guichet ────────────────────────────────────────
   const lancerPaiementStripe = async () => {
     const montantAsaisi = parseFloat(montantEncaisse) || 0;
     if (montantAsaisi <= 0) return showNotification("Saisissez un montant avant de générer le lien Stripe.", "info");
@@ -339,21 +395,18 @@ export default function PriseEnCharge() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           montantTotal: montantCents,
-          panierId: commande.id,
-          description: `Paiement guichet – Ticket N°${commande.ticket_num} (${commande.sacrifice_name})`,
-          email: commande.contact_email || undefined
+          panierId:     commande.id,
+          description:  `Paiement guichet – Ticket N°${commande.ticket_num} (${commande.sacrifice_name})`,
+          email:        commande.contact_email || undefined
         }),
       });
       const data = await response.json();
       if (!data.url) throw new Error(data.error || "Réponse Stripe invalide");
-
       const sessionId = data.url.split("/pay/")[1]?.split("#")[0] || `guichet_${Date.now()}`;
       setStripeModal({ url: data.url, sessionId, montantCents });
     } catch (err) {
       showNotification("Erreur Stripe : " + err.message, "error");
-    } finally {
-      setLoadingPaiement(false);
-    }
+    } finally { setLoadingPaiement(false); }
   };
 
   const verifierPaiementStripe = async () => {
@@ -361,69 +414,56 @@ export default function PriseEnCharge() {
     setCheckingStripe(true);
     try {
       const res = await fetch(`/api/verify-session/${stripeModal.sessionId}`);
-      
-      if (!res.ok) {
-        await enregistrerPaiementStripe();
-        return;
-      }
+      if (!res.ok) { await enregistrerPaiementStripe(); return; }
       const session = await res.json();
-      if (session.payment_status === 'paid') {
-        await enregistrerPaiementStripe();
-      } else {
-        showNotification("Paiement pas encore effectué par le client.", "info");
-      }
-    } catch {
-      await enregistrerPaiementStripe();
-    } finally {
-      setCheckingStripe(false);
-    }
+      if (session.payment_status === 'paid') await enregistrerPaiementStripe();
+      else showNotification("Paiement pas encore effectué par le client.", "info");
+    } catch { await enregistrerPaiementStripe(); }
+    finally { setCheckingStripe(false); }
   };
 
   const enregistrerPaiementStripe = async () => {
     if (!stripeModal || !activeCaisse) return;
     try {
-      const { montantCents } = stripeModal;
+      const { montantCents, sessionId } = stripeModal;
 
-      const { data: existing } = await supabase
-        .from('historique_paiements')
-        .select('id')
-        .eq('reference_externe', stripeModal.sessionId)
-        .maybeSingle();
-
-      if (existing) {
+      // ── Vérification anti-doublon ──
+      const dejaEnregistre = await paiementDejaEnregistre(sessionId);
+      if (dejaEnregistre) {
         showNotification("Ce paiement Stripe a déjà été enregistré.", "info");
         setStripeModal(null);
         return;
       }
 
-      await supabase.from('historique_paiements').insert({
-        commande_id: commande.id,
-        caisse_id: activeCaisse.id,
-        ticket_num: commande.ticket_num,
-        montant_cents: montantCents,
-        moyen_paiement: 'stripe',
-        encaisse_par: userEmail,
-        reference_externe: stripeModal.sessionId,
-        notes: "Lien Stripe généré au guichet"
+      // ── Ligne comptabilité ──
+      await enregistrerMouvement({
+        type_mouvement:    'encaissement',
+        montant_cents:     montantCents,
+        moyen_paiement:    'stripe_guichet',
+        commande_id:       commande.id,
+        ticket_num:        commande.ticket_num,
+        caisse_id:         activeCaisse.id,
+        reference_externe: sessionId,
+        notes:             `Lien Stripe généré au guichet — ${commande.sacrifice_name}`,
       });
 
-      const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+      const ancienPayeCents       = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
       const nouveauTotalPayeCents = ancienPayeCents + montantCents;
-      const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
-      const nouveauStatut = nouveauTotalPayeCents >= totalCents ? 'paye_integralement' : 'acompte_paye';
+      const tarifActuel           = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+      const totalCents            = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const nouveauStatut         = nouveauTotalPayeCents >= totalCents ? 'paye_integralement' : 'acompte_paye';
 
-      await supabase.from('commandes').update({ montant_paye_cents: nouveauTotalPayeCents, statut: nouveauStatut }).eq('id', commande.id);
+      await supabase.from('commandes').update({
+        montant_paye_cents: nouveauTotalPayeCents,
+        statut: nouveauStatut
+      }).eq('id', commande.id);
 
       logAction('CREATION', 'CAISSE', { ticket: commande.ticket_num, montant: montantCents / 100, moyen: 'stripe_guichet' });
       showNotification("Paiement Stripe confirmé et enregistré !", "success");
-      setStripeModal(null);
-      setMontantEncaisse("");
+      setStripeModal(null); setMontantEncaisse("");
       const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
       if (data) selectCommande(data);
-    } catch (err) {
-      showNotification("Erreur enregistrement : " + err.message, "error");
-    }
+    } catch (err) { showNotification("Erreur enregistrement : " + err.message, "error"); }
   };
 
   const copierLien = () => {
@@ -434,26 +474,39 @@ export default function PriseEnCharge() {
     });
   };
 
+  // ── Changement de catégorie ───────────────────────────────────────────────
   const appliquerCategorie = async () => {
     if (!commande) return;
     if (!categorieChoisie) return showNotification("Sélectionnez une catégorie.", "error");
     const tarif = tarifs.find(t => t.categorie === categorieChoisie);
-    if (!tarif) return showNotification("Tarif introuvable pour cette catégorie.", "error");
+    if (!tarif) return showNotification("Tarif introuvable.", "error");
     setLoadingCategorie(true);
     try {
-      const { error } = await supabase.from("commandes").update({ categorie: categorieChoisie, montant_total_cents: tarif.prix_cents }).eq("id", commande.id);
+      const { error } = await supabase.from("commandes")
+        .update({ categorie: categorieChoisie, montant_total_cents: tarif.prix_cents })
+        .eq("id", commande.id);
       if (error) throw error;
-      logAction('MODIFICATION', 'COMMANDE', { ticket: commande.ticket_num, nouvelle_categorie: categorieChoisie, nouveau_montant_total: tarif.prix_cents / 100 });
-      showNotification("Catégorie appliquée. Montant mis à jour.", "success");
+      logAction('MODIFICATION', 'COMMANDE', {
+        ticket: commande.ticket_num,
+        nouvelle_categorie: categorieChoisie,
+        nouveau_montant_total: tarif.prix_cents / 100
+      });
+      showNotification("Catégorie appliquée.", "success");
       const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commande.id).single();
       if (data) selectCommande(data);
-    } catch (err) { showNotification("Erreur lors de l'application de la catégorie.", "error"); } finally { setLoadingCategorie(false); }
+    } catch (err) { showNotification("Erreur : " + err.message, "error"); } finally { setLoadingCategorie(false); }
   };
 
+  // ── Annulation d'une transaction ──────────────────────────────────────────
   const promptAnnulerTransaction = (transaction) => {
     if (!activeCaisse) return showNotification("Caisse fermée.", "error");
-    if (transaction.moyen_paiement === 'stripe') return showNotification("Impossible d'annuler un paiement Stripe ici. Utilisez le dashboard Stripe.", "error");
-    setTransactionToCancel(transaction); setCancelReason(""); setShowCancelModal(true);
+    // On ne peut pas annuler les paiements Stripe (gérés côté Stripe)
+    if (transaction.moyen_paiement === 'stripe_web' || transaction.moyen_paiement === 'stripe_guichet') {
+      return showNotification("Impossible d'annuler un paiement Stripe ici. Utilisez le dashboard Stripe.", "error");
+    }
+    setTransactionToCancel(transaction);
+    setCancelReason("");
+    setShowCancelModal(true);
   };
 
   const confirmAnnulerTransaction = async (e) => {
@@ -461,25 +514,44 @@ export default function PriseEnCharge() {
     if (!cancelReason.trim()) return showNotification("Saisissez un motif.", "info");
     setLoadingCancel(true);
     try {
-      const { error: errHistory } = await supabase.from('historique_paiements').insert({
-        commande_id: commande.id, caisse_id: activeCaisse.id, ticket_num: commande.ticket_num,
-        montant_cents: -Math.abs(transactionToCancel.montant_cents), moyen_paiement: transactionToCancel.moyen_paiement,
-        encaisse_par: userEmail, notes: `Annulation : ${cancelReason}`
+      // ── Ligne comptabilité négative ──
+      await enregistrerMouvement({
+        type_mouvement:    'annulation',
+        montant_cents:     -Math.abs(transactionToCancel.montant_cents),
+        moyen_paiement:    transactionToCancel.moyen_paiement,
+        commande_id:       commande.id,
+        ticket_num:        commande.ticket_num,
+        caisse_id:         activeCaisse.id,
+        motif:             cancelReason,
+        notes:             `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
       });
-      if (errHistory) throw errHistory;
-      const ancienPayeCents = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
-      const nouveauPayeCents = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
-      let nouveauStatut = commande.statut;
-      const tarifActuel = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
-      if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') { nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente'; }
-      await supabase.from('commandes').update({ montant_paye_cents: nouveauPayeCents, statut: nouveauStatut }).eq('id', commande.id);
-      logAction('SUPPRESSION', 'CAISSE', { ticket: commande.ticket_num, montant_annule: (transactionToCancel.montant_cents / 100), motif: cancelReason });
+
+      const ancienPayeCents   = commande.montant_paye_cents ?? commande.acompte_cents ?? 0;
+      const nouveauPayeCents  = Math.max(0, ancienPayeCents - Math.abs(transactionToCancel.montant_cents));
+      let nouveauStatut       = commande.statut;
+      const tarifActuel       = tarifs.find(t => String(t.categorie) === String(commande.categorie));
+      const totalCents        = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+
+      if (nouveauPayeCents < totalCents && commande.statut === 'paye_integralement') {
+        nouveauStatut = nouveauPayeCents > 0 ? 'acompte_paye' : 'en_attente';
+      }
+      await supabase.from('commandes').update({
+        montant_paye_cents: nouveauPayeCents,
+        statut: nouveauStatut
+      }).eq('id', commande.id);
+
+      logAction('SUPPRESSION', 'CAISSE', {
+        ticket:          commande.ticket_num,
+        montant_annule:  transactionToCancel.montant_cents / 100,
+        motif:           cancelReason
+      });
       showNotification("Annulation tracée.", "success");
-      setShowCancelModal(false); setTransactionToCancel(null); loadCommandeById(commande.id);
-    } catch (err) { showNotification("Erreur d'annulation.", "error"); } finally { setLoadingCancel(false); }
+      setShowCancelModal(false); setTransactionToCancel(null);
+      loadCommandeById(commande.id);
+    } catch (err) { showNotification("Erreur d'annulation : " + err.message, "error"); } finally { setLoadingCancel(false); }
   };
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const getJourLabel = (dateStr) => {
     if (!dateStr) return "SANS CRÉNEAU";
     const j = joursConfig.find(jd => jd.date_fete === dateStr);
@@ -495,31 +567,22 @@ export default function PriseEnCharge() {
 
   const handlePrint = () => { window.print(); };
 
-  const tarifActuel = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
-  const total = commande ? (tarifActuel && tarifActuel.prix_cents ? (tarifActuel.prix_cents / 100) : (commande.montant_total_cents / 100)) : 0;
-  const dejaPayeCents = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
-  const dejaPaye = dejaPayeCents / 100;
-  const resteAPayer = Math.max(0, total - dejaPaye);
-  const isPaye = resteAPayer <= 0.05;
-
-  const getPaymentIcon = (moyen) => {
-    switch(moyen) {
-      case 'especes': return <FiDollarSign />;
-      case 'cb': return <FiCreditCard />;
-      case 'stripe': return <FiSmartphone />;
-      default: return <FiFileText />;
-    }
-  };
+  const tarifActuel    = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
+  const total          = commande ? (tarifActuel?.prix_cents ? tarifActuel.prix_cents / 100 : (commande.montant_total_cents / 100)) : 0;
+  const dejaPayeCents  = commande ? (commande.montant_paye_cents ?? commande.acompte_cents ?? 0) : 0;
+  const dejaPaye       = dejaPayeCents / 100;
+  const resteAPayer    = Math.max(0, total - dejaPaye);
+  const isPaye         = resteAPayer <= 0.05;
 
   const MODES_PAIEMENT = [
-    { key: 'especes', label: 'Espèces', icon: <FiDollarSign />, color: 'emerald' },
-    { key: 'cb', label: 'Carte Bancaire', icon: <FiCreditCard />, color: 'blue' },
-    { key: 'stripe', label: 'Lien Stripe', icon: <FiSmartphone />, color: 'purple' },
+    { key: 'especes',        label: 'Espèces',        icon: <FiDollarSign />,  color: 'emerald' },
+    { key: 'cb',             label: 'Carte Bancaire',  icon: <FiCreditCard />,  color: 'blue'    },
+    { key: 'stripe',         label: 'Lien Stripe',     icon: <FiSmartphone />,  color: 'purple'  },
   ];
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 min-h-screen relative">
-      
+
       {/* CSS impression */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
@@ -536,19 +599,19 @@ export default function PriseEnCharge() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 pt-4">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3 tracking-tight">
-               <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
-               Caisse & Encaissement
+              <div className="p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30"><FiCreditCard className="text-2xl" /></div>
+              Caisse & Encaissement
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement espèces, CB ou lien Stripe.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Encaissement espèces, CB ou lien Stripe — tout est tracé.</p>
           </div>
-          
+
           <div>
             {activeCaisse ? (
               <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/30 p-2 pr-4 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
                 <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white"><FiUnlock className="text-lg" /></div>
                 <div>
                   <p className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase">Caisse Ouverte</p>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-500">Depuis {new Date(activeCaisse.created_at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-500">Depuis {new Date(activeCaisse.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
                 <button onClick={preparerCloture} className="ml-2 px-4 py-1.5 bg-white text-emerald-700 text-xs font-bold rounded-full shadow-sm hover:bg-emerald-100 transition-colors">Clôturer</button>
               </div>
@@ -574,8 +637,8 @@ export default function PriseEnCharge() {
           </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fade-in mt-8">
-            
-            {/* ── Colonne gauche : recherche ── */}
+
+            {/* ── Colonne gauche : recherche ─────────────────────────────── */}
             <div className="xl:col-span-1 space-y-6">
               <div className="bg-white dark:bg-slate-800 p-1 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700">
                 <div className="p-5 space-y-5">
@@ -600,7 +663,7 @@ export default function PriseEnCharge() {
               </div>
 
               {!commande && searchResults.length > 0 && (
-                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden"> 
+                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
                   <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-100 dark:border-indigo-800">
                     <h3 className="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2"><FiList /> Résultats ({searchResults.length})</h3>
                   </div>
@@ -619,11 +682,11 @@ export default function PriseEnCharge() {
               )}
             </div>
 
-            {/* ── Colonne droite : dossier + encaissement ── */}
+            {/* ── Colonne droite : dossier + encaissement ────────────────── */}
             <div className="xl:col-span-2">
               {commande ? (
                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-fade-in-up">
-                  
+
                   <div className="bg-slate-50 dark:bg-slate-900/50 px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <button onClick={handleBackToList} className="p-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 rounded-lg shadow-sm border border-slate-200 transition-all"><FiArrowLeft className="text-lg" /></button>
@@ -640,7 +703,7 @@ export default function PriseEnCharge() {
                       </button>
                     </div>
                   </div>
-                  
+
                   <div className="p-6 md:p-8 flex flex-col lg:flex-row gap-8">
                     {/* Info client */}
                     <div className="lg:w-1/3 space-y-6">
@@ -656,7 +719,7 @@ export default function PriseEnCharge() {
                           <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.14em]">Catégorie</p>
                           <select value={categorieChoisie} onChange={(e) => setCategorieChoisie(e.target.value)} className="w-full p-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950/60 text-sm font-semibold outline-none focus:border-indigo-500 transition-all">
                             <option value="">Choisir une catégorie</option>
-                            {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} ({(t.prix_cents/100).toFixed(2)} €)</option>))}
+                            {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} ({(t.prix_cents / 100).toFixed(2)} €)</option>))}
                           </select>
                           <button type="button" onClick={appliquerCategorie} disabled={loadingCategorie || !categorieChoisie} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all">
                             {loadingCategorie ? "Application..." : "Appliquer"}
@@ -676,24 +739,16 @@ export default function PriseEnCharge() {
 
                     {/* Formulaire encaissement */}
                     <div className="lg:w-2/3 flex flex-col gap-6">
-                      
+
                       {!isPaye ? (
                         <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
                           <form onSubmit={validerPaiement} className="space-y-4">
                             <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"><FiCreditCard className="text-indigo-500" /> Nouvel Encaissement</label>
-                            
+
                             <div className="grid grid-cols-3 gap-3 mb-4">
                               {MODES_PAIEMENT.map(mode => (
                                 <button key={mode.key} type="button" onClick={() => setModePaiement(mode.key)}
-                                  className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2
-                                    ${modePaiement === mode.key
-                                      ? mode.key === 'stripe'
-                                        ? "border-purple-600 bg-purple-50 text-purple-700 ring-2 ring-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-600"
-                                        : mode.key === 'cb'
-                                          ? "border-blue-600 bg-blue-50 text-blue-700 ring-2 ring-blue-200"
-                                          : "border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200"
-                                      : "border-slate-200 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50"
-                                    }`}
+                                  className={`py-4 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${modePaiement === mode.key ? mode.key === 'stripe' ? "border-purple-600 bg-purple-50 text-purple-700 ring-2 ring-purple-200 dark:bg-purple-900/20 dark:text-purple-400" : mode.key === 'cb' ? "border-blue-600 bg-blue-50 text-blue-700 ring-2 ring-blue-200" : "border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200" : "border-slate-200 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50"}`}
                                 >
                                   <div className="text-2xl">{mode.icon}</div>
                                   <span className="text-xs font-bold leading-tight text-center">{mode.label}</span>
@@ -705,7 +760,7 @@ export default function PriseEnCharge() {
                               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl px-4 py-3 flex items-center gap-3 text-sm">
                                 <FiSmartphone className="text-purple-500 text-xl shrink-0" />
                                 <p className="text-purple-700 dark:text-purple-300 font-medium">
-                                  Un lien de paiement sera généré. Le client paie via son téléphone ou l'URL que vous lui partagez.
+                                  Un lien de paiement sera généré. Le client paie via son téléphone.
                                 </p>
                               </div>
                             )}
@@ -717,11 +772,7 @@ export default function PriseEnCharge() {
                             </div>
 
                             <button type="submit" disabled={loadingPaiement || !montantEncaisse}
-                              className={`w-full py-5 mt-2 font-bold text-lg rounded-xl shadow-lg flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-white
-                                ${modePaiement === 'stripe'
-                                  ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30'
-                                }`}
+                              className={`w-full py-5 mt-2 font-bold text-lg rounded-xl shadow-lg flex justify-center items-center gap-2 transition-all disabled:opacity-50 text-white ${modePaiement === 'stripe' ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30'}`}
                             >
                               {loadingPaiement ? "Traitement..." : modePaiement === 'stripe' ? <><FiSmartphone /> Générer le lien Stripe</> : <><FiCheckCircle /> Encaisser ce montant</>}
                             </button>
@@ -732,40 +783,50 @@ export default function PriseEnCharge() {
                           <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><FiCheckCircle className="text-3xl" /></div>
                           <h3 className="text-2xl font-bold text-emerald-800 dark:text-emerald-400">Paiement Terminé</h3>
                           <p className="text-emerald-600 dark:text-emerald-500 mt-1 mb-6 font-medium">Le client a réglé la totalité de sa commande.</p>
-                          <button onClick={handlePrint} className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-lg shadow-xl shadow-slate-900/30 flex items-center justify-center gap-3 transition-all transform hover:-translate-y-1 active:scale-95">
+                          <button onClick={handlePrint} className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all">
                             <FiPrinter className="text-2xl" /> IMPRIMER LE TICKET ZEBRA
                           </button>
                           <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">IMPORTANT : Choisir "Format : 102x76mm" à l'impression.</p>
                         </div>
                       )}
 
-                      {/* Historique */}
+                      {/* ── Historique comptable du ticket ── */}
                       <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
                         <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique des paiements</h4>
+                          <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2"><FiClock className="text-indigo-500" /> Historique comptable du ticket</h4>
                         </div>
-                        <div className="p-4 max-h-64 overflow-y-auto">
+                        <div className="p-4 max-h-72 overflow-y-auto">
                           {historique.length === 0 ? (
                             <p className="text-center text-slate-400 text-sm py-4">Aucun encaissement enregistré.</p>
                           ) : (
                             <div className="space-y-3">
                               {historique.map(tx => (
-                                <div key={tx.id} className={`flex justify-between items-center p-3 rounded-xl border ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100' : tx.moyen_paiement === 'stripe' ? 'bg-purple-50 border-purple-100 dark:bg-purple-900/10 dark:border-purple-800/50' : 'bg-white border-slate-100'} dark:bg-slate-800 dark:border-slate-700 shadow-sm`}>
-                                  <div>
-                                    <p className="font-bold text-slate-800 dark:text-white flex items-center gap-2 text-sm">
-                                      {Number(tx.montant_cents) < 0 ? <FiAlertTriangle className="text-red-500"/> : getPaymentIcon(tx.moyen_paiement)}
-                                      {tx.moyen_paiement.toUpperCase()}
-                                      {tx.moyen_paiement === 'stripe' && <span className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-black">WEB</span>}
+                                <div key={tx.id} className={`flex justify-between items-start p-3 rounded-xl border transition-all ${Number(tx.montant_cents) < 0 ? 'bg-red-50 border-red-100 dark:bg-red-900/10 dark:border-red-900/50' : 'bg-white border-slate-100 dark:bg-slate-800 dark:border-slate-700'} shadow-sm`}>
+                                  <div className="space-y-1 flex-1">
+                                    <MouvementBadge tx={tx} />
+                                    <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                                      {new Date(tx.created_at).toLocaleString('fr-FR')}
                                     </p>
-                                    <p className="text-[11px] text-slate-500 mt-0.5">{new Date(tx.date_paiement).toLocaleString('fr-FR')} • {tx.encaisse_par.split('@')[0]}</p>
-                                    {tx.notes && <p className="text-[11px] text-red-500 font-bold mt-0.5">{tx.notes}</p>}
+                                    <p className="text-[11px] text-slate-400">par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong></p>
+                                    {tx.reference_externe && (
+                                      <p className="text-[10px] text-indigo-400 font-mono truncate max-w-[200px]" title={tx.reference_externe}>
+                                        Ref: {tx.reference_externe.slice(0, 20)}…
+                                      </p>
+                                    )}
+                                    {tx.motif && (
+                                      <p className="text-[11px] text-red-600 font-bold bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded mt-1">
+                                        Motif: {tx.motif}
+                                      </p>
+                                    )}
                                   </div>
-                                  <div className="text-right flex items-center gap-3">
-                                    <span className={`font-black ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                      {(Number(tx.montant_cents) / 100).toFixed(2)} €
+                                  <div className="text-right flex flex-col items-end gap-2 ml-3">
+                                    <span className={`font-black text-lg ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                      {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
                                     </span>
-                                    {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe' && (
-                                      <button onClick={() => promptAnnulerTransaction(tx)} className="p-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors"><FiTrash2 className="text-base" /></button>
+                                    {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe_web' && tx.moyen_paiement !== 'stripe_guichet' && tx.type_mouvement === 'encaissement' && (
+                                      <button onClick={() => promptAnnulerTransaction(tx)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
+                                        <FiTrash2 className="text-sm" />
+                                      </button>
                                     )}
                                   </div>
                                 </div>
@@ -814,7 +875,6 @@ export default function PriseEnCharge() {
       {stripeModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden animate-fade-in">
           <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-purple-200 dark:border-purple-800">
-            
             <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-6 text-white">
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-3">
@@ -831,7 +891,6 @@ export default function PriseEnCharge() {
                 <span className="text-purple-200 text-sm ml-2">à encaisser</span>
               </div>
             </div>
-
             <div className="p-6 space-y-5">
               <div className="flex flex-col items-center">
                 <p className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Le client scanne ce QR code</p>
@@ -839,7 +898,6 @@ export default function PriseEnCharge() {
                   <QRCodeCanvas value={stripeModal.url} size={180} level="H" />
                 </div>
               </div>
-
               <div className="bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3">
                 <p className="text-xs font-mono text-slate-500 truncate flex-1">{stripeModal.url}</p>
                 <div className="flex gap-2 shrink-0">
@@ -849,23 +907,13 @@ export default function PriseEnCharge() {
                   <a href={stripeModal.url} target="_blank" rel="noreferrer" className="p-2 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors"><FiExternalLink /></a>
                 </div>
               </div>
-
               <div className="space-y-3 pt-2">
-                <button onClick={verifierPaiementStripe} disabled={checkingStripe}
-                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
+                <button onClick={verifierPaiementStripe} disabled={checkingStripe} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50">
                   {checkingStripe ? <><FiRefreshCw className="animate-spin" /> Vérification…</> : <><FiCheckCircle className="text-xl" /> Confirmer le paiement (Auto)</>}
                 </button>
-                
-                <button onClick={enregistrerPaiementStripe}
-                  className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors flex items-center justify-center gap-2 text-sm"
-                >
+                <button onClick={enregistrerPaiementStripe} className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors flex items-center justify-center gap-2 text-sm">
                   <FiCheck className="text-lg" /> Forcer la validation (Vérifié manuellement)
                 </button>
-
-                <p className="text-center text-xs text-slate-400">
-                  Le système vérifiera automatiquement via Stripe, ou vous pouvez valider manuellement si vous avez déjà constaté l'encaissement.
-                </p>
                 <button onClick={() => setStripeModal(null)} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">
                   Fermer (le lien reste valide)
                 </button>
@@ -880,34 +928,29 @@ export default function PriseEnCharge() {
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
-              <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2"><FiPlus className="text-indigo-500"/> Créer une réservation</h3>
+              <h3 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2"><FiPlus className="text-indigo-500" /> Créer une réservation</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-700 p-2 rounded-full"><FiX /></button>
             </div>
             <form onSubmit={handleCreateReservation} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Créneau <span className="text-red-500">*</span></label>
-                  <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({...newResaForm, creneau_id: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                  <select required value={newResaForm.creneau_id} onChange={e => setNewResaForm({ ...newResaForm, creneau_id: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
                     <option value="">-- Choisir un créneau --</option>
                     {creneauxDispo.map(c => (
                       <option key={c.id} value={c.id} disabled={c.places_restantes <= 0}>
-                        {getJourLabel(c.date)} à {c.heure_debut.slice(0,5)}
-                        {!c.is_online && ' 🔒'}
-                        {' '}({c.places_restantes} ticket{c.places_restantes > 1 ? 's' : ''} en stock)
+                        {getJourLabel(c.date)} à {c.heure_debut.slice(0, 5)}{!c.is_online && ' 🔒'} ({c.places_restantes} tickets)
                       </option>
                     ))}
                   </select>
-                  <p className="text-[11px] text-slate-400 mt-1 font-medium">🔒 = créneau hors ligne (non visible en ligne, réservable au guichet uniquement)</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Catégorie <span className="text-red-500">*</span></label>
-                  <select required value={newResaForm.tarif_categorie} onChange={e => { const t = tarifs.find(tar => tar.categorie === e.target.value); setNewResaForm({...newResaForm, tarif_categorie: e.target.value, prix_cents: t ? t.prix_cents : 0}) }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
+                  <select required value={newResaForm.tarif_categorie} onChange={e => { const t = tarifs.find(tar => tar.categorie === e.target.value); setNewResaForm({ ...newResaForm, tarif_categorie: e.target.value, prix_cents: t ? t.prix_cents : 0 }); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white">
                     <option value="">-- Choisir une catégorie --</option>
-                    {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} - {t.nom} ({(t.prix_cents/100).toFixed(2)}€)</option>))}
+                    {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} - {t.nom} ({(t.prix_cents / 100).toFixed(2)}€)</option>))}
                   </select>
                 </div>
-                
-                {/* ── Utilisation de handleNameChange pour Nom et Prénom ── */}
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Prénom <span className="text-red-500">*</span></label>
                   <input required type="text" value={newResaForm.first_name} onChange={e => handleNameChange('first_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
@@ -916,26 +959,22 @@ export default function PriseEnCharge() {
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom <span className="text-red-500">*</span></label>
                   <input required type="text" value={newResaForm.last_name} onChange={e => handleNameChange('last_name', e.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                 </div>
-                
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Téléphone <span className="text-red-500">*</span></label>
-                  <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({...newResaForm, phone: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                  <input required type="tel" value={newResaForm.phone} onChange={e => setNewResaForm({ ...newResaForm, phone: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Optionnel)</label>
-                  <input type="email" placeholder="client@email.com" value={newResaForm.email} onChange={e => setNewResaForm({...newResaForm, email: e.target.value})} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                  <input type="email" value={newResaForm.email} onChange={e => setNewResaForm({ ...newResaForm, email: e.target.value })} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                 </div>
-                
-                {/* ── Désactivation de l'autoFillSacrifice si l'utilisateur modifie ce champ manuellement ── */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nom pour le sacrifice <span className="text-red-500">*</span></label>
-                  <input required type="text" placeholder="Ex: Famille X..." value={newResaForm.sacrifice_name} onChange={e => { setAutoFillSacrifice(false); setNewResaForm({...newResaForm, sacrifice_name: e.target.value}); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
+                  <input required type="text" value={newResaForm.sacrifice_name} onChange={e => { setAutoFillSacrifice(false); setNewResaForm({ ...newResaForm, sacrifice_name: e.target.value }); }} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-indigo-500 dark:text-white" />
                 </div>
               </div>
-              
               <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
                 <span className="text-indigo-800 dark:text-indigo-300 font-bold">Total à encaisser ensuite :</span>
-                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents/100).toFixed(2)} €</span>
+                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{(newResaForm.prix_cents / 100).toFixed(2)} €</span>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 pt-4">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">Annuler</button>
@@ -948,7 +987,7 @@ export default function PriseEnCharge() {
         </div>
       )}
 
-      {/* ═══════════ MODALES STANDARD ═══════════ */}
+      {/* ═══════════ MODAL ANNULATION TRANSACTION ═══════════ */}
       {showCancelModal && transactionToCancel && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
@@ -956,13 +995,16 @@ export default function PriseEnCharge() {
               <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0"><FiAlertTriangle className="text-2xl" /></div>
               <h3 className="text-xl font-black text-slate-800 dark:text-white">Annuler l'encaissement</h3>
             </div>
-            <p className="text-slate-600 dark:text-slate-400 mb-6 text-sm">
-              Vous annulez <strong className="text-slate-900 dark:text-white">{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> payé en <strong className="uppercase">{transactionToCancel.moyen_paiement}</strong>. Cette action sera tracée dans votre caisse.
-            </p>
+            <div className="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800 rounded-xl p-4 mb-6">
+              <p className="text-slate-600 dark:text-slate-400 text-sm">
+                Vous annulez <strong className="text-slate-900 dark:text-white">{(transactionToCancel.montant_cents / 100).toFixed(2)} €</strong> en <strong className="uppercase">{transactionToCancel.moyen_paiement}</strong> du {new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}.
+              </p>
+              <p className="text-xs text-red-600 font-bold mt-2">⚠️ Cette annulation sera tracée de façon immuable dans la comptabilité.</p>
+            </div>
             <form onSubmit={confirmAnnulerTransaction} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Motif de l'annulation <span className="text-red-500">*</span></label>
-                <textarea required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Ex: Erreur de frappe..." className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:border-red-500 dark:text-white resize-none" rows="3"></textarea>
+                <textarea required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Ex: Erreur de frappe, trop perçu..." className="w-full p-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:border-red-500 dark:text-white resize-none" rows="3"></textarea>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowCancelModal(false)} disabled={loadingCancel} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 transition-colors">Retour</button>
@@ -975,11 +1017,12 @@ export default function PriseEnCharge() {
         </div>
       )}
 
+      {/* ═══════════ MODAL OUVERTURE CAISSE ═══════════ */}
       {showOuvertureModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl">
             <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Ouverture de Caisse</h3>
-            <p className="text-slate-500 mb-6 text-sm">Déclarez la monnaie en espèces présente dans votre tiroir-caisse ce matin.</p>
+            <p className="text-slate-500 mb-6 text-sm">Déclarez la monnaie en espèces présente dans votre tiroir-caisse. Ce montant sera enregistré dans la comptabilité.</p>
             <form onSubmit={handleOuvrirCaisse}>
               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Fond de caisse (Espèces)</label>
               <div className="relative mb-6">
@@ -995,14 +1038,15 @@ export default function PriseEnCharge() {
         </div>
       )}
 
+      {/* ═══════════ MODAL CLÔTURE CAISSE ═══════════ */}
       {showClotureModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
             <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2 flex items-center gap-2"><FiArchive /> Clôture de Caisse</h3>
-            <p className="text-slate-500 mb-6 text-sm">Fin de journée. Comptez physiquement votre caisse et vos tickets TPE.</p>
+            <p className="text-slate-500 mb-6 text-sm">Fin de journée. Comptez physiquement votre caisse.</p>
             <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl mb-6 space-y-2 border border-slate-200 dark:border-slate-700">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Attendu par l'ordinateur</p>
-              <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Espèces (inclut fond)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.especes / 100).toFixed(2)} €</span></div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Attendu par le système (comptabilité)</p>
+              <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Espèces (inclut fond initial)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.especes / 100).toFixed(2)} €</span></div>
               <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Carte Bancaire (TPE)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.cb / 100).toFixed(2)} €</span></div>
             </div>
             <form onSubmit={handleCloturerCaisse} className="space-y-4">
@@ -1031,6 +1075,7 @@ export default function PriseEnCharge() {
         </div>
       )}
 
+      {/* ═══════════ MODALE SCANNER ═══════════ */}
       {showScanner && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4 print:hidden">
           <button onClick={() => setShowScanner(false)} className="absolute top-6 right-6 text-white bg-white/10 p-3 rounded-full hover:bg-white/20"><FiX className="text-3xl" /></button>

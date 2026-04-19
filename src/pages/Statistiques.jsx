@@ -5,7 +5,7 @@ import {
   FiCheckCircle, FiTag, FiAlertCircle, FiCreditCard, FiAlertTriangle, FiClock, FiRefreshCw
 } from "react-icons/fi";
 
-// ─── Même logique que Tableau.jsx ─────────────────────────────────────────────
+// ─── Même logique que Tableau.jsx ──────────────────────────────────────────
 function getStatutMetier(cmd) {
   if (cmd.statut === "annule")  return "annule";
   if (cmd.statut === "bouclee") return "bouclee";
@@ -20,18 +20,13 @@ function getStatutMetier(cmd) {
 export default function Statistiques() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    // Agneaux
     totalCommandes:  0,
-    totalActifs:     0,   // hors annulés
+    totalActifs:     0,
     nonBoucles:      0,
-    // Statuts (dérivés des montants — logique identique à Tableau.jsx)
     statusCounts: { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 },
-    // Finances
     caTheorique:  0,
     caEncaisse:   0,
-    // Moyens de paiement
     methodCounts: { especes: 0, cb: 0, stripe: 0 },
-    // Catégories
     categorieCounts: {}
   });
 
@@ -41,7 +36,7 @@ export default function Statistiques() {
     try {
       setLoading(true);
 
-      // ── 1. Toutes les commandes (hors brouillons/en_attente) ──────────────
+      // ── 1. Toutes les commandes actives ────────────────────────────────
       let toutesLesCommandes = [];
       let from = 0, hasMore = true;
       while (hasMore) {
@@ -52,24 +47,30 @@ export default function Statistiques() {
           .neq('statut', 'en_attente')
           .range(from, from + 999);
         if (error) throw error;
-        if (batch && batch.length > 0) { toutesLesCommandes.push(...batch); from += 1000; }
-        else hasMore = false;
+        if (batch && batch.length > 0) {
+          toutesLesCommandes.push(...batch);
+          from += 1000;
+        } else hasMore = false;
       }
 
-      // ── 2. Historique paiements guichet ───────────────────────────────────
+      // ── 2. Paiements depuis la table comptabilite ──────────────────────
+      // On ne prend que les encaissements réels (pas les annulations, fonds, etc.)
       let tousLesPaiements = [];
       from = 0; hasMore = true;
       while (hasMore) {
         const { data: batch, error } = await supabase
-          .from('historique_paiements')
-          .select('*')
+          .from('comptabilite')
+          .select('montant_cents, moyen_paiement')
+          .eq('type_mouvement', 'encaissement')
           .range(from, from + 999);
         if (error) throw error;
-        if (batch && batch.length > 0) { tousLesPaiements.push(...batch); from += 1000; }
-        else hasMore = false;
+        if (batch && batch.length > 0) {
+          tousLesPaiements.push(...batch);
+          from += 1000;
+        } else hasMore = false;
       }
 
-      // ── 3. Calculs ────────────────────────────────────────────────────────
+      // ── 3. Calculs ─────────────────────────────────────────────────────
       let caTheoriqueCents = 0;
       let caEncaisseCents  = 0;
       let sCounts = { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 };
@@ -78,46 +79,37 @@ export default function Statistiques() {
       let totalNonBoucles = 0;
 
       toutesLesCommandes.forEach(cmd => {
-        // ── CA ──
-        // On exclut les annulés du CA théorique
         if (cmd.statut !== 'annule') {
           caTheoriqueCents += (Number(cmd.montant_total_cents) || 0);
         }
         const payeCents = Number(cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0);
         caEncaisseCents += payeCents;
 
-        // ── Stripe (acompte web de 100 €) ──
-        if (cmd.panier_id && Number(cmd.acompte_cents) === 10000) {
-          mCounts.stripe += 100;
-        }
-
-        // ── Statut métier (MÊME logique que Tableau.jsx) ──
         const statut = getStatutMetier(cmd);
         sCounts[statut] = (sCounts[statut] || 0) + 1;
 
-        // ── Catégories (hors annulés) ──
         if (cmd.categorie && cmd.statut !== 'annule') {
           cCounts[cmd.categorie] = (cCounts[cmd.categorie] || 0) + 1;
         }
 
-        // ── Non bouclés (hors annulés) ──
         if (!cmd.numero_boucle && cmd.statut !== 'annule') {
           totalNonBoucles++;
         }
       });
 
-      // ── Paiements guichet (espèces / CB) ──
+      // ── Moyens de paiement depuis comptabilite ──
       tousLesPaiements.forEach(p => {
         const montantEuros = (Number(p.montant_cents) || 0) / 100;
         const moyen = String(p.moyen_paiement || '').toLowerCase().trim();
-        if (moyen.includes('espece') || moyen.includes('espèces')) {
+        if (moyen === 'especes') {
           mCounts.especes += montantEuros;
-        } else if (moyen === 'cb' || moyen.includes('carte')) {
+        } else if (moyen === 'cb') {
           mCounts.cb += montantEuros;
+        } else if (moyen === 'stripe_web' || moyen === 'stripe_guichet') {
+          mCounts.stripe += montantEuros;
         }
       });
 
-      // ── Total actifs = tout sauf annulés ──
       const totalActifs = sCounts.attente + sCounts.reserve + sCounts.paye + sCounts.bouclee;
 
       setStats({
@@ -148,9 +140,9 @@ export default function Statistiques() {
   }
 
   const { statusCounts: s, methodCounts: m, totalActifs, nonBoucles, caTheorique, caEncaisse, categorieCounts } = stats;
-  const pourcentageBoucle    = totalActifs > 0 ? (s.bouclee / totalActifs) * 100 : 0;
-  const totalPayementsHistory = m.especes + m.cb + m.stripe;
-  const resteAEncaisser      = Math.max(0, caTheorique - caEncaisse);
+  const pourcentageBoucle       = totalActifs > 0 ? (s.bouclee / totalActifs) * 100 : 0;
+  const totalPayementsHistory   = m.especes + m.cb + m.stripe;
+  const resteAEncaisser         = Math.max(0, caTheorique - caEncaisse);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20 animate-fade-in">
@@ -164,7 +156,7 @@ export default function Statistiques() {
             </div>
             Statistiques & Suivi
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Analyse globale — calculée en temps réel depuis tes commandes et paiements.</p>
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Calculé en temps réel — paiements lus depuis la table <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded text-xs font-mono">comptabilite</code>.</p>
         </div>
         <button
           onClick={fetchStats}
@@ -174,14 +166,13 @@ export default function Statistiques() {
         </button>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════
+      {/* ════════════════════════════════════════════
           BLOC 1 — SUIVI PHYSIQUE DES AGNEAUX
-         ══════════════════════════════════════════════════════════════ */}
+         ════════════════════════════════════════════ */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-        <FiShoppingBag className="text-blue-500"/> Suivi Physique des Agneaux
+        <FiShoppingBag className="text-blue-500" /> Suivi Physique des Agneaux
       </h3>
 
-      {/* KPIs principaux */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         {/* Total commandés */}
@@ -192,7 +183,7 @@ export default function Statistiques() {
               <p className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase">Total Agneaux Commandés</p>
               <h3 className="text-5xl font-black text-blue-600 mt-2">{totalActifs}</h3>
               <p className="text-xs font-bold text-slate-400 mt-2 flex items-center gap-1">
-                <FiAlertCircle/> + {s.annule} annulés non comptés
+                <FiAlertCircle /> + {s.annule} annulés non comptés
               </p>
             </div>
             <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center text-2xl"><FiShoppingBag /></div>
@@ -230,69 +221,33 @@ export default function Statistiques() {
         </div>
       </div>
 
-      {/* ── Détail des 5 statuts ── */}
+      {/* Détail des 5 statuts */}
       <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
         <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-6">
           Détail par statut — {totalActifs} agneaux actifs
         </h3>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-
-          {/* En attente */}
-          <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-600 text-slate-500 text-lg"><FiClock /></div>
-              <span className="text-3xl font-black text-slate-700 dark:text-slate-200">{s.attente}</span>
+          {[
+            { key: "attente", label: "En Attente",       icon: <FiClock />,       bg: "bg-slate-50 dark:bg-slate-900",          bar: "bg-slate-500",   border: "border-slate-200 dark:border-slate-700"    },
+            { key: "reserve", label: "Réservés",         icon: <FiCreditCard />,  bg: "bg-orange-50 dark:bg-orange-900/20",      bar: "bg-orange-500",  border: "border-orange-100 dark:border-orange-800/50"},
+            { key: "paye",    label: "Totalement Payés", icon: <FiCheckCircle />, bg: "bg-blue-50 dark:bg-blue-900/20",          bar: "bg-blue-500",    border: "border-blue-100 dark:border-blue-800/50"   },
+            { key: "bouclee", label: "Bouclés",          icon: <FiTag />,         bg: "bg-emerald-50 dark:bg-emerald-900/20",    bar: "bg-emerald-500", border: "border-emerald-100 dark:border-emerald-800/50"},
+          ].map(({ key, label, icon, bg, bar, border }) => (
+            <div key={key} className={`p-5 rounded-2xl border ${bg} ${border} flex flex-col gap-2`}>
+              <div className="flex items-center justify-between">
+                <div className={`p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm border ${border} text-lg`}>{icon}</div>
+                <span className="text-3xl font-black text-slate-700 dark:text-slate-200">{s[key]}</span>
+              </div>
+              <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">{label}</p>
+              <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                <div className={`${bar} h-full transition-all duration-700`} style={{ width: `${totalActifs ? (s[key] / totalActifs) * 100 : 0}%` }}></div>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold">{totalActifs ? ((s[key] / totalActifs) * 100).toFixed(1) : 0}%</p>
             </div>
-            <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">En Attente</p>
-            <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-slate-500 h-full transition-all duration-700" style={{ width: `${totalActifs ? (s.attente / totalActifs) * 100 : 0}%` }}></div>
-            </div>
-            <p className="text-[10px] text-slate-400 font-bold">{totalActifs ? ((s.attente / totalActifs) * 100).toFixed(1) : 0}%</p>
-          </div>
-
-          {/* Réservés */}
-          <div className="p-5 rounded-2xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/50 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-orange-200 dark:border-orange-600 text-orange-500 text-lg"><FiCreditCard /></div>
-              <span className="text-3xl font-black text-orange-700 dark:text-orange-400">{s.reserve}</span>
-            </div>
-            <p className="text-xs font-bold uppercase text-orange-600 dark:text-orange-500">Réservés</p>
-            <div className="w-full bg-orange-100 dark:bg-orange-900/40 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-orange-500 h-full transition-all duration-700" style={{ width: `${totalActifs ? (s.reserve / totalActifs) * 100 : 0}%` }}></div>
-            </div>
-            <p className="text-[10px] text-orange-400 font-bold">{totalActifs ? ((s.reserve / totalActifs) * 100).toFixed(1) : 0}%</p>
-          </div>
-
-          {/* Totalement payés */}
-          <div className="p-5 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-blue-200 dark:border-blue-600 text-blue-500 text-lg"><FiCheckCircle /></div>
-              <span className="text-3xl font-black text-blue-700 dark:text-blue-400">{s.paye}</span>
-            </div>
-            <p className="text-xs font-bold uppercase text-blue-600 dark:text-blue-500">Totalement Payés</p>
-            <div className="w-full bg-blue-100 dark:bg-blue-900/40 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${totalActifs ? (s.paye / totalActifs) * 100 : 0}%` }}></div>
-            </div>
-            <p className="text-[10px] text-blue-400 font-bold">{totalActifs ? ((s.paye / totalActifs) * 100).toFixed(1) : 0}%</p>
-          </div>
-
-          {/* Bouclés */}
-          <div className="p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/50 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-emerald-200 dark:border-emerald-600 text-emerald-500 text-lg"><FiTag /></div>
-              <span className="text-3xl font-black text-emerald-700 dark:text-emerald-400">{s.bouclee}</span>
-            </div>
-            <p className="text-xs font-bold uppercase text-emerald-600 dark:text-emerald-500">Bouclés</p>
-            <div className="w-full bg-emerald-100 dark:bg-emerald-900/40 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full transition-all duration-700" style={{ width: `${totalActifs ? (s.bouclee / totalActifs) * 100 : 0}%` }}></div>
-            </div>
-            <p className="text-[10px] text-emerald-400 font-bold">{totalActifs ? ((s.bouclee / totalActifs) * 100).toFixed(1) : 0}%</p>
-          </div>
-
+          ))}
         </div>
 
-        {/* Annulés en bas */}
         {s.annule > 0 && (
           <div className="mt-4 p-4 rounded-2xl bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800/40 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -304,20 +259,21 @@ export default function Statistiques() {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════
+      {/* ════════════════════════════════════════════
           BLOC 2 — SUIVI FINANCIER
-         ══════════════════════════════════════════════════════════════ */}
+         ════════════════════════════════════════════ */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white mt-4 flex items-center gap-2">
-        <FiDollarSign className="text-emerald-500"/> Suivi Financier & Ventes
+        <FiDollarSign className="text-emerald-500" /> Suivi Financier & Ventes
       </h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
         {/* CHIFFRE D'AFFAIRES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
-          <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Chiffre d'Affaires</h3>
+          <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">
+            Chiffre d'Affaires
+          </h3>
 
-          {/* 3 métriques CA */}
           <div className="grid grid-cols-3 gap-3 mb-8">
             <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">CA Théorique</p>
@@ -333,41 +289,32 @@ export default function Statistiques() {
             </div>
           </div>
 
-          {/* Barres par moyen de paiement */}
           <div className="space-y-5">
-            <div>
-              <div className="flex justify-between items-end mb-2">
-                <span className="font-bold flex items-center gap-2 dark:text-white text-sm"><FiCreditCard className="text-indigo-500"/> Web (Stripe)</span>
-                <span className="font-black text-indigo-600">{m.stripe.toFixed(2)} €</span>
+            {[
+              { key: 'stripe', label: 'Stripe (Web + Guichet)', color: 'bg-indigo-500', textColor: 'text-indigo-600' },
+              { key: 'especes', label: 'Espèces (Guichet)',      color: 'bg-teal-500',   textColor: 'text-teal-600'   },
+              { key: 'cb',     label: 'CB / TPE (Guichet)',      color: 'bg-blue-500',   textColor: 'text-blue-600'   },
+            ].map(({ key, label, color, textColor }) => (
+              <div key={key}>
+                <div className="flex justify-between items-end mb-2">
+                  <span className="font-bold flex items-center gap-2 dark:text-white text-sm">
+                    <FiCreditCard className={textColor} /> {label}
+                  </span>
+                  <span className={`font-black ${textColor}`}>{m[key].toFixed(2)} €</span>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
+                  <div className={`${color} h-full transition-all duration-700`} style={{ width: `${totalPayementsHistory ? (m[key] / totalPayementsHistory) * 100 : 0}%` }}></div>
+                </div>
               </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                <div className="bg-indigo-500 h-full transition-all duration-700" style={{ width: `${totalPayementsHistory ? (m.stripe / totalPayementsHistory) * 100 : 0}%` }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between items-end mb-2">
-                <span className="font-bold flex items-center gap-2 dark:text-white text-sm"><FiDollarSign className="text-teal-500"/> Guichet: Espèces</span>
-                <span className="font-black text-teal-600">{m.especes.toFixed(2)} €</span>
-              </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                <div className="bg-teal-500 h-full transition-all duration-700" style={{ width: `${totalPayementsHistory ? (m.especes / totalPayementsHistory) * 100 : 0}%` }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between items-end mb-2">
-                <span className="font-bold flex items-center gap-2 dark:text-white text-sm"><FiCreditCard className="text-blue-500"/> Guichet: CB</span>
-                <span className="font-black text-blue-600">{m.cb.toFixed(2)} €</span>
-              </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                <div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${totalPayementsHistory ? (m.cb / totalPayementsHistory) * 100 : 0}%` }}></div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
         {/* VENTES PAR CATÉGORIES */}
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 p-6 md:p-8">
-          <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">Ventes par Catégories</h3>
+          <h3 className="text-lg font-black text-slate-800 dark:text-white mb-6 uppercase tracking-wider text-center border-b border-slate-100 dark:border-slate-700 pb-4">
+            Ventes par Catégories
+          </h3>
           <div className="space-y-4">
             {Object.keys(categorieCounts).length === 0 ? (
               <p className="text-slate-400 italic text-center py-10">Aucune catégorie vendue pour l'instant.</p>
