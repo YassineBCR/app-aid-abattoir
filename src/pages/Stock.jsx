@@ -9,7 +9,7 @@ export default function Stock() {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
   const [isMouseDown, setIsMouseDown] = useState(false);
- const [selectionMode, setSelectionMode] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(null);
   
   // Données principales
   const [creneaux, setCreneaux] = useState([]);
@@ -34,6 +34,9 @@ export default function Stock() {
   const [detailTickets, setDetailTickets] = useState([]); 
   const [selectedTicketInfo, setSelectedTicketInfo] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  
+  // NOUVEAU : État pour le déplacement
+  const [selectedMoveSlot, setSelectedMoveSlot] = useState("");
 
   useEffect(() => {
     loadData();
@@ -155,6 +158,7 @@ export default function Stock() {
     setSelectedSlotId(slotId);
     setShowDetailModal(true);
     setSelectedTicketInfo(null);
+    setSelectedMoveSlot(""); // Réinitialiser le menu déroulant de déplacement
     fetchSlotDetails(slotId);
   }
 
@@ -203,6 +207,33 @@ export default function Stock() {
     } catch (err) { showNotification(err.message, "error"); }
   }
 
+  // NOUVEAU : Fonction pour déplacer un ticket
+  async function handleMoveTicket(ticketNum) {
+    if (!selectedMoveSlot) return;
+    
+    if (!window.confirm(`Déplacer le ticket #${ticketNum} vers le nouveau créneau sélectionné ?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from("commandes")
+        .update({ creneau_id: selectedMoveSlot })
+        .eq("ticket_num", ticketNum);
+
+      if (error) throw error;
+      
+      showNotification(`Ticket #${ticketNum} déplacé avec succès !`, "success");
+      
+      // Réinitialisation et rafraîchissement
+      setSelectedMoveSlot("");
+      loadData(); 
+      fetchSlotDetails(selectedSlotId); 
+      setSelectedTicketInfo(null); 
+      
+    } catch (err) { 
+      showNotification("Erreur lors du déplacement : " + err.message, "error"); 
+    }
+  }
+
   const getJourLabel = (dateStr) => {
     const j = joursConfig.find(jd => jd.date_fete === dateStr);
     return j ? `JOUR ${j.numero}` : dateStr;
@@ -231,7 +262,6 @@ export default function Stock() {
 
   const handleMouseDown = (num, state) => {
     setIsMouseDown(true);
-    // Détermine le mode selon le premier ticket cliqué
     if (state === 'selected') {
         setSelectionMode('remove');
         setSelectedForAdd(prev => prev.filter(n => n !== num));
@@ -239,22 +269,22 @@ export default function Stock() {
         setSelectionMode('add');
         setSelectedForAdd(prev => [...prev, num]);
     }
-};
+  };
 
-const handleMouseEnter = (num, state) => {
-    if (!isMouseDown || !selectionMode) return;
+  const handleMouseEnter = (num, state) => {
+      if (!isMouseDown || !selectionMode) return;
 
-    if (selectionMode === 'add' && state === 'free') {
-        setSelectedForAdd(prev => prev.includes(num) ? prev : [...prev, num]);
-    } else if (selectionMode === 'remove' && state === 'selected') {
-        setSelectedForAdd(prev => prev.filter(n => n !== num));
-    }
-};
+      if (selectionMode === 'add' && state === 'free') {
+          setSelectedForAdd(prev => prev.includes(num) ? prev : [...prev, num]);
+      } else if (selectionMode === 'remove' && state === 'selected') {
+          setSelectedForAdd(prev => prev.filter(n => n !== num));
+      }
+  };
 
-const handleMouseUp = () => {
-    setIsMouseDown(false);
-    setSelectionMode(null);
-};
+  const handleMouseUp = () => {
+      setIsMouseDown(false);
+      setSelectionMode(null);
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-8">
@@ -316,7 +346,7 @@ const handleMouseUp = () => {
 
                           <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
 
-                          {/* BOUTON GRILLE VISUELLE (Modifié) */}
+                          {/* BOUTON GRILLE VISUELLE */}
                           <button 
                             onClick={() => openGridModal(slot.id)} 
                             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all text-sm"
@@ -373,12 +403,12 @@ const handleMouseUp = () => {
                     <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-emerald-500"></div><span className="text-sm text-slate-600 dark:text-slate-300">À Ajouter</span></div>
                 </div>
                 <div 
-                          className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2"
-                          onMouseLeave={handleMouseUp} // Sécurité si on sort de la grille
+                          className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2 p-4 overflow-y-auto"
+                          onMouseLeave={handleMouseUp} 
                       >
                           {gridNumbers.map(num => {
                               const state = getTicketState(num);
-                              let btnClass = "py-2 px-1 rounded text-sm font-bold font-mono transition-all border shadow-sm select-none "; // select-none est important
+                              let btnClass = "py-2 px-1 rounded text-sm font-bold font-mono transition-all border shadow-sm select-none "; 
                               
                               if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
                               else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
@@ -400,8 +430,6 @@ const handleMouseUp = () => {
                       })}
                   </div>
                     
-                </div>
-
                 {/* FOOTER ACTIONS */}
                 <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-between items-center">
                     <p className="text-slate-500 dark:text-slate-400 text-sm">
@@ -419,7 +447,7 @@ const handleMouseUp = () => {
         </div>
       )}
 
-      {/* --- MODAL DÉTAILS LISTE (Reste identique mais incluse pour compilation) --- */}
+      {/* --- MODAL DÉTAILS LISTE --- */}
       {showDetailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-slate-200 dark:border-slate-700">
@@ -455,30 +483,64 @@ const handleMouseUp = () => {
                 {/* INFO DROITE */}
                 <div className="flex-1 flex flex-col relative bg-white dark:bg-slate-800">
                     <button onClick={() => setShowDetailModal(false)} className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><FiX className="text-xl"/></button>
-                    <div className="p-8 flex-1 flex flex-col justify-center items-center">
+                    <div className="p-8 flex-1 flex flex-col justify-center items-center overflow-y-auto">
                         {selectedTicketInfo ? (
-                            selectedTicketInfo.statut === 'disponible' ? (
-                                <div className="text-center space-y-4">
-                                    <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-4xl mb-4"><FiCheck /></div>
-                                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Ticket #{selectedTicketInfo.ticket_num}</h2>
-                                    <p className="text-slate-500">Ce ticket est actuellement en stock et disponible à la vente.</p>
-                                    <button onClick={() => removeTicket(selectedTicketInfo.ticket_num)} className="mt-6 px-6 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors font-medium flex items-center gap-2 mx-auto"><FiXCircle /> Retirer du stock</button>
-                                </div>
-                            ) : (
-                                <div className="w-full max-w-md space-y-6 animate-fade-in">
-                                    <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-6">
-                                        <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 inline-block">Réservé / Vendu</span>
-                                        <h2 className="text-4xl font-black text-slate-900 dark:text-white mb-1">#{selectedTicketInfo.ticket_num}</h2>
-                                        <p className="text-slate-400 text-sm">Sacrifice : <strong className="text-slate-700 dark:text-slate-300">{selectedTicketInfo.sacrifice_name || "Non précisé"}</strong></p>
+                            <div className="w-full max-w-md flex flex-col items-center">
+                                {/* Affichage selon le statut du ticket */}
+                                {selectedTicketInfo.statut === 'disponible' ? (
+                                    <div className="text-center space-y-4 w-full">
+                                        <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-4xl mb-4"><FiCheck /></div>
+                                        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Ticket #{selectedTicketInfo.ticket_num}</h2>
+                                        <p className="text-slate-500">Ce ticket est actuellement en stock et disponible à la vente.</p>
+                                        <button onClick={() => removeTicket(selectedTicketInfo.ticket_num)} className="mt-6 px-6 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors font-medium flex items-center justify-center gap-2 mx-auto"><FiXCircle /> Retirer du stock</button>
                                     </div>
-                                    <div className="space-y-4">
-                                        <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl">
-                                            <div className="bg-white dark:bg-slate-800 p-3 rounded-full text-indigo-600 shadow-sm"><FiUser className="text-xl"/></div>
-                                            <div><p className="text-xs text-slate-400 uppercase font-bold">Client</p><p className="font-bold text-lg text-slate-800 dark:text-white">{selectedTicketInfo.contact_last_name} {selectedTicketInfo.contact_first_name}</p></div>
+                                ) : (
+                                    <div className="w-full space-y-6 animate-fade-in">
+                                        <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-6">
+                                            <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 inline-block">Réservé / Vendu</span>
+                                            <h2 className="text-4xl font-black text-slate-900 dark:text-white mb-1">#{selectedTicketInfo.ticket_num}</h2>
+                                            <p className="text-slate-400 text-sm">Sacrifice : <strong className="text-slate-700 dark:text-slate-300">{selectedTicketInfo.sacrifice_name || "Non précisé"}</strong></p>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl">
+                                                <div className="bg-white dark:bg-slate-800 p-3 rounded-full text-indigo-600 shadow-sm"><FiUser className="text-xl"/></div>
+                                                <div><p className="text-xs text-slate-400 uppercase font-bold">Client</p><p className="font-bold text-lg text-slate-800 dark:text-white">{selectedTicketInfo.contact_last_name} {selectedTicketInfo.contact_first_name}</p></div>
+                                            </div>
                                         </div>
                                     </div>
+                                )}
+
+                                {/* NOUVEAU : BLOC DE DÉPLACEMENT DE CRÉNEAU */}
+                                <div className="mt-10 border-t border-slate-200 dark:border-slate-700 pt-6 w-full text-left">
+                                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                                        <FiClock /> Déplacer vers un autre créneau
+                                    </h4>
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <select
+                                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-indigo-500 p-3 text-sm outline-none"
+                                            value={selectedMoveSlot}
+                                            onChange={(e) => setSelectedMoveSlot(e.target.value)}
+                                        >
+                                            <option value="">Sélectionner la destination...</option>
+                                            {creneaux.map(c => (
+                                                <option key={c.id} value={c.id} disabled={c.id === selectedSlotId}>
+                                                    {getJourLabel(c.date)} - {c.heure_debut.slice(0, 5)} à {c.heure_fin.slice(0, 5)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={() => handleMoveTicket(selectedTicketInfo.ticket_num)}
+                                            disabled={!selectedMoveSlot}
+                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+                                        >
+                                            Déplacer
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-2">
+                                        * Le ticket disparaîtra de cette liste et rejoindra le nouveau créneau immédiatement.
+                                    </p>
                                 </div>
-                            )
+                            </div>
                         ) : (
                             <div className="text-center text-slate-400"><FiInfo className="text-6xl mx-auto mb-4 opacity-20" /><p>Sélectionnez un ticket dans la liste<br/>pour voir les détails.</p></div>
                         )}
