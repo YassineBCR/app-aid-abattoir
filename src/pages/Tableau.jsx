@@ -3,7 +3,8 @@ import { supabase } from "../lib/supabase";
 import { 
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
-  FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter, FiEdit, FiSave, FiChevronDown, FiSmartphone
+  FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter, FiEdit, FiSave, FiChevronDown, FiSmartphone,
+  FiArrowUp, FiArrowDown, FiGlobe, FiSliders
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -18,6 +19,22 @@ const STATUT_OPTIONS = [
   { value: "paye",    label: "Payé",             color: "text-blue-600"    },
   { value: "bouclee", label: "Bouclée",          color: "text-emerald-600" },
   { value: "annule",  label: "Annulé",           color: "text-red-600"     },
+];
+
+// ─── Sources de paiement ─────────────────────────────────────────────────────
+const PAYMENT_SOURCES = [
+  { value: "",               label: "Toutes les sources", icon: null,           color: "text-slate-500",  bg: "bg-slate-100",   border: "border-slate-200"   },
+  { value: "stripe_web",     label: "Stripe Web",         icon: FiGlobe,        color: "text-indigo-600", bg: "bg-indigo-50",   border: "border-indigo-200"  },
+  { value: "stripe_guichet", label: "Stripe Guichet",     icon: FiSmartphone,   color: "text-purple-600", bg: "bg-purple-50",   border: "border-purple-200"  },
+  { value: "cb",             label: "Carte Bancaire",     icon: FiCreditCard,   color: "text-blue-600",   bg: "bg-blue-50",     border: "border-blue-200"    },
+  { value: "especes",        label: "Espèces",            icon: FiDollarSign,   color: "text-emerald-600",bg: "bg-emerald-50",  border: "border-emerald-200" },
+];
+
+// ─── Options de tri ───────────────────────────────────────────────────────────
+const SORT_OPTIONS = [
+  { value: "created_at", label: "Date d'ajout"  },
+  { value: "ticket_num", label: "N° Ticket"     },
+  { value: "contact_last_name", label: "Nom client" },
 ];
 
 function getStatutMetier(cmd) {
@@ -55,13 +72,12 @@ function computeFinancesFromHistory(history, montantTotalCents) {
     netEncaisseCents,
     prixVenteCents,
     resteAPayerCents: resteAPayer,
-    // En euros
     totalEncaisse: totalEncaisseCents / 100,
     totalAnnule:   totalAnnuleCents / 100,
     netEncaisse:   netEncaisseCents / 100,
     prixVente:     prixVenteCents / 100,
     resteAPayer:   resteAPayer / 100,
-    estSolde:      resteAPayer <= 5, // 5 centimes de tolérance
+    estSolde:      resteAPayer <= 5,
   };
 }
 
@@ -71,22 +87,34 @@ export default function Tableau({ changeTab, userRole }) {
   const [joursConfig, setJoursConfig]       = useState([]);
   const [creneauxConfig, setCreneauxConfig] = useState([]);
   const [loading, setLoading]               = useState(true);
-  
+
+  // ── Filtres existants ──────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm]           = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterDate, setFilterDate]           = useState("");
   const [filterCreneauId, setFilterCreneauId] = useState("");
   const [filterStatut, setFilterStatut]       = useState("");
 
+  // ── NOUVEAUX filtres source de paiement + tri ─────────────────────────────
+  const [filterSource, setFilterSource]       = useState(""); // stripe_web | stripe_guichet | cb | especes | ""
+  const [sortField, setSortField]             = useState("created_at"); // created_at | ticket_num | contact_last_name
+  const [sortDir, setSortDir]                 = useState("desc");       // asc | desc
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  // ── Comptabilité pour le filtre source ───────────────────────────────────
+  // On garde une map: commande_id -> [moyens de paiement utilisés]
+  const [commandePaymentSources, setCommandePaymentSources] = useState({});
+  const [loadingPaymentSources, setLoadingPaymentSources]   = useState(false);
+
   const [limit, setLimit]     = useState(50);
   const [hasMore, setHasMore] = useState(true);
 
-  const [selectedOrder, setSelectedOrder]     = useState(null);
-  const [orderHistory, setOrderHistory]       = useState([]);
-  const [computedFinances, setComputedFinances] = useState(null); // ← NOUVEAU
-  const [loadingHistory, setLoadingHistory]   = useState(false);
-  const [sendingMail, setSendingMail]         = useState(false);
-  const [isDeleting, setIsDeleting]           = useState(false);
+  const [selectedOrder, setSelectedOrder]       = useState(null);
+  const [orderHistory, setOrderHistory]         = useState([]);
+  const [computedFinances, setComputedFinances] = useState(null);
+  const [loadingHistory, setLoadingHistory]     = useState(false);
+  const [sendingMail, setSendingMail]           = useState(false);
+  const [isDeleting, setIsDeleting]             = useState(false);
 
   const [isEditing, setIsEditing]       = useState(false);
   const [editFormData, setEditFormData] = useState({});
@@ -121,6 +149,39 @@ export default function Tableau({ changeTab, userRole }) {
     return () => clearTimeout(handler);
   }, [searchTerm]);
 
+  // ── Fetch sources de paiement depuis comptabilite ─────────────────────────
+  // (chargé une fois, puis actualisé si besoin)
+  useEffect(() => {
+    fetchPaymentSources();
+  }, []);
+
+  async function fetchPaymentSources() {
+    setLoadingPaymentSources(true);
+    try {
+      const { data, error } = await supabase
+        .from('comptabilite')
+        .select('commande_id, moyen_paiement')
+        .eq('type_mouvement', 'encaissement')
+        .gt('montant_cents', 0);
+      if (error) throw error;
+
+      const map = {};
+      (data || []).forEach(tx => {
+        if (!tx.commande_id) return;
+        if (!map[tx.commande_id]) map[tx.commande_id] = new Set();
+        map[tx.commande_id].add(tx.moyen_paiement);
+      });
+      // Convertir en tableaux
+      const result = {};
+      Object.keys(map).forEach(k => { result[k] = Array.from(map[k]); });
+      setCommandePaymentSources(result);
+    } catch (err) {
+      console.error("Erreur chargement sources paiement", err);
+    } finally {
+      setLoadingPaymentSources(false);
+    }
+  }
+
   // ── Fetch principal ────────────────────────────────────────────────────────
   useEffect(() => {
     fetchData();
@@ -128,7 +189,14 @@ export default function Tableau({ changeTab, userRole }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes' }, () => fetchData())
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [limit, debouncedSearch, filterDate, filterCreneauId]);
+  }, [limit, debouncedSearch, filterDate, filterCreneauId, sortField, sortDir]);
+
+  // Quand on active le filtre source on recharge aussi les sources si elles sont vides
+  useEffect(() => {
+    if (filterSource && Object.keys(commandePaymentSources).length === 0) {
+      fetchPaymentSources();
+    }
+  }, [filterSource]);
 
   async function fetchData() {
     setLoading(true);
@@ -160,7 +228,7 @@ export default function Tableau({ changeTab, userRole }) {
       }
 
       const { data, error, count } = await query
-        .order("created_at", { ascending: false })
+        .order(sortField, { ascending: sortDir === 'asc' })
         .limit(limit);
 
       if (error) throw error;
@@ -174,12 +242,27 @@ export default function Tableau({ changeTab, userRole }) {
     }
   }
 
-  // ── Filtre statut côté client ──────────────────────────────────────────────
+  // ── Filtre statut + source côté client ────────────────────────────────────
   const filteredCommandes = useMemo(() => {
-    if (!filterStatut) return commandes;
-    return commandes.filter(cmd => getStatutMetier(cmd) === filterStatut);
-  }, [commandes, filterStatut]);
+    let result = commandes;
 
+    // Filtre statut
+    if (filterStatut) {
+      result = result.filter(cmd => getStatutMetier(cmd) === filterStatut);
+    }
+
+    // Filtre source de paiement
+    if (filterSource) {
+      result = result.filter(cmd => {
+        const sources = commandePaymentSources[cmd.id] || [];
+        return sources.includes(filterSource);
+      });
+    }
+
+    return result;
+  }, [commandes, filterStatut, filterSource, commandePaymentSources]);
+
+  // ── Compteurs par statut (sur les données courantes, avant filtre source) ─
   const countsByStatut = useMemo(() => {
     const counts = { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 };
     commandes.forEach(cmd => {
@@ -188,6 +271,18 @@ export default function Tableau({ changeTab, userRole }) {
     });
     return counts;
   }, [commandes]);
+
+  // ── Compteurs par source (sur toutes les commandes visibles) ──────────────
+  const countsBySource = useMemo(() => {
+    const counts = { stripe_web: 0, stripe_guichet: 0, cb: 0, especes: 0 };
+    commandes.forEach(cmd => {
+      const sources = commandePaymentSources[cmd.id] || [];
+      sources.forEach(s => {
+        if (s in counts) counts[s]++;
+      });
+    });
+    return counts;
+  }, [commandes, commandePaymentSources]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getJourLabel = (dateStr) => {
@@ -198,11 +293,22 @@ export default function Tableau({ changeTab, userRole }) {
 
   const uniqueDates = [...new Set(creneauxConfig.map(c => c.date))];
 
-  // ── Chargement historique + calcul finances depuis comptabilite ────────────
+  // ── Toggle tri ────────────────────────────────────────────────────────────
+  const handleSortToggle = (field) => {
+    if (sortField === field) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+    setLimit(50);
+  };
+
+  // ── Chargement historique ─────────────────────────────────────────────────
   const handleRowClick = async (cmd) => {
     setSelectedOrder(cmd);
     setLoadingHistory(true);
-    setComputedFinances(null); // reset
+    setComputedFinances(null);
     setIsEditing(false);
     try {
       const { data, error } = await supabase
@@ -214,11 +320,8 @@ export default function Tableau({ changeTab, userRole }) {
 
       const history = data || [];
       setOrderHistory(history);
-
-      // ← Calcul des finances depuis les transactions
       const finances = computeFinancesFromHistory(history, cmd.montant_total_cents);
       setComputedFinances(finances);
-
     } catch (err) {
       console.error(err);
       showNotification("Erreur chargement historique", "error");
@@ -252,7 +355,6 @@ export default function Tableau({ changeTab, userRole }) {
       if (error) throw error;
       showNotification("Modifications enregistrées avec succès", "success");
       logAction('MODIFICATION', 'COMMANDE', { action: 'Modification manuelle du dossier', ticket: selectedOrder.ticket_num });
-      // Recalculer les finances avec le nouveau prix
       const finances = computeFinancesFromHistory(orderHistory, data.montant_total_cents);
       setComputedFinances(finances);
       setSelectedOrder(data);
@@ -321,11 +423,8 @@ export default function Tableau({ changeTab, userRole }) {
       const response = await fetch("/api/send-custom-email", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email:     selectedOrder.contact_email,
-          subject:   customMailSubject,
-          message:   customMailBody,
-          firstName: selectedOrder.contact_first_name,
-          lastName:  selectedOrder.contact_last_name
+          email: selectedOrder.contact_email, subject: customMailSubject,
+          message: customMailBody, firstName: selectedOrder.contact_first_name, lastName: selectedOrder.contact_last_name
         }),
       });
       if (response.ok) {
@@ -394,28 +493,30 @@ export default function Tableau({ changeTab, userRole }) {
         : exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
     }
 
-    const { data: allData, error } = await exportQuery.order("created_at", { ascending: false });
+    const { data: allData, error } = await exportQuery.order(sortField, { ascending: sortDir === 'asc' });
     if (error) { showNotification("Erreur lors de l'export", "error"); return; }
 
-    const exportData = filterStatut
-      ? allData.filter(cmd => getStatutMetier(cmd) === filterStatut)
-      : allData;
+    let exportData = allData;
+    if (filterStatut) exportData = exportData.filter(cmd => getStatutMetier(cmd) === filterStatut);
+    if (filterSource) exportData = exportData.filter(cmd => (commandePaymentSources[cmd.id] || []).includes(filterSource));
 
     const workbook  = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Registre Abattoir');
     worksheet.columns = [
-      { header: 'Ticket',        key: 'ticket',   width: 12 },
-      { header: 'Client',        key: 'client',   width: 25 },
-      { header: 'Téléphone',     key: 'phone',    width: 15 },
-      { header: 'Email',         key: 'email',    width: 30 },
-      { header: 'Sacrifice',     key: 'sacrifice',width: 20 },
-      { header: 'Boucle',        key: 'boucle',   width: 15 },
-      { header: 'Date Retrait',  key: 'retrait',  width: 25 },
-      { header: 'Acompte',       key: 'acompte',  width: 12 },
-      { header: 'Payé Total',    key: 'paye',     width: 12 },
-      { header: 'Reste à payer', key: 'reste',    width: 15 },
-      { header: 'Statut',        key: 'statut',   width: 20 },
-      { header: 'Ref Stripe',    key: 'stripe',   width: 35 },
+      { header: 'Ticket',         key: 'ticket',   width: 12 },
+      { header: 'Client',         key: 'client',   width: 25 },
+      { header: 'Téléphone',      key: 'phone',    width: 15 },
+      { header: 'Email',          key: 'email',    width: 30 },
+      { header: 'Sacrifice',      key: 'sacrifice',width: 20 },
+      { header: 'Boucle',         key: 'boucle',   width: 15 },
+      { header: 'Date Retrait',   key: 'retrait',  width: 25 },
+      { header: 'Acompte',        key: 'acompte',  width: 12 },
+      { header: 'Payé Total',     key: 'paye',     width: 12 },
+      { header: 'Reste à payer',  key: 'reste',    width: 15 },
+      { header: 'Statut',         key: 'statut',   width: 20 },
+      { header: 'Source Paiement',key: 'source',   width: 20 },
+      { header: 'Date Réservation',key: 'date_resa',width: 20 },
+      { header: 'Ref Stripe',     key: 'stripe',   width: 35 },
     ];
     worksheet.getRow(1).font = { bold: true };
     worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
@@ -424,24 +525,27 @@ export default function Tableau({ changeTab, userRole }) {
       const dejaPaye = (Number(c.montant_paye_cents) || 0) / 100;
       const total    = (Number(c.montant_total_cents) || 0) / 100;
       const reste    = Math.max(0, total - dejaPaye);
+      const sources  = commandePaymentSources[c.id] || [];
       let statutFr = "En Attente", rowColorArgb = null;
       if (c.statut === 'annule')                      { statutFr = 'Annulé';          rowColorArgb = 'FFFEE2E2'; }
       else if (c.statut === 'bouclee')                { statutFr = 'Bouclée';         rowColorArgb = 'FFDBEAFE'; }
       else if (reste <= 0.05 && dejaPaye > 0)         { statutFr = 'Totalement Payé'; rowColorArgb = 'FFD1FAE5'; }
       else if (dejaPaye > 0)                          { statutFr = 'Réservé';         rowColorArgb = 'FFFFEDD5'; }
       const row = worksheet.addRow({
-        ticket:   c.ticket_num,
-        client:   `${c.contact_last_name} ${c.contact_first_name}`,
-        phone:    c.contact_phone,
-        email:    c.contact_email,
+        ticket:    c.ticket_num,
+        client:    `${c.contact_last_name} ${c.contact_first_name}`,
+        phone:     c.contact_phone,
+        email:     c.contact_email,
         sacrifice: c.sacrifice_name,
-        boucle:   c.numero_boucle || c.ticket_num,
-        retrait:  c.creneaux_horaires ? `${getJourLabel(c.creneaux_horaires.date)} à ${c.creneaux_horaires.heure_debut.slice(0, 5)}` : "-",
-        acompte:  `${(c.acompte_cents / 100).toFixed(2)} €`,
-        paye:     `${dejaPaye.toFixed(2)} €`,
-        reste:    `${reste.toFixed(2)} €`,
-        statut:   statutFr,
-        stripe:   c.stripe_ref || "",
+        boucle:    c.numero_boucle || c.ticket_num,
+        retrait:   c.creneaux_horaires ? `${getJourLabel(c.creneaux_horaires.date)} à ${c.creneaux_horaires.heure_debut.slice(0, 5)}` : "-",
+        acompte:   `${(c.acompte_cents / 100).toFixed(2)} €`,
+        paye:      `${dejaPaye.toFixed(2)} €`,
+        reste:     `${reste.toFixed(2)} €`,
+        statut:    statutFr,
+        source:    sources.join(', ') || '-',
+        date_resa: new Date(c.created_at).toLocaleString('fr-FR'),
+        stripe:    c.stripe_ref || "",
       });
       if (rowColorArgb) {
         row.eachCell({ includeEmpty: true }, cell => {
@@ -465,6 +569,27 @@ export default function Tableau({ changeTab, userRole }) {
     if (reste <= 0.05 && dejaPaye > 0) return <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200"><FiCheckCircle /> Payé</span>;
     if (dejaPaye > 0)                  return <span className="inline-flex items-center gap-1 text-xs font-bold text-orange-700 bg-orange-100 px-2.5 py-1 rounded-lg border border-orange-200"><FiCreditCard /> Réservé</span>;
     return <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><FiClock /> Attente</span>;
+  };
+
+  // Badge source de paiement pour la ligne du tableau
+  const renderSourcesBadges = (cmdId) => {
+    const sources = commandePaymentSources[cmdId] || [];
+    if (sources.length === 0) return <span className="text-slate-300 text-xs">—</span>;
+    return (
+      <div className="flex flex-wrap gap-1">
+        {sources.map(src => {
+          const conf = PAYMENT_SOURCES.find(p => p.value === src);
+          if (!conf || !conf.value) return null;
+          const Icon = conf.icon;
+          return (
+            <span key={src} className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${conf.bg} ${conf.color} ${conf.border}`}>
+              {Icon && <Icon className="text-[10px]" />}
+              {conf.label}
+            </span>
+          );
+        })}
+      </div>
+    );
   };
 
   const getPaymentIcon = (moyen) => {
@@ -496,9 +621,33 @@ export default function Tableau({ changeTab, userRole }) {
     return base + "hover:bg-slate-50 dark:hover:bg-slate-700/30";
   };
 
-  const hasActiveFilters = filterDate || filterCreneauId || filterStatut || debouncedSearch;
+  const hasActiveFilters = filterDate || filterCreneauId || filterStatut || debouncedSearch || filterSource;
   const resetFilters = () => {
-    setFilterDate(""); setFilterCreneauId(""); setFilterStatut(""); setSearchTerm(""); setLimit(50);
+    setFilterDate(""); setFilterCreneauId(""); setFilterStatut(""); setSearchTerm(""); setFilterSource(""); setLimit(50);
+  };
+
+  // ── Composant bouton de tri réutilisable ───────────────────────────────────
+  const SortButton = ({ field, label }) => {
+    const isActive = sortField === field;
+    return (
+      <button
+        onClick={() => handleSortToggle(field)}
+        className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+          isActive
+            ? 'bg-teal-600 text-white border-teal-600 shadow-md shadow-teal-500/20'
+            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600'
+        }`}
+      >
+        {label}
+        {isActive ? (
+          sortDir === 'asc'
+            ? <FiArrowUp className="text-sm" />
+            : <FiArrowDown className="text-sm" />
+        ) : (
+          <FiArrowDown className="text-sm opacity-30" />
+        )}
+      </button>
+    );
   };
 
   return (
@@ -518,8 +667,10 @@ export default function Tableau({ changeTab, userRole }) {
         </button>
       </div>
 
-      {/* ── Barre de filtres ── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4">
+      {/* ── Barre de filtres principale ── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-4">
+
+        {/* Ligne 1 : filtres rapides + recherche */}
         <div className="flex flex-wrap gap-3 items-center">
           <div className="flex items-center gap-2 text-slate-500 font-bold text-sm shrink-0">
             <FiFilter /> Filtres
@@ -554,6 +705,20 @@ export default function Tableau({ changeTab, userRole }) {
             <FiChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
           </div>
 
+          {/* Bouton toggle filtres avancés */}
+          <button
+            onClick={() => setShowAdvancedFilters(prev => !prev)}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+              showAdvancedFilters || filterSource
+                ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-700'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <FiSliders className="text-sm" />
+            Filtres avancés
+            {filterSource && <span className="w-2 h-2 bg-teal-500 rounded-full"></span>}
+          </button>
+
           <div className="relative flex-1 min-w-[200px] group">
             <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" />
             <input type="text" placeholder="Nom, email, tél, #ticket..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 text-sm border-2 border-slate-200 dark:border-slate-600 rounded-xl dark:bg-slate-700 dark:text-white outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium" />
@@ -569,8 +734,74 @@ export default function Tableau({ changeTab, userRole }) {
           )}
         </div>
 
+        {/* ── PANNEAU FILTRES AVANCÉS (Source + Tri) ── */}
+        {showAdvancedFilters && (
+          <div className="border-t border-slate-100 dark:border-slate-700 pt-4 space-y-4 animate-fade-in">
+
+            {/* Bloc Source de paiement */}
+            <div>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FiCreditCard className="text-teal-500" /> Source de paiement
+                {loadingPaymentSources && <FiLoader className="animate-spin text-slate-400 text-sm" />}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {PAYMENT_SOURCES.map(src => {
+                  const Icon = src.icon;
+                  const count = src.value ? countsBySource[src.value] : filteredCommandes.length;
+                  const isActive = filterSource === src.value;
+                  return (
+                    <button
+                      key={src.value}
+                      onClick={() => { setFilterSource(src.value); setLimit(50); }}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${
+                        isActive
+                          ? `${src.bg} ${src.color} ${src.border} ring-2 ring-offset-1 ring-current shadow-sm`
+                          : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      {Icon && <Icon className="text-base" />}
+                      <span>{src.label}</span>
+                      {src.value && (
+                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                          isActive ? 'bg-current/10 text-current' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
+                        }`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bloc Tri */}
+            <div>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FiArrowDown className="text-teal-500" /> Trier par
+              </p>
+              <div className="flex flex-wrap gap-2 items-center">
+                {SORT_OPTIONS.map(opt => (
+                  <SortButton key={opt.value} field={opt.value} label={opt.label} />
+                ))}
+                <div className="ml-2 h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
+                {/* Toggle global croissant/décroissant */}
+                <button
+                  onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 transition-all"
+                >
+                  {sortDir === 'asc' ? (
+                    <><FiArrowUp className="text-teal-500" /> Croissant</>
+                  ) : (
+                    <><FiArrowDown className="text-teal-500" /> Décroissant</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Compteurs statuts */}
-        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2">
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2 items-center">
           {[
             { key: "attente", label: "Attente",  bg: "bg-slate-100 dark:bg-slate-700",         text: "text-slate-700 dark:text-slate-300",    border: "border-slate-300 dark:border-slate-600"    },
             { key: "reserve", label: "Réservé",  bg: "bg-orange-50 dark:bg-orange-900/20",      text: "text-orange-700 dark:text-orange-300",  border: "border-orange-200 dark:border-orange-800"  },
@@ -587,6 +818,11 @@ export default function Tableau({ changeTab, userRole }) {
           ))}
           <span className="text-xs text-slate-400 font-medium self-center ml-auto">
             {filteredCommandes.length} résultat{filteredCommandes.length !== 1 ? "s" : ""}
+            {filterSource && (
+              <span className="ml-2 text-teal-600 font-bold">
+                · filtré par {PAYMENT_SOURCES.find(p => p.value === filterSource)?.label}
+              </span>
+            )}
           </span>
         </div>
       </div>
@@ -597,20 +833,56 @@ export default function Tableau({ changeTab, userRole }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-xs">
               <tr>
-                <th className="p-5">Ticket</th>
-                <th className="p-5">Client</th>
+                {/* En-têtes cliquables pour le tri */}
+                <th className="p-5">
+                  <button onClick={() => handleSortToggle('ticket_num')} className="flex items-center gap-1 hover:text-teal-600 transition-colors group">
+                    Ticket
+                    {sortField === 'ticket_num'
+                      ? sortDir === 'asc' ? <FiArrowUp className="text-teal-500" /> : <FiArrowDown className="text-teal-500" />
+                      : <FiArrowDown className="opacity-0 group-hover:opacity-30" />}
+                  </button>
+                </th>
+                <th className="p-5">
+                  <button onClick={() => handleSortToggle('contact_last_name')} className="flex items-center gap-1 hover:text-teal-600 transition-colors group">
+                    Client
+                    {sortField === 'contact_last_name'
+                      ? sortDir === 'asc' ? <FiArrowUp className="text-teal-500" /> : <FiArrowDown className="text-teal-500" />
+                      : <FiArrowDown className="opacity-0 group-hover:opacity-30" />}
+                  </button>
+                </th>
                 <th className="p-5 hidden sm:table-cell">Contact</th>
                 <th className="p-5 hidden md:table-cell">Retrait Prévu</th>
+                <th className="p-5 hidden lg:table-cell">Source Paiement</th>
                 <th className="p-5">Boucle</th>
                 <th className="p-5 text-right">Reste / Payé</th>
                 <th className="p-5 text-center">Statut</th>
+                <th className="p-5 hidden xl:table-cell">
+                  <button onClick={() => handleSortToggle('created_at')} className="flex items-center gap-1 hover:text-teal-600 transition-colors group">
+                    Ajouté le
+                    {sortField === 'created_at'
+                      ? sortDir === 'asc' ? <FiArrowUp className="text-teal-500" /> : <FiArrowDown className="text-teal-500" />
+                      : <FiArrowDown className="opacity-0 group-hover:opacity-30" />}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
               {loading && commandes.length === 0 ? (
-                <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
+                <tr><td colSpan="9" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
               ) : filteredCommandes.length === 0 ? (
-                <tr><td colSpan="7" className="p-12 text-center text-slate-400">Aucune réservation pour ces critères.</td></tr>
+                <tr>
+                  <td colSpan="9" className="p-12 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <FiFilter className="text-4xl text-slate-300" />
+                      <p className="text-slate-400 font-medium">Aucune réservation pour ces critères.</p>
+                      {hasActiveFilters && (
+                        <button onClick={resetFilters} className="text-teal-600 text-sm font-bold hover:underline">
+                          Effacer les filtres
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 filteredCommandes.map(cmd => {
                   const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
@@ -630,6 +902,10 @@ export default function Tableau({ changeTab, userRole }) {
                       <td className="p-5 hidden md:table-cell">
                         <p className="font-bold text-slate-700 dark:text-slate-200">{cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "-"}</p>
                         <p className="text-xs text-slate-500 mt-0.5">{cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0, 5) : ""}</p>
+                      </td>
+                      {/* ── Colonne Source de paiement ── */}
+                      <td className="p-5 hidden lg:table-cell">
+                        {renderSourcesBadges(cmd.id)}
                       </td>
                       <td className="p-5">
                         {cmd.numero_boucle || cmd.statut === 'bouclee' ? (
@@ -651,6 +927,15 @@ export default function Tableau({ changeTab, userRole }) {
                           : <span className="text-emerald-500">0.00 €</span>}
                       </td>
                       <td className="p-5 text-center">{renderStatut(cmd)}</td>
+                      {/* ── Colonne Date d'ajout ── */}
+                      <td className="p-5 hidden xl:table-cell">
+                        <p className="text-xs text-slate-500 font-medium">
+                          {new Date(cmd.created_at).toLocaleDateString('fr-FR')}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {new Date(cmd.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </td>
                     </tr>
                   );
                 })
@@ -680,7 +965,25 @@ export default function Tableau({ changeTab, userRole }) {
                   <h3 className="text-3xl font-black tracking-tight">Dossier N°{selectedOrder.ticket_num}</h3>
                   {renderStatut(selectedOrder)}
                 </div>
-                <p className="text-slate-400 text-sm font-medium">Créé le {new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-slate-400 text-sm font-medium">Créé le {new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</p>
+                  {/* Sources de paiement dans le header */}
+                  {(commandePaymentSources[selectedOrder.id] || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {(commandePaymentSources[selectedOrder.id] || []).map(src => {
+                        const conf = PAYMENT_SOURCES.find(p => p.value === src);
+                        if (!conf || !conf.value) return null;
+                        const Icon = conf.icon;
+                        return (
+                          <span key={src} className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${conf.bg} ${conf.color} ${conf.border}`}>
+                            {Icon && <Icon className="text-[10px]" />}
+                            {conf.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex items-center flex-wrap gap-3">
                 {!isEditing ? (
@@ -807,7 +1110,7 @@ export default function Tableau({ changeTab, userRole }) {
                   )}
                 </div>
 
-                {/* ─── Bloc Finances — calculé depuis comptabilite ─────────────── */}
+                {/* Bloc Finances */}
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
                   <h4 className="font-bold text-slate-400 uppercase text-xs tracking-wider flex items-center gap-2">
                     <FiDollarSign /> État Financier
@@ -826,13 +1129,10 @@ export default function Tableau({ changeTab, userRole }) {
                     </div>
                   ) : computedFinances ? (
                     <div className="space-y-2">
-                      {/* Prix de vente */}
                       <div className="flex justify-between items-center text-sm py-1.5 border-b border-slate-100 dark:border-slate-700">
                         <span className="text-slate-500">Prix de vente</span>
                         <span className="font-bold dark:text-white">{computedFinances.prixVente.toFixed(2)} €</span>
                       </div>
-
-                      {/* Total encaissé brut */}
                       <div className="flex justify-between items-center text-sm py-1.5">
                         <span className="text-slate-500 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
@@ -840,8 +1140,6 @@ export default function Tableau({ changeTab, userRole }) {
                         </span>
                         <span className="font-bold text-emerald-600">+{computedFinances.totalEncaisse.toFixed(2)} €</span>
                       </div>
-
-                      {/* Annulations (si existantes) */}
                       {computedFinances.totalAnnule > 0 && (
                         <div className="flex justify-between items-center text-sm py-1.5">
                           <span className="text-slate-500 flex items-center gap-1.5">
@@ -851,14 +1149,10 @@ export default function Tableau({ changeTab, userRole }) {
                           <span className="font-bold text-red-500">-{computedFinances.totalAnnule.toFixed(2)} €</span>
                         </div>
                       )}
-
-                      {/* Net encaissé */}
                       <div className="flex justify-between items-center text-sm py-1.5 border-t border-slate-100 dark:border-slate-700">
                         <span className="text-slate-600 dark:text-slate-300 font-semibold">Net encaissé</span>
                         <span className="font-black text-teal-600 dark:text-teal-400">{computedFinances.netEncaisse.toFixed(2)} €</span>
                       </div>
-
-                      {/* Reste à payer — mise en valeur */}
                       <div className={`flex justify-between items-center px-3 py-3 rounded-xl mt-1 ${
                         computedFinances.estSolde
                           ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
@@ -871,8 +1165,6 @@ export default function Tableau({ changeTab, userRole }) {
                           {computedFinances.estSolde ? '0.00 €' : `${computedFinances.resteAPayer.toFixed(2)} €`}
                         </span>
                       </div>
-
-                      {/* Référence Stripe si présente */}
                       {selectedOrder.stripe_ref && (
                         <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-700">
                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-1"><FiLink /> Réf. Paiement Stripe</p>
@@ -881,7 +1173,6 @@ export default function Tableau({ changeTab, userRole }) {
                       )}
                     </div>
                   ) : (
-                    // Aucune transaction en base
                     <div className="space-y-2">
                       <div className="flex justify-between items-center text-sm py-1.5 border-b border-slate-100 dark:border-slate-700">
                         <span className="text-slate-500">Prix de vente</span>
@@ -895,11 +1186,10 @@ export default function Tableau({ changeTab, userRole }) {
                     </div>
                   )}
                 </div>
-                {/* ────────────────────────────────────────────────────────────── */}
 
               </div>
 
-              {/* ── Historique paiements (depuis comptabilite) ── */}
+              {/* Historique paiements */}
               {!isEditing && (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                   <div className="bg-slate-50 dark:bg-slate-900/50 p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
@@ -934,25 +1224,11 @@ export default function Tableau({ changeTab, userRole }) {
                                   {tx.type_mouvement}
                                 </span>
                               </p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Le {new Date(tx.created_at).toLocaleString('fr-FR')}
-                              </p>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong>
-                              </p>
-                              {tx.motif && (
-                                <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-900/20 inline-block px-2 py-1 rounded mt-1.5">
-                                  Motif : {tx.motif}
-                                </p>
-                              )}
-                              {tx.notes && !tx.motif && (
-                                <p className="text-[11px] text-slate-400 italic mt-1">{tx.notes}</p>
-                              )}
-                              {tx.reference_externe && (
-                                <p className="text-[10px] text-indigo-400 font-mono mt-1 truncate max-w-[200px]" title={tx.reference_externe}>
-                                  Ref : {tx.reference_externe}
-                                </p>
-                              )}
+                              <p className="text-xs text-slate-500 mt-1">Le {new Date(tx.created_at).toLocaleString('fr-FR')}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">par <strong className="text-slate-600 dark:text-slate-300">{tx.operateur_email}</strong></p>
+                              {tx.motif && <p className="text-xs text-red-600 font-bold bg-red-50 dark:bg-red-900/20 inline-block px-2 py-1 rounded mt-1.5">Motif : {tx.motif}</p>}
+                              {tx.notes && !tx.motif && <p className="text-[11px] text-slate-400 italic mt-1">{tx.notes}</p>}
+                              {tx.reference_externe && <p className="text-[10px] text-indigo-400 font-mono mt-1 truncate max-w-[200px]" title={tx.reference_externe}>Ref : {tx.reference_externe}</p>}
                             </div>
                             <div className={`text-right font-black text-lg mt-2 sm:mt-0 shrink-0 ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                               {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
