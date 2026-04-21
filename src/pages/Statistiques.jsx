@@ -167,13 +167,13 @@ export default function Statistiques() {
       </div>
 
       {/* ════════════════════════════════════════════
-          BLOC 1 — SUIVI PHYSIQUE DES AGNEAUX
+         BLOC 1 — SUIVI PHYSIQUE DES AGNEAUX
          ════════════════════════════════════════════ */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
         <FiShoppingBag className="text-blue-500" /> Suivi Physique des Agneaux
       </h3>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
         {/* Total commandés */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden group">
@@ -190,16 +190,29 @@ export default function Statistiques() {
           </div>
         </div>
 
-        {/* Non bouclés */}
-        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden group border-t-4 border-red-500">
-          <div className="absolute right-0 top-0 w-32 h-32 bg-red-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+        {/* Agneaux en Attente */}
+        <div className="bg-slate-50 dark:bg-slate-800/80 p-6 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-700 relative overflow-hidden group">
+          <div className="absolute right-0 top-0 w-32 h-32 bg-slate-300/30 dark:bg-slate-600/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <p className="text-sm font-bold text-slate-400 uppercase">Agneaux NON Bouclés</p>
-              <h3 className="text-5xl font-black text-red-500 mt-2">{nonBoucles}</h3>
-              <p className="text-xs font-bold text-slate-400 mt-2">Bêtes à identifier en urgence</p>
+              <p className="text-sm font-bold text-slate-600 dark:text-slate-400 uppercase">Agneaux en Attente</p>
+              <h3 className="text-5xl font-black text-slate-700 dark:text-slate-200 mt-2">{s.attente}</h3>
+              <p className="text-xs font-bold text-slate-400 mt-2">Aucun paiement initié</p>
             </div>
-            <div className="w-14 h-14 rounded-2xl bg-white/10 text-red-400 flex items-center justify-center text-2xl"><FiAlertTriangle /></div>
+            <div className="w-14 h-14 rounded-2xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center text-2xl"><FiClock /></div>
+          </div>
+        </div>
+
+        {/* Agneaux Réservés */}
+        <div className="bg-orange-50 dark:bg-orange-900/20 p-6 rounded-3xl shadow-xl border border-orange-200 dark:border-orange-800/50 relative overflow-hidden group">
+          <div className="absolute right-0 top-0 w-32 h-32 bg-orange-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-sm font-bold text-orange-600 dark:text-orange-500 uppercase">Agneaux Réservés</p>
+              <h3 className="text-5xl font-black text-orange-600 dark:text-orange-500 mt-2">{s.reserve}</h3>
+              <p className="text-xs font-bold text-orange-500/80 mt-2">Acompte versé</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-orange-200 dark:bg-orange-900/60 text-orange-600 dark:text-orange-400 flex items-center justify-center text-2xl"><FiCreditCard /></div>
           </div>
         </div>
 
@@ -219,6 +232,20 @@ export default function Statistiques() {
           </div>
           <p className="text-xs text-emerald-200 mt-1 font-bold relative z-10">{pourcentageBoucle.toFixed(1)}% bouclés</p>
         </div>
+
+        {/* Non bouclés */}
+        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden group border-t-4 border-red-500">
+          <div className="absolute right-0 top-0 w-32 h-32 bg-red-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-sm font-bold text-slate-400 uppercase">Agneaux NON Bouclés</p>
+              <h3 className="text-5xl font-black text-red-500 mt-2">{nonBoucles}</h3>
+              <p className="text-xs font-bold text-slate-400 mt-2">Bêtes à identifier en urgence</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 text-red-400 flex items-center justify-center text-2xl"><FiAlertTriangle /></div>
+          </div>
+        </div>
+
       </div>
 
       {/* Détail des 5 statuts */}
@@ -229,10 +256,10 @@ export default function Statistiques() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { key: "attente", label: "En Attente",       icon: <FiClock />,       bg: "bg-slate-50 dark:bg-slate-900",          bar: "bg-slate-500",   border: "border-slate-200 dark:border-slate-700"    },
-            { key: "reserve", label: "Réservés",         icon: <FiCreditCard />,  bg: "bg-orange-50 dark:bg-orange-900/20",      bar: "bg-orange-500",  border: "border-orange-100 dark:border-orange-800/50"},
-            { key: "paye",    label: "Totalement Payés", icon: <FiCheckCircle />, bg: "bg-blue-50 dark:bg-blue-900/20",          bar: "bg-blue-500",    border: "border-blue-100 dark:border-blue-800/50"   },
-            { key: "bouclee", label: "Bouclés",          icon: <FiTag />,         bg: "bg-emerald-50 dark:bg-emerald-900/20",    bar: "bg-emerald-500", border: "border-emerald-100 dark:border-emerald-800/50"},
+            { key: "attente", label: "En Attente",       icon: <FiClock />,       bg: "bg-slate-50 dark:bg-slate-900",       bar: "bg-slate-500",   border: "border-slate-200 dark:border-slate-700"    },
+            { key: "reserve", label: "Réservés",         icon: <FiCreditCard />,  bg: "bg-orange-50 dark:bg-orange-900/20",  bar: "bg-orange-500",  border: "border-orange-100 dark:border-orange-800/50"},
+            { key: "paye",    label: "Totalement Payés", icon: <FiCheckCircle />, bg: "bg-blue-50 dark:bg-blue-900/20",      bar: "bg-blue-500",    border: "border-blue-100 dark:border-blue-800/50"   },
+            { key: "bouclee", label: "Bouclés",          icon: <FiTag />,         bg: "bg-emerald-50 dark:bg-emerald-900/20", bar: "bg-emerald-500", border: "border-emerald-100 dark:border-emerald-800/50"},
           ].map(({ key, label, icon, bg, bar, border }) => (
             <div key={key} className={`p-5 rounded-2xl border ${bg} ${border} flex flex-col gap-2`}>
               <div className="flex items-center justify-between">
@@ -260,7 +287,7 @@ export default function Statistiques() {
       </div>
 
       {/* ════════════════════════════════════════════
-          BLOC 2 — SUIVI FINANCIER
+         BLOC 2 — SUIVI FINANCIER
          ════════════════════════════════════════════ */}
       <h3 className="text-xl font-black text-slate-800 dark:text-white mt-4 flex items-center gap-2">
         <FiDollarSign className="text-emerald-500" /> Suivi Financier & Ventes
@@ -293,7 +320,7 @@ export default function Statistiques() {
             {[
               { key: 'stripe', label: 'Stripe (Web + Guichet)', color: 'bg-indigo-500', textColor: 'text-indigo-600' },
               { key: 'especes', label: 'Espèces (Guichet)',      color: 'bg-teal-500',   textColor: 'text-teal-600'   },
-              { key: 'cb',     label: 'CB / TPE (Guichet)',      color: 'bg-blue-500',   textColor: 'text-blue-600'   },
+              { key: 'cb',      label: 'CB / TPE (Guichet)',      color: 'bg-blue-500',   textColor: 'text-blue-600'   },
             ].map(({ key, label, color, textColor }) => (
               <div key={key}>
                 <div className="flex justify-between items-end mb-2">

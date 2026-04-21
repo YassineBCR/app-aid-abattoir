@@ -4,7 +4,7 @@ import {
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
   FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter, FiEdit, FiSave, FiChevronDown, FiSmartphone,
-  FiArrowUp, FiArrowDown, FiGlobe, FiSliders
+  FiArrowUp, FiArrowDown, FiGlobe, FiSliders, FiEdit3
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -95,14 +95,13 @@ export default function Tableau({ changeTab, userRole }) {
   const [filterCreneauId, setFilterCreneauId] = useState("");
   const [filterStatut, setFilterStatut]       = useState("");
 
-  // ── NOUVEAUX filtres source de paiement + tri ─────────────────────────────
-  const [filterSource, setFilterSource]       = useState(""); // stripe_web | stripe_guichet | cb | especes | ""
-  const [sortField, setSortField]             = useState("created_at"); // created_at | ticket_num | contact_last_name
-  const [sortDir, setSortDir]                 = useState("desc");       // asc | desc
+  // ── Filtres source de paiement + tri ─────────────────────────────────────
+  const [filterSource, setFilterSource]       = useState("");
+  const [sortField, setSortField]             = useState("created_at");
+  const [sortDir, setSortDir]                 = useState("desc");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // ── Comptabilité pour le filtre source ───────────────────────────────────
-  // On garde une map: commande_id -> [moyens de paiement utilisés]
   const [commandePaymentSources, setCommandePaymentSources] = useState({});
   const [loadingPaymentSources, setLoadingPaymentSources]   = useState(false);
 
@@ -119,6 +118,11 @@ export default function Tableau({ changeTab, userRole }) {
   const [isEditing, setIsEditing]       = useState(false);
   const [editFormData, setEditFormData] = useState({});
   const [isSaving, setIsSaving]         = useState(false);
+
+  // ── NOUVEAU : États pour la note interne (édition rapide) ─────────────────
+  const [noteDraft, setNoteDraft]         = useState("");
+  const [editingNote, setEditingNote]     = useState(false);
+  const [savingNote, setSavingNote]       = useState(false);
 
   const [showMailModal, setShowMailModal]         = useState(false);
   const [customMailSubject, setCustomMailSubject] = useState("");
@@ -150,7 +154,6 @@ export default function Tableau({ changeTab, userRole }) {
   }, [searchTerm]);
 
   // ── Fetch sources de paiement depuis comptabilite ─────────────────────────
-  // (chargé une fois, puis actualisé si besoin)
   useEffect(() => {
     fetchPaymentSources();
   }, []);
@@ -171,7 +174,6 @@ export default function Tableau({ changeTab, userRole }) {
         if (!map[tx.commande_id]) map[tx.commande_id] = new Set();
         map[tx.commande_id].add(tx.moyen_paiement);
       });
-      // Convertir en tableaux
       const result = {};
       Object.keys(map).forEach(k => { result[k] = Array.from(map[k]); });
       setCommandePaymentSources(result);
@@ -191,7 +193,6 @@ export default function Tableau({ changeTab, userRole }) {
     return () => { supabase.removeChannel(sub); };
   }, [limit, debouncedSearch, filterDate, filterCreneauId, sortField, sortDir]);
 
-  // Quand on active le filtre source on recharge aussi les sources si elles sont vides
   useEffect(() => {
     if (filterSource && Object.keys(commandePaymentSources).length === 0) {
       fetchPaymentSources();
@@ -207,8 +208,8 @@ export default function Tableau({ changeTab, userRole }) {
         .not("contact_last_name", "is", null)
         .neq("contact_last_name", "")
         .neq("statut", "disponible")
-        .neq("statut", "brouillon")
-        .neq("statut", "en_attente");
+        .neq("statut", "brouillon");
+        // SUPPRIMÉ : .neq("statut", "en_attente") pour afficher les résas guichet sans encaissement
 
       if (filterCreneauId) {
         query = query.eq('creneau_id', filterCreneauId);
@@ -223,8 +224,8 @@ export default function Tableau({ changeTab, userRole }) {
         const isNumeric   = /^\d+$/.test(debouncedSearch);
         const isTicketNum = isNumeric && debouncedSearch.length < 8;
         query = isTicketNum
-          ? query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`)
-          : query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+          ? query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`)
+          : query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%`);
       }
 
       const { data, error, count } = await query
@@ -245,24 +246,18 @@ export default function Tableau({ changeTab, userRole }) {
   // ── Filtre statut + source côté client ────────────────────────────────────
   const filteredCommandes = useMemo(() => {
     let result = commandes;
-
-    // Filtre statut
     if (filterStatut) {
       result = result.filter(cmd => getStatutMetier(cmd) === filterStatut);
     }
-
-    // Filtre source de paiement
     if (filterSource) {
       result = result.filter(cmd => {
         const sources = commandePaymentSources[cmd.id] || [];
         return sources.includes(filterSource);
       });
     }
-
     return result;
   }, [commandes, filterStatut, filterSource, commandePaymentSources]);
 
-  // ── Compteurs par statut (sur les données courantes, avant filtre source) ─
   const countsByStatut = useMemo(() => {
     const counts = { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 };
     commandes.forEach(cmd => {
@@ -272,7 +267,6 @@ export default function Tableau({ changeTab, userRole }) {
     return counts;
   }, [commandes]);
 
-  // ── Compteurs par source (sur toutes les commandes visibles) ──────────────
   const countsBySource = useMemo(() => {
     const counts = { stripe_web: 0, stripe_guichet: 0, cb: 0, especes: 0 };
     commandes.forEach(cmd => {
@@ -293,7 +287,6 @@ export default function Tableau({ changeTab, userRole }) {
 
   const uniqueDates = [...new Set(creneauxConfig.map(c => c.date))];
 
-  // ── Toggle tri ────────────────────────────────────────────────────────────
   const handleSortToggle = (field) => {
     if (sortField === field) {
       setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -310,6 +303,9 @@ export default function Tableau({ changeTab, userRole }) {
     setLoadingHistory(true);
     setComputedFinances(null);
     setIsEditing(false);
+    // ── NOUVEAU : initialiser le brouillon de note ───────────────────────────
+    setNoteDraft(cmd.note_interne || "");
+    setEditingNote(false);
     try {
       const { data, error } = await supabase
         .from('comptabilite')
@@ -330,9 +326,20 @@ export default function Tableau({ changeTab, userRole }) {
     }
   };
 
-  const handleCloseModal  = () => { setSelectedOrder(null); setIsEditing(false); setComputedFinances(null); };
-  const startEditing      = () => {
-    setEditFormData({ ...selectedOrder, montant_total_euros: (selectedOrder.montant_total_cents / 100).toFixed(2) });
+  const handleCloseModal  = () => { 
+    setSelectedOrder(null); 
+    setIsEditing(false); 
+    setComputedFinances(null);
+    setEditingNote(false);
+    setNoteDraft("");
+  };
+
+  const startEditing = () => {
+    setEditFormData({ 
+      ...selectedOrder, 
+      montant_total_euros: (selectedOrder.montant_total_cents / 100).toFixed(2),
+      note_interne: selectedOrder.note_interne || ""
+    });
     setIsEditing(true);
   };
   const cancelEditing = () => { setIsEditing(false); setEditFormData({}); };
@@ -348,6 +355,7 @@ export default function Tableau({ changeTab, userRole }) {
         sacrifice_name:      editFormData.sacrifice_name,
         creneau_id:          editFormData.creneau_id || null,
         montant_total_cents: Math.round(parseFloat(editFormData.montant_total_euros || 0) * 100),
+        note_interne:        editFormData.note_interne || null,
       };
       const { data, error } = await supabase
         .from('commandes').update(updatedData).eq('id', selectedOrder.id)
@@ -358,6 +366,7 @@ export default function Tableau({ changeTab, userRole }) {
       const finances = computeFinancesFromHistory(orderHistory, data.montant_total_cents);
       setComputedFinances(finances);
       setSelectedOrder(data);
+      setNoteDraft(data.note_interne || "");
       setIsEditing(false);
     } catch (err) {
       console.error(err);
@@ -365,6 +374,49 @@ export default function Tableau({ changeTab, userRole }) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // ── NOUVEAU : Sauvegarde rapide de la note (indépendante du mode édition) ─
+  const handleSaveNote = async () => {
+    if (!selectedOrder) return;
+    setSavingNote(true);
+    try {
+      const cleanNote = noteDraft.trim() || null;
+      const { data, error } = await supabase
+        .from('commandes')
+        .update({ note_interne: cleanNote })
+        .eq('id', selectedOrder.id)
+        .select('*, creneaux_horaires(date, heure_debut)')
+        .single();
+      if (error) throw error;
+
+      setSelectedOrder(data);
+      setNoteDraft(data.note_interne || "");
+      setEditingNote(false);
+      showNotification(
+        cleanNote ? "Note enregistrée ✓" : "Note supprimée",
+        "success"
+      );
+      logAction('MODIFICATION', 'COMMANDE', { 
+        action: cleanNote ? 'Ajout/modification note interne' : 'Suppression note interne', 
+        ticket: selectedOrder.ticket_num 
+      });
+
+      // Met à jour la liste locale pour refléter le changement sans recharger
+      setCommandes(prev => prev.map(c => 
+        c.id === selectedOrder.id ? { ...c, note_interne: cleanNote } : c
+      ));
+    } catch (err) {
+      console.error(err);
+      showNotification("Erreur lors de la sauvegarde de la note", "error");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const handleCancelNote = () => {
+    setNoteDraft(selectedOrder?.note_interne || "");
+    setEditingNote(false);
   };
 
   const handlePrendreEnCharge = () => {
@@ -476,8 +528,8 @@ export default function Tableau({ changeTab, userRole }) {
       .not("contact_last_name", "is", null)
       .neq("contact_last_name", "")
       .neq("statut", "disponible")
-      .neq("statut", "brouillon")
-      .neq("statut", "en_attente");
+      .neq("statut", "brouillon");
+      // SUPPRIMÉ : .neq("statut", "en_attente") pour s'assurer que l'export contienne aussi les résas guichet
 
     if (filterCreneauId) {
       exportQuery = exportQuery.eq('creneau_id', filterCreneauId);
@@ -489,8 +541,8 @@ export default function Tableau({ changeTab, userRole }) {
       const isNumeric   = /^\d+$/.test(debouncedSearch);
       const isTicketNum = isNumeric && debouncedSearch.length < 8;
       exportQuery = isTicketNum
-        ? exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`)
-        : exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%`);
+        ? exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%,ticket_num.eq.${debouncedSearch}`)
+        : exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%`);
     }
 
     const { data: allData, error } = await exportQuery.order(sortField, { ascending: sortDir === 'asc' });
@@ -515,6 +567,7 @@ export default function Tableau({ changeTab, userRole }) {
       { header: 'Reste à payer',  key: 'reste',    width: 15 },
       { header: 'Statut',         key: 'statut',   width: 20 },
       { header: 'Source Paiement',key: 'source',   width: 20 },
+      { header: 'Note interne',   key: 'note',     width: 40 },
       { header: 'Date Réservation',key: 'date_resa',width: 20 },
       { header: 'Ref Stripe',     key: 'stripe',   width: 35 },
     ];
@@ -544,6 +597,7 @@ export default function Tableau({ changeTab, userRole }) {
         reste:     `${reste.toFixed(2)} €`,
         statut:    statutFr,
         source:    sources.join(', ') || '-',
+        note:      c.note_interne || '',
         date_resa: new Date(c.created_at).toLocaleString('fr-FR'),
         stripe:    c.stripe_ref || "",
       });
@@ -571,7 +625,6 @@ export default function Tableau({ changeTab, userRole }) {
     return <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"><FiClock /> Attente</span>;
   };
 
-  // Badge source de paiement pour la ligne du tableau
   const renderSourcesBadges = (cmdId) => {
     const sources = commandePaymentSources[cmdId] || [];
     if (sources.length === 0) return <span className="text-slate-300 text-xs">—</span>;
@@ -626,7 +679,6 @@ export default function Tableau({ changeTab, userRole }) {
     setFilterDate(""); setFilterCreneauId(""); setFilterStatut(""); setSearchTerm(""); setFilterSource(""); setLimit(50);
   };
 
-  // ── Composant bouton de tri réutilisable ───────────────────────────────────
   const SortButton = ({ field, label }) => {
     const isActive = sortField === field;
     return (
@@ -650,6 +702,9 @@ export default function Tableau({ changeTab, userRole }) {
     );
   };
 
+  // Détection s'il y a déjà une note sur la commande (pour afficher un indicateur dans la liste)
+  const hasNote = (cmd) => cmd.note_interne && cmd.note_interne.trim().length > 0;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-fade-in">
 
@@ -660,7 +715,8 @@ export default function Tableau({ changeTab, userRole }) {
             <div className="p-3 bg-teal-500 rounded-2xl text-white shadow-lg shadow-teal-500/30"><FiList className="text-2xl" /></div>
             Registre des Commandes
           </h2>
-          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Seules les réservations confirmées (acompte payé) sont affichées.</p>
+          {/* PETITE MODIF ICI POUR REFLÉTER LE CHANGEMENT DE RÈGLE */}
+          <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Toutes les réservations, y compris celles en attente d'encaissement, sont affichées.</p>
         </div>
         <button onClick={exportToExcel} className="shrink-0 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
           <FiDownload /> Excel
@@ -670,7 +726,6 @@ export default function Tableau({ changeTab, userRole }) {
       {/* ── Barre de filtres principale ── */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-4">
 
-        {/* Ligne 1 : filtres rapides + recherche */}
         <div className="flex flex-wrap gap-3 items-center">
           <div className="flex items-center gap-2 text-slate-500 font-bold text-sm shrink-0">
             <FiFilter /> Filtres
@@ -705,7 +760,6 @@ export default function Tableau({ changeTab, userRole }) {
             <FiChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
           </div>
 
-          {/* Bouton toggle filtres avancés */}
           <button
             onClick={() => setShowAdvancedFilters(prev => !prev)}
             className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
@@ -721,7 +775,7 @@ export default function Tableau({ changeTab, userRole }) {
 
           <div className="relative flex-1 min-w-[200px] group">
             <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" />
-            <input type="text" placeholder="Nom, email, tél, #ticket..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 text-sm border-2 border-slate-200 dark:border-slate-600 rounded-xl dark:bg-slate-700 dark:text-white outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium" />
+            <input type="text" placeholder="Nom, email, tél, #ticket, note..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 text-sm border-2 border-slate-200 dark:border-slate-600 rounded-xl dark:bg-slate-700 dark:text-white outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium" />
             {searchTerm && (
               <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"><FiX /></button>
             )}
@@ -734,11 +788,8 @@ export default function Tableau({ changeTab, userRole }) {
           )}
         </div>
 
-        {/* ── PANNEAU FILTRES AVANCÉS (Source + Tri) ── */}
         {showAdvancedFilters && (
           <div className="border-t border-slate-100 dark:border-slate-700 pt-4 space-y-4 animate-fade-in">
-
-            {/* Bloc Source de paiement */}
             <div>
               <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <FiCreditCard className="text-teal-500" /> Source de paiement
@@ -774,7 +825,6 @@ export default function Tableau({ changeTab, userRole }) {
               </div>
             </div>
 
-            {/* Bloc Tri */}
             <div>
               <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <FiArrowDown className="text-teal-500" /> Trier par
@@ -784,7 +834,6 @@ export default function Tableau({ changeTab, userRole }) {
                   <SortButton key={opt.value} field={opt.value} label={opt.label} />
                 ))}
                 <div className="ml-2 h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
-                {/* Toggle global croissant/décroissant */}
                 <button
                   onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 transition-all"
@@ -800,7 +849,6 @@ export default function Tableau({ changeTab, userRole }) {
           </div>
         )}
 
-        {/* Compteurs statuts */}
         <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2 items-center">
           {[
             { key: "attente", label: "Attente",  bg: "bg-slate-100 dark:bg-slate-700",         text: "text-slate-700 dark:text-slate-300",    border: "border-slate-300 dark:border-slate-600"    },
@@ -833,7 +881,6 @@ export default function Tableau({ changeTab, userRole }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-xs">
               <tr>
-                {/* En-têtes cliquables pour le tri */}
                 <th className="p-5">
                   <button onClick={() => handleSortToggle('ticket_num')} className="flex items-center gap-1 hover:text-teal-600 transition-colors group">
                     Ticket
@@ -890,7 +937,16 @@ export default function Tableau({ changeTab, userRole }) {
                   const reste    = Math.max(0, total - dejaPaye);
                   return (
                     <tr key={cmd.id} onClick={() => handleRowClick(cmd)} className={getRowClassName(cmd, dejaPaye, reste)}>
-                      <td className="p-5 font-black text-teal-600 dark:text-teal-400 text-base">#{cmd.ticket_num}</td>
+                      <td className="p-5 font-black text-teal-600 dark:text-teal-400 text-base">
+                        <div className="flex items-center gap-2">
+                          #{cmd.ticket_num}
+                          {hasNote(cmd) && (
+                            <span title="Note interne présente" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-400 text-white text-[10px] shadow-sm">
+                              <FiEdit3 className="text-[10px]" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-5">
                         <p className="font-bold text-slate-800 dark:text-white">{cmd.contact_last_name} {cmd.contact_first_name}</p>
                         <p className="text-xs text-slate-500 mt-1">Pour : <span className="font-medium">{cmd.sacrifice_name}</span></p>
@@ -903,7 +959,6 @@ export default function Tableau({ changeTab, userRole }) {
                         <p className="font-bold text-slate-700 dark:text-slate-200">{cmd.creneaux_horaires ? getJourLabel(cmd.creneaux_horaires.date) : "-"}</p>
                         <p className="text-xs text-slate-500 mt-0.5">{cmd.creneaux_horaires ? cmd.creneaux_horaires.heure_debut.slice(0, 5) : ""}</p>
                       </td>
-                      {/* ── Colonne Source de paiement ── */}
                       <td className="p-5 hidden lg:table-cell">
                         {renderSourcesBadges(cmd.id)}
                       </td>
@@ -927,7 +982,6 @@ export default function Tableau({ changeTab, userRole }) {
                           : <span className="text-emerald-500">0.00 €</span>}
                       </td>
                       <td className="p-5 text-center">{renderStatut(cmd)}</td>
-                      {/* ── Colonne Date d'ajout ── */}
                       <td className="p-5 hidden xl:table-cell">
                         <p className="text-xs text-slate-500 font-medium">
                           {new Date(cmd.created_at).toLocaleDateString('fr-FR')}
@@ -967,7 +1021,6 @@ export default function Tableau({ changeTab, userRole }) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-slate-400 text-sm font-medium">Créé le {new Date(selectedOrder.created_at).toLocaleString('fr-FR')}</p>
-                  {/* Sources de paiement dans le header */}
                   {(commandePaymentSources[selectedOrder.id] || []).length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {(commandePaymentSources[selectedOrder.id] || []).map(src => {
@@ -1016,6 +1069,76 @@ export default function Tableau({ changeTab, userRole }) {
 
             {/* Corps */}
             <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-50 dark:bg-slate-900/50">
+
+              {/* ═════════════ NOTE INTERNE (rapide, indépendante du mode édition) ═════════════ */}
+              {!isEditing && (
+                <div className="mb-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-800/50 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <h4 className="font-bold text-amber-800 dark:text-amber-300 uppercase text-xs tracking-wider flex items-center gap-2">
+                      <FiEdit3 /> Note interne
+                      <span className="text-[9px] font-bold bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 px-1.5 py-0.5 rounded normal-case tracking-normal">
+                        Privée staff
+                      </span>
+                    </h4>
+                    {!editingNote && (
+                      <button
+                        onClick={() => setEditingNote(true)}
+                        className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/30 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                      >
+                        <FiEdit3 /> {selectedOrder.note_interne ? "Modifier" : "Ajouter"}
+                      </button>
+                    )}
+                  </div>
+
+                  {editingNote ? (
+                    <div className="space-y-3 animate-fade-in">
+                      <textarea
+                        autoFocus
+                        value={noteDraft}
+                        onChange={(e) => setNoteDraft(e.target.value)}
+                        placeholder="Ex: Client arrivera en retard — prévenir avec appel — mouton à séparer du lot du matin..."
+                        rows="4"
+                        className="w-full p-3 rounded-xl border-2 border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 resize-none text-sm font-medium"
+                      />
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                          {noteDraft.length} caractère{noteDraft.length > 1 ? 's' : ''}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleCancelNote}
+                            disabled={savingNote}
+                            className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            onClick={handleSaveNote}
+                            disabled={savingNote}
+                            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-md shadow-amber-500/30 transition-all flex items-center gap-2 disabled:opacity-50"
+                          >
+                            {savingNote ? <FiLoader className="animate-spin" /> : <FiSave />}
+                            Enregistrer
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {selectedOrder.note_interne ? (
+                        <p className="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-wrap leading-relaxed font-medium bg-white/60 dark:bg-slate-900/40 p-3 rounded-xl border border-amber-100 dark:border-amber-900/50">
+                          {selectedOrder.note_interne}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-amber-600 dark:text-amber-500 italic">
+                          Aucune note pour le moment. Cliquez sur <strong>Ajouter</strong> pour laisser un commentaire interne.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
 
                 {/* Bloc Client */}
@@ -1092,6 +1215,19 @@ export default function Tableau({ changeTab, userRole }) {
                             <option key={c.id} value={c.id}>{getJourLabel(c.date)} à {c.heure_debut.slice(0, 5)}</option>
                           ))}
                         </select>
+                      </div>
+                      {/* Champ note interne aussi disponible dans le mode édition complet */}
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block flex items-center gap-1">
+                          <FiEdit3 className="text-amber-500" /> Note interne
+                        </label>
+                        <textarea
+                          value={editFormData.note_interne || ""}
+                          onChange={e => setEditFormData({ ...editFormData, note_interne: e.target.value })}
+                          rows="3"
+                          placeholder="Note privée staff..."
+                          className="w-full p-2.5 text-sm border-2 rounded-xl dark:bg-slate-900 dark:border-slate-700 dark:text-white outline-none focus:border-amber-500 resize-none"
+                        />
                       </div>
                     </div>
                   ) : (
