@@ -90,12 +90,12 @@ export async function getHistoriqueCommande(commande_id) {
 }
 
 /**
- * Calcule les totaux théoriques pour une caisse ouverte.
- * (utilisé au moment de la clôture)
+ * Calcule les totaux théoriques pour une caisse (espèces, CB, Stripe).
+ * Inclut le fond initial dans le total espèces.
  *
  * @param {string} caisse_id
  * @param {number} fond_initial_cents  - fond déclaré à l'ouverture
- * @returns {{ especes: number, cb: number }}  Montants en centimes
+ * @returns {{ especes: number, cb: number, stripe: number }}  Montants en centimes
  */
 export async function getTheoriqueCaisse(caisse_id, fond_initial_cents = 0) {
   const { data, error } = await supabase
@@ -106,12 +106,31 @@ export async function getTheoriqueCaisse(caisse_id, fond_initial_cents = 0) {
   if (error) throw error;
 
   let especes = fond_initial_cents;
-  let cb = 0;
+  let cb      = 0;
+  let stripe  = 0;
 
   for (const tx of (data ?? [])) {
-    if (tx.moyen_paiement === 'especes') especes += tx.montant_cents;
-    if (tx.moyen_paiement === 'cb')      cb      += tx.montant_cents;
+    if (tx.moyen_paiement === 'especes')                                             especes += tx.montant_cents;
+    if (tx.moyen_paiement === 'cb')                                                  cb      += tx.montant_cents;
+    if (tx.moyen_paiement === 'stripe_web' || tx.moyen_paiement === 'stripe_guichet') stripe  += tx.montant_cents;
   }
 
-  return { especes, cb };
+  return { especes, cb, stripe };
+}
+
+/**
+ * Charge toutes les transactions d'une session de caisse.
+ *
+ * @param {string} caisse_id
+ * @returns {Promise<Array>}
+ */
+export async function getTransactionsCaisse(caisse_id) {
+  const { data, error } = await supabase
+    .from('comptabilite')
+    .select('*')
+    .eq('caisse_id', caisse_id)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
 }

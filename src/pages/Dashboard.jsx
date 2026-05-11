@@ -20,13 +20,14 @@ import AdminCaisse from "./AdminCaisse";
 import Bouclage from "./Bouclage";
 import AdminSettings from "./AdminSettings";
 import Statistiques from "./Statistiques";
+import AdminComptage from "./AdminComptage";
 
 // ---- CONFIGURATION DES RÔLES ET DE L'ORDRE D'AFFICHAGE ----
 const PERMS = {
   client: { sections: [] },
   vendeur: { sections: ["prise_en_charge", "tableau", "bouclage", "commandes"] },
   admin_site: { sections: ["prise_en_charge", "tableau", "creneaux", "commandes", "statistiques"] },
-  admin_global: { sections: ["prise_en_charge", "tableau", "statistiques", "creneaux", "commandes", "bouclage", "finance", "sms", "logs", "settings"] },
+  admin_global: { sections: ["prise_en_charge", "tableau", "statistiques", "creneaux", "commandes", "bouclage", "finance", "caisse_comptage", "sms", "logs", "settings"] },
 };
 
 // ---- CONFIGURATION DES ONGLETS ----
@@ -38,6 +39,7 @@ const SECTIONS = {
   commandes: { label: "Commandes Web", component: Vendeur, Icon: FiPackage, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10", border: "border-indigo-500" },
   bouclage: { label: "Bouclage", component: Bouclage, Icon: FiTag, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-500/10", border: "border-orange-500" },
   finance: { label: "Comptabilité", component: AdminCaisse, Icon: FiDollarSign, color: "text-yellow-500", bg: "bg-yellow-50 dark:bg-yellow-500/10", border: "border-yellow-500" },
+  caisse_comptage: { label: "Comptage Caisse", component: AdminComptage, Icon: FiTarget, color: "text-violet-500", bg: "bg-violet-50 dark:bg-violet-500/10", border: "border-violet-500" },
   sms: { label: "Marketing", component: AdminSMS, Icon: FiMessageSquare, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", border: "border-purple-500" },
   logs: { label: "Traçabilité (Logs)", component: AdminLogs, Icon: FiActivity, color: "text-slate-500", bg: "bg-slate-100 dark:bg-slate-500/10", border: "border-slate-500" },
   settings: { label: "Paramètres", component: AdminSettings, Icon: FiSettings, color: "text-gray-500", bg: "bg-gray-50 dark:bg-gray-500/10", border: "border-gray-500" },
