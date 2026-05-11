@@ -165,13 +165,32 @@ export default function Reservation() {
 
   const handleNext = () => {
     if (step === 1) {
-        if (!form.first_name || !form.last_name || !form.phone || !form.sacrifice_name) return showNotification("Veuillez remplir tous les champs.", "error");
+        // 1. Vérification que tous les champs sont remplis
+        if (!form.first_name || !form.last_name || !form.phone || !form.sacrifice_name || !form.email) {
+            return showNotification("Veuillez remplir tous les champs.", "error");
+        }
+
+        // 2. Validation de l'email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(form.email)) {
+            return showNotification("Veuillez saisir une adresse e-mail valide.", "error");
+        }
+
+        // 3. Validation du téléphone (nettoyage des espaces/tirets puis regex)
+        const cleanPhone = form.phone.replace(/[\s.-]/g, '');
+        // Accepte les formats 0612345678, +33612345678, 0033612345678
+        const phoneRegex = /^(?:(?:\+|00)33|0)[1-9]\d{8}$/;
+        if (!phoneRegex.test(cleanPhone)) {
+            return showNotification("Veuillez saisir un numéro de téléphone valide (ex: 06 12 34 56 78 ou +33 6 12 34 56 78).", "error");
+        }
+
         setStep(2);
     } else if (step === 2) {
         if (!selectedCreneau) return showNotification("Veuillez choisir un créneau.", "error");
         setStep(3);
     }
   };
+
   const handleBack = () => { if (step > 1) setStep(step - 1); };
 
   const canAddToCart = useMemo(() => {
@@ -297,37 +316,46 @@ export default function Reservation() {
                                     <div className="grid gap-6 md:grid-cols-2">
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Prénom" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
                                         <div className="relative"><FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Nom" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
-                                        <div className="relative"><FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field" placeholder="Téléphone" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} /></div>
-                                        <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
+                                        <div className="relative"><FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input type="tel" className="input-field" placeholder="Téléphone (ex: 0612345678)" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} /></div>
+                                        <div className="relative"><FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input type="email" className="input-field opacity-60 cursor-not-allowed" placeholder="Email" value={form.email} disabled /></div>
                                         <div className="relative sm:col-span-2"><FiMapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" /><input className="input-field border-green-300 dark:border-green-700/50 bg-green-50/30 dark:bg-green-900/10" placeholder="Nom pour le sacrifice (ex: Famille X...)" value={form.sacrifice_name} onChange={e => setForm({...form, sacrifice_name: e.target.value})} /></div>
                                     </div>
                                     
-                                    <div className="mt-8 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-6 text-amber-900 dark:text-amber-200">
-                                        <h3 className="text-lg font-black mb-4 flex items-center gap-2"><FiAlertCircle /> Informations importantes</h3>
-                                        <div className="space-y-4 text-sm">
-                                            <div>
-                                                <p className="font-bold">En cas de retard ?</p>
-                                                <p>Les horaires de passage sont donnés à titre indicatif et nous ne pouvons nous tenir responsables en cas de retard lors du sacrifice.</p>
+                                    <div className="mt-8 flex flex-col md:flex-row items-center md:items-stretch gap-6">
+                                        <div className="flex-shrink-0 flex items-center justify-center">
+                                            <div className="w-36 h-36 rounded-full bg-gradient-to-tr from-green-500 to-emerald-600 shadow-xl flex flex-col items-center justify-center text-white border-4 border-white dark:border-slate-800 transform hover:scale-105 transition-all">
+                                                <span className="text-xs font-bold uppercase tracking-wider opacity-90 text-center px-2">À partir de</span>
+                                                <span className="text-3xl font-black mt-1">380€</span>
                                             </div>
-                                            <div>
-                                                <p className="font-bold">En cas d'absence ?</p>
-                                                <p>En cas d'absence lors du sacrifice, il devra être effectué en votre absence et nous ne pouvons nous tenir responsables.</p>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold">En cas de saisie ?</p>
-                                                <p>En cas de saisies par les services vétérinaires :</p>
-                                                <ul className="list-disc pl-5 mt-1 space-y-1">
-                                                    <li>Lors d'une saisie partielle (cœur, foie, abats, etc...) : Aucun remboursement ni dédommagement ne pourra être demandé.</li>
-                                                    <li>En cas de saisie totale : Un remplacement à l'identique sera proposé, aucun remboursement ne pourra être demandé.</li>
-                                                </ul>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold">En cas d'annulation ?</p>
-                                                <p>Aucun remboursement ne pourra être effectué.</p>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold">Après le bouclage de l'agneau ?</p>
-                                                <p>Aucun échange ou modification ne pourra être effectué.</p>
+                                        </div>
+                                        
+                                        <div className="flex-1 w-full bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-6 text-amber-900 dark:text-amber-200">
+                                            <h3 className="text-lg font-black mb-4 flex items-center gap-2"><FiAlertCircle /> Informations importantes</h3>
+                                            <div className="space-y-4 text-sm">
+                                                <div>
+                                                    <p className="font-bold">En cas de retard ?</p>
+                                                    <p>Les horaires de passage sont donnés à titre indicatif et nous ne pouvons nous tenir responsables en cas de retard lors du sacrifice.</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold">En cas d'absence ?</p>
+                                                    <p>En cas d'absence lors du sacrifice, il devra être effectué en votre absence et nous ne pouvons nous tenir responsables.</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold">En cas de saisie ?</p>
+                                                    <p>En cas de saisies par les services vétérinaires :</p>
+                                                    <ul className="list-disc pl-5 mt-1 space-y-1">
+                                                        <li>Lors d'une saisie partielle (cœur, foie, abats, etc...) : Aucun remboursement ni dédommagement ne pourra être demandé.</li>
+                                                        <li>En cas de saisie totale : Un remplacement à l'identique sera proposé, aucun remboursement ne pourra être demandé.</li>
+                                                    </ul>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold">En cas d'annulation ?</p>
+                                                    <p>Aucun remboursement ne pourra être effectué.</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold">Après le bouclage de l'agneau ?</p>
+                                                    <p>Aucun échange ou modification ne pourra être effectué.</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
