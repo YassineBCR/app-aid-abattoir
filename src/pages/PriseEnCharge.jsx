@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
 import { enregistrerMouvement, paiementDejaEnregistre, getHistoriqueCommande, getTheoriqueCaisse } from "../lib/comptabilite";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { 
   FiSearch, FiCheckCircle, FiCamera, FiX, FiArrowRight, 
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
@@ -1028,62 +1028,80 @@ export default function PriseEnCharge() {
       {commande && (
         <div id="ticket-zebra" style={{ display: 'none' }}>
 
-          {/* ── En-tête ── */}
-          <div style={{
-            background: 'black', color: 'white',
-            padding: '2mm 4mm',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            flexShrink: 0,
-          }}>
-            <span style={{ fontSize: '11pt', fontWeight: '900', letterSpacing: '1px' }}>AÏD AL ADHA 2026</span>
-            <span style={{ fontSize: '9pt', fontWeight: '700', opacity: 0.85 }}>
-              {commande.creneaux_horaires
-                ? `${getJourLabel(commande.creneaux_horaires.date)} · ${formatHeure(commande.creneaux_horaires.heure_debut)}`
-                : 'SANS CRÉNEAU'}
-            </span>
-          </div>
-
           {/* ── Corps principal ── */}
           <div style={{
             flex: 1,
             display: 'flex',
+            flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '2mm 5mm',
+            padding: '3mm 3mm 2mm',
             gap: '3mm',
+            position: 'relative',
           }}>
 
-            {/* Numéro de ticket — grande police */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: '8pt', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: '#555', lineHeight: 1 }}>N° Ticket</span>
-              <span style={{ fontSize: '62pt', fontWeight: '900', lineHeight: 1, letterSpacing: '-2px' }}>{commande.ticket_num}</span>
+            {/* QR code — gauche — encodé { id, ticket_num } pour scan bouclage */}
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <QRCodeSVG
+                value={JSON.stringify({ id: commande.id, ticket_num: commande.ticket_num })}
+                size={62}
+                level="M"
+                style={{ display: 'block' }}
+              />
             </div>
 
-            {/* Infos droite */}
+            {/* Centre — info principale */}
             <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
-              gap: '2mm', textAlign: 'right',
+              flex: 1,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              textAlign: 'center',
             }}>
-              {/* Catégorie — badge */}
-              <div style={{
-                border: '2.5px solid black', borderRadius: '3mm',
-                padding: '1.5mm 4mm',
-                display: 'inline-block',
+              {/* Titre */}
+              <p style={{
+                fontSize: '9pt', fontWeight: '900', margin: '0 0 0.5mm 0',
+                letterSpacing: '1px', textTransform: 'uppercase',
               }}>
-                <span style={{ fontSize: '8pt', fontWeight: '700', textTransform: 'uppercase', display: 'block', lineHeight: 1 }}>Catégorie</span>
-                <span style={{ fontSize: '26pt', fontWeight: '900', lineHeight: 1 }}>{commande.categorie}</span>
+                AÏD AL ADHA 2026
+              </p>
+
+              {/* Numéro de ticket — info principale */}
+              <div style={{
+                fontSize: '52pt', fontWeight: '900', lineHeight: 1,
+                letterSpacing: '-1px',
+              }}>
+                {commande.ticket_num}
               </div>
 
               {/* Nom du sacrifice */}
-              <div style={{
-                fontSize: '9pt', fontWeight: '700',
-                textTransform: 'uppercase', maxWidth: '45mm',
-                textAlign: 'right', lineHeight: 1.2,
-                wordBreak: 'break-word',
+              <p style={{
+                fontSize: '9pt', fontWeight: '800', margin: '1mm 0 0',
+                textTransform: 'uppercase', letterSpacing: '0.3px', lineHeight: 1.2,
               }}>
                 {commande.sacrifice_name}
-              </div>
+              </p>
+
+              {/* Créneau */}
+              <p style={{
+                fontSize: '8pt', fontWeight: '700', margin: '1mm 0 0',
+                textTransform: 'uppercase',
+              }}>
+                {commande.creneaux_horaires
+                  ? `${getJourLabel(commande.creneaux_horaires.date)} — ${formatHeure(commande.creneaux_horaires.heure_debut)}`
+                  : 'SANS CRÉNEAU'}
+              </p>
             </div>
+
+            {/* Catégorie — badge droite */}
+            <div style={{
+              flexShrink: 0,
+              border: '2.5px solid black', borderRadius: '3mm',
+              padding: '2mm 3mm', textAlign: 'center',
+              alignSelf: 'center',
+            }}>
+              <span style={{ fontSize: '7pt', fontWeight: '700', textTransform: 'uppercase', display: 'block', lineHeight: 1 }}>Cat.</span>
+              <span style={{ fontSize: '22pt', fontWeight: '900', lineHeight: 1 }}>{commande.categorie}</span>
+            </div>
+
           </div>
 
           {/* ── Pied de page ── */}
@@ -1092,8 +1110,11 @@ export default function PriseEnCharge() {
             padding: '1.5mm 4mm 2mm',
             flexShrink: 0,
           }}>
-            <p style={{ fontSize: '6.5pt', fontWeight: '700', margin: 0, lineHeight: 1.3 }}>
-              Aucun remboursement en cas de retard ou de saisie par la DDPP. Interdiction au sac poubelle — respectez les règles d'hygiène.
+            <p style={{ fontSize: '6pt', fontWeight: '700', margin: '0 0 0.8mm 0', lineHeight: 1.3 }}>
+              Aucun remboursement en cas de retard, après la livraison ou en cas de saisie partielle par la DDPP.
+            </p>
+            <p style={{ fontSize: '6pt', fontWeight: '700', margin: 0, lineHeight: 1 }}>
+              montpellier.aid@gmail.com
             </p>
           </div>
 
