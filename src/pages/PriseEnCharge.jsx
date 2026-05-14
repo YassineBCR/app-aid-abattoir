@@ -563,6 +563,9 @@ export default function PriseEnCharge() {
     if (transaction.moyen_paiement === 'stripe_web' || transaction.moyen_paiement === 'stripe_guichet') {
       return showNotification("Impossible d'annuler un paiement Stripe ici. Utilisez le dashboard Stripe.", "error");
     }
+    // Vérification anti-doublon : la transaction a-t-elle déjà été annulée ?
+    const dejaAnnulee = historique.some(h => h.reference_externe === `cancel_${transaction.id}`);
+    if (dejaAnnulee) return showNotification("Cette transaction a déjà été annulée.", "error");
     setTransactionToCancel(transaction);
     setCancelReason("");
     setShowCancelModal(true);
@@ -573,15 +576,24 @@ export default function PriseEnCharge() {
     if (!cancelReason.trim()) return showNotification("Saisissez un motif.", "info");
     setLoadingCancel(true);
     try {
+      // Vérification anti-doublon côté serveur (garde-fou en plus du check UI)
+      const dejaAnnulee = await paiementDejaEnregistre(`cancel_${transactionToCancel.id}`);
+      if (dejaAnnulee) {
+        showNotification("Cette transaction a déjà été annulée.", "error");
+        setShowCancelModal(false);
+        return;
+      }
+
       await enregistrerMouvement({
-        type_mouvement: 'annulation',
-        montant_cents:  -Math.abs(transactionToCancel.montant_cents),
-        moyen_paiement: transactionToCancel.moyen_paiement,
-        commande_id:    commande.id,
-        ticket_num:     commande.ticket_num,
-        caisse_id:      activeCaisse.id,
-        motif:          cancelReason,
-        notes:          `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
+        type_mouvement:    'annulation',
+        montant_cents:     -Math.abs(transactionToCancel.montant_cents),
+        moyen_paiement:    transactionToCancel.moyen_paiement,
+        commande_id:       commande.id,
+        ticket_num:        commande.ticket_num,
+        caisse_id:         activeCaisse.id,
+        reference_externe: `cancel_${transactionToCancel.id}`,
+        motif:             cancelReason,
+        notes:             `Annulation de la transaction du ${new Date(transactionToCancel.created_at).toLocaleString('fr-FR')}`,
       });
 
       // Mise à jour du statut basée sur le net après annulation
@@ -780,18 +792,19 @@ export default function PriseEnCharge() {
                         <span className="mt-3 inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase bg-indigo-50 text-indigo-600 border border-indigo-100">Sacrifice: {commande.sacrifice_name}</span>
                       </div>
 
-                      {!isPaye && (
-                        <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 space-y-3">
+                      <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 space-y-3">
                           <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.14em]">Catégorie</p>
                           <select value={categorieChoisie} onChange={(e) => setCategorieChoisie(e.target.value)} className="w-full p-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950/60 text-sm font-semibold outline-none focus:border-indigo-500 transition-all">
                             <option value="">Choisir une catégorie</option>
-                            {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} ({(t.prix_cents / 100).toFixed(2)} €)</option>))}
+                            {tarifs.map(t => (<option key={t.categorie} value={t.categorie}>Cat. {t.categorie} — {(t.prix_cents / 100).toFixed(0)} €</option>))}
                           </select>
                           <button type="button" onClick={appliquerCategorie} disabled={loadingCategorie || !categorieChoisie} className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all">
-                            {loadingCategorie ? "Application..." : "Appliquer"}
+                            {loadingCategorie ? "Application..." : "Changer la catégorie"}
+                          </button>
+                          <button type="button" onClick={handlePrint} className="w-full py-2 rounded-xl bg-slate-800 text-white text-xs font-bold uppercase tracking-[0.16em] hover:bg-black flex items-center justify-center gap-2 transition-all">
+                            <FiPrinter /> Imprimer le ticket
                           </button>
                         </div>
-                      )}
 
                       {/* ── RÉSUMÉ FINANCIER DEPUIS COMPTABILITE ─────────── */}
                       <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
@@ -967,7 +980,7 @@ export default function PriseEnCharge() {
                                     <span className={`font-black text-lg ${Number(tx.montant_cents) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                       {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
                                     </span>
-                                    {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe_web' && tx.moyen_paiement !== 'stripe_guichet' && tx.type_mouvement === 'encaissement' && (
+                                    {Number(tx.montant_cents) > 0 && tx.moyen_paiement !== 'stripe_web' && tx.moyen_paiement !== 'stripe_guichet' && tx.type_mouvement === 'encaissement' && !historique.some(h => h.reference_externe === `cancel_${tx.id}`) && (
                                       <button onClick={() => promptAnnulerTransaction(tx)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-colors">
                                         <FiTrash2 className="text-sm" />
                                       </button>

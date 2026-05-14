@@ -53,15 +53,15 @@ export default function Statistiques() {
         } else hasMore = false;
       }
 
-      // ── 2. Paiements depuis la table comptabilite ──────────────────────
-      // On ne prend que les encaissements réels (pas les annulations, fonds, etc.)
+      // ── 2. Paiements NET depuis la table comptabilite ──────────────────
+      // On prend encaissements ET annulations pour calculer le net par moyen
       let tousLesPaiements = [];
       from = 0; hasMore = true;
       while (hasMore) {
         const { data: batch, error } = await supabase
           .from('comptabilite')
-          .select('montant_cents, moyen_paiement')
-          .eq('type_mouvement', 'encaissement')
+          .select('montant_cents, moyen_paiement, type_mouvement')
+          .in('type_mouvement', ['encaissement', 'annulation'])
           .range(from, from + 999);
         if (error) throw error;
         if (batch && batch.length > 0) {
@@ -82,7 +82,8 @@ export default function Statistiques() {
         if (cmd.statut !== 'annule') {
           caTheoriqueCents += (Number(cmd.montant_total_cents) || 0);
         }
-        const payeCents = Number(cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0);
+        // Clamp à 0 : montant_paye_cents peut être négatif en cas de bug d'annulation multiple
+        const payeCents = Math.max(0, Number(cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0));
         caEncaisseCents += payeCents;
 
         const statut = getStatutMetier(cmd);
