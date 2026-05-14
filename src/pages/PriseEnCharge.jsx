@@ -656,13 +656,30 @@ export default function PriseEnCharge() {
   return (
     <div className="max-w-7xl mx-auto space-y-8 min-h-screen relative">
 
-      {/* CSS impression */}
+      {/* CSS impression — Zebra ZD421 — étiquette 104mm × 76.2mm */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          @page { size: 102mm 76mm; margin: 0; }
+          @page {
+            size: 104mm 76.2mm;
+            margin: 0;
+          }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          html, body { width: 104mm; height: 76.2mm; margin: 0; padding: 0; }
           body * { visibility: hidden; }
           #ticket-zebra, #ticket-zebra * { visibility: visible; }
-          #ticket-zebra { position: absolute; left: 0; top: 0; width: 102mm; height: 76mm; padding: 3mm 4mm; display: block !important; background: white !important; color: black !important; font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; text-align: center; overflow: hidden; }
+          #ticket-zebra {
+            position: fixed;
+            left: 0; top: 0;
+            width: 104mm; height: 76.2mm;
+            padding: 0;
+            display: flex !important;
+            flex-direction: column;
+            background: white !important;
+            color: black !important;
+            font-family: Arial, Helvetica, sans-serif;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
           .no-print { display: none !important; }
         }
       `}} />
@@ -930,7 +947,7 @@ export default function PriseEnCharge() {
                           <button onClick={handlePrint} className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all">
                             <FiPrinter className="text-2xl" /> IMPRIMER LE TICKET ZEBRA
                           </button>
-                          <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">IMPORTANT : Choisir "Format : 102x76mm" à l'impression.</p>
+                          <p className="text-[10px] text-red-500 uppercase tracking-wider mt-4 font-bold bg-red-100 p-2 rounded-lg inline-block">IMPORTANT : Vérifier que l'imprimante Zebra ZD421 est sélectionnée (format 104×76mm).</p>
                         </div>
                       )}
 
@@ -1007,24 +1024,79 @@ export default function PriseEnCharge() {
         )}
       </div>
 
-      {/* ═══════════ TICKET ZEBRA (impression) ═══════════ */}
+      {/* ═══════════ TICKET ZEBRA (impression) — 104mm × 76.2mm ═══════════ */}
       {commande && (
         <div id="ticket-zebra" style={{ display: 'none' }}>
-          <div style={{ width: '100%', borderBottom: '2px solid black', paddingBottom: '2mm', marginBottom: '2mm' }}>
-            <h1 style={{ fontSize: '13pt', fontWeight: '900', margin: 0, letterSpacing: '0.5px' }}>AÏD AL ADHA 2026</h1>
+
+          {/* ── En-tête ── */}
+          <div style={{
+            background: 'black', color: 'white',
+            padding: '2mm 4mm',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <span style={{ fontSize: '11pt', fontWeight: '900', letterSpacing: '1px' }}>AÏD AL ADHA 2026</span>
+            <span style={{ fontSize: '9pt', fontWeight: '700', opacity: 0.85 }}>
+              {commande.creneaux_horaires
+                ? `${getJourLabel(commande.creneaux_horaires.date)} · ${formatHeure(commande.creneaux_horaires.heure_debut)}`
+                : 'SANS CRÉNEAU'}
+            </span>
           </div>
-          <div style={{ display: 'block', width: '100%', marginTop: '4mm' }}>
-            <p style={{ fontSize: '16pt', fontWeight: 'bold', margin: '0 0 1mm 0' }}>Ticket :</p>
-            <div style={{ fontSize: '65pt', fontWeight: '900', lineHeight: 1, margin: '0 0 4mm 0' }}>{commande.ticket_num}</div>
-            <div style={{ fontSize: '20pt', fontWeight: 'bold', margin: '0 0 2mm 0', textTransform: 'uppercase' }}>
-              {commande.creneaux_horaires ? `${getJourLabel(commande.creneaux_horaires.date)} - ${formatHeure(commande.creneaux_horaires.heure_debut)}` : "SANS CRÉNEAU"}
+
+          {/* ── Corps principal ── */}
+          <div style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '2mm 5mm',
+            gap: '3mm',
+          }}>
+
+            {/* Numéro de ticket — grande police */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '8pt', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: '#555', lineHeight: 1 }}>N° Ticket</span>
+              <span style={{ fontSize: '62pt', fontWeight: '900', lineHeight: 1, letterSpacing: '-2px' }}>{commande.ticket_num}</span>
             </div>
-            <div style={{ fontSize: '16pt', fontWeight: 'bold', margin: 0 }}>Catégorie {commande.categorie}</div>
+
+            {/* Infos droite */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+              gap: '2mm', textAlign: 'right',
+            }}>
+              {/* Catégorie — badge */}
+              <div style={{
+                border: '2.5px solid black', borderRadius: '3mm',
+                padding: '1.5mm 4mm',
+                display: 'inline-block',
+              }}>
+                <span style={{ fontSize: '8pt', fontWeight: '700', textTransform: 'uppercase', display: 'block', lineHeight: 1 }}>Catégorie</span>
+                <span style={{ fontSize: '26pt', fontWeight: '900', lineHeight: 1 }}>{commande.categorie}</span>
+              </div>
+
+              {/* Nom du sacrifice */}
+              <div style={{
+                fontSize: '9pt', fontWeight: '700',
+                textTransform: 'uppercase', maxWidth: '45mm',
+                textAlign: 'right', lineHeight: 1.2,
+                wordBreak: 'break-word',
+              }}>
+                {commande.sacrifice_name}
+              </div>
+            </div>
           </div>
-          <div style={{ position: 'absolute', bottom: '3mm', left: '3mm', right: '3mm', borderTop: '2px dashed black', paddingTop: '2mm' }}>
-            <p style={{ fontSize: '8pt', fontWeight: 'bold', margin: '0 0 1mm 0', lineHeight: 1.1 }}>Aucun remboursement en cas de retard ou de saisie par la DDPP.</p>
-            <p style={{ fontSize: '7pt', fontWeight: 'bold', margin: 0, lineHeight: 1.1 }}>Interdiction au sac poubelle, merci de respecter les règles d'hygiène.</p>
+
+          {/* ── Pied de page ── */}
+          <div style={{
+            borderTop: '1.5px dashed black',
+            padding: '1.5mm 4mm 2mm',
+            flexShrink: 0,
+          }}>
+            <p style={{ fontSize: '6.5pt', fontWeight: '700', margin: 0, lineHeight: 1.3 }}>
+              Aucun remboursement en cas de retard ou de saisie par la DDPP. Interdiction au sac poubelle — respectez les règles d'hygiène.
+            </p>
           </div>
+
         </div>
       )}
 
