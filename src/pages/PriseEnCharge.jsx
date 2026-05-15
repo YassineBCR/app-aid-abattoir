@@ -77,7 +77,7 @@ function MouvementBadge({ tx }) {
   }
 }
 
-export default function PriseEnCharge() {
+export default function PriseEnCharge({ changeTab }) {
   const { showNotification } = useNotification();
   const [loading, setLoading]       = useState(false);
   const [userEmail, setUserEmail]   = useState("");
@@ -852,6 +852,17 @@ export default function PriseEnCharge() {
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><FiCheckCircle /> Totalement Payé</span>
                       ) : (
                         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1"><FiClock /> Paiement en attente</span>
+                      )}
+                      {changeTab && (
+                        <button
+                          onClick={() => {
+                            sessionStorage.setItem('tableau_open_id', commande.id);
+                            changeTab('tableau');
+                          }}
+                          className="hidden sm:flex items-center gap-1.5 px-4 py-2 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 text-teal-700 dark:text-teal-400 font-bold text-sm rounded-xl border border-teal-200 dark:border-teal-800 transition-colors"
+                        >
+                          <FiArrowRight className="text-sm" /> Voir au registre
+                        </button>
                       )}
                       <button onClick={handleBackToList} className="hidden sm:flex px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-sm rounded-xl transition-colors">
                         Client Suivant

@@ -145,6 +145,19 @@ export default function Tableau({ changeTab, userRole }) {
     loadConfig();
   }, []);
 
+  // ── Ouverture directe depuis le guichet ───────────────────────────────────
+  useEffect(() => {
+    const targetId = sessionStorage.getItem('tableau_open_id');
+    if (!targetId) return;
+    sessionStorage.removeItem('tableau_open_id');
+    supabase
+      .from('commandes')
+      .select('*, creneaux_horaires(date, heure_debut)')
+      .eq('id', targetId)
+      .single()
+      .then(({ data }) => { if (data) handleRowClick(data); });
+  }, []);
+
   // ── Debounce ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = setTimeout(() => {
