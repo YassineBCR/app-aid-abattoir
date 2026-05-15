@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
-import { enregistrerMouvement, paiementDejaEnregistre, getHistoriqueCommande, getTheoriqueCaisse } from "../lib/comptabilite";
+import { enregistrerMouvement, paiementDejaEnregistre, getHistoriqueCommande, getTheoriqueCaisse, getTransactionsCaisse } from "../lib/comptabilite";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { 
@@ -9,7 +9,7 @@ import {
   FiList, FiArrowLeft, FiCreditCard, FiDollarSign, FiFileText, FiClock,
   FiTrash2, FiAlertTriangle, FiLock, FiUnlock, FiArchive, FiUser, FiPlus, FiPrinter,
   FiSmartphone, FiRefreshCw, FiCopy, FiExternalLink, FiCheck, FiTag, FiLoader,
-  FiTrendingUp, FiMinusCircle, FiInfo
+  FiTrendingUp, FiMinusCircle, FiInfo, FiDownload, FiDatabase, FiChevronLeft
 } from "react-icons/fi";
 import { logAction } from "../lib/logger";
 
@@ -119,6 +119,17 @@ export default function PriseEnCharge() {
   const [transactionToCancel, setTransactionToCancel]   = useState(null);
   const [cancelReason, setCancelReason]                 = useState("");
   const [loadingCancel, setLoadingCancel]               = useState(false);
+
+  // ── Historique des caisses du vendeur ─────────────────────────────────────
+  const [showHistoCaisse, setShowHistoCaisse]       = useState(false);
+  const [histoCaisses, setHistoCaisses]             = useState([]);
+  const [loadingHistoCaisse, setLoadingHistoCaisse] = useState(false);
+  const [histoDetailSession, setHistoDetailSession] = useState(null);
+  const [histoDetailTx, setHistoDetailTx]           = useState([]);
+  const [loadingHistoDetail, setLoadingHistoDetail] = useState(false);
+
+  // ── Transactions affichées dans la modal de clôture ───────────────────────
+  const [clotureTransactions, setClotureTransactions] = useState([]);
 
   const [showCreateModal, setShowCreateModal]   = useState(false);
   const [creneauxDispo, setCreneauxDispo]       = useState([]);
@@ -292,8 +303,12 @@ export default function PriseEnCharge() {
 
   const preparerCloture = async () => {
     try {
-      const th = await getTheoriqueCaisse(activeCaisse.id, activeCaisse.fond_caisse_initial_cents || 0);
+      const [th, txs] = await Promise.all([
+        getTheoriqueCaisse(activeCaisse.id, activeCaisse.fond_caisse_initial_cents || 0),
+        getTransactionsCaisse(activeCaisse.id),
+      ]);
       setTheoriqueCaisse(th);
+      setClotureTransactions(txs);
       setShowClotureModal(true);
     } catch (err) { showNotification("Erreur calcul clôture.", "error"); }
   };
@@ -631,6 +646,54 @@ export default function PriseEnCharge() {
 
   const handlePrint = () => { window.print(); };
 
+  // ── Historique de caisse du vendeur ─────────────────────────────────────
+  const handleOpenHistoCaisse = async () => {
+    setShowHistoCaisse(true);
+    setHistoDetailSession(null);
+    setHistoDetailTx([]);
+    setLoadingHistoCaisse(true);
+    try {
+      const { data } = await supabase
+        .from("caisses_vendeurs")
+        .select("*")
+        .eq("vendeur_email", userEmail)
+        .order("created_at", { ascending: false });
+      setHistoCaisses(data || []);
+    } catch { showNotification("Erreur chargement historique.", "error"); }
+    finally { setLoadingHistoCaisse(false); }
+  };
+
+  const handleOpenHistoDetail = async (session) => {
+    setHistoDetailSession(session);
+    setLoadingHistoDetail(true);
+    try {
+      const txs = await getTransactionsCaisse(session.id);
+      setHistoDetailTx(txs);
+    } catch { showNotification("Erreur chargement transactions.", "error"); }
+    finally { setLoadingHistoDetail(false); }
+  };
+
+  const exportSessionExcel = (session, transactions) => {
+    const headers = ["Heure","Type","Moyen","N° Ticket","Montant (€)","Motif","Notes","Opérateur"];
+    const rows = transactions.map(tx => [
+      new Date(tx.created_at).toLocaleString("fr-FR"),
+      tx.type_mouvement,
+      tx.moyen_paiement,
+      tx.ticket_num || "",
+      (Number(tx.montant_cents) / 100).toFixed(2),
+      tx.motif || "",
+      tx.notes || "",
+      tx.operateur_email,
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(";"));
+    const csv = "﻿" + headers.join(";") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `caisse_${session.vendeur_email.split("@")[0]}_${new Date(session.created_at).toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
   // ── Calculs financiers — basés sur computedFinances (table comptabilite) ─
   const prixVenteCents = commande ? (commande.montant_total_cents || 0) : 0;
   const total          = prixVenteCents / 100;
@@ -687,7 +750,13 @@ export default function PriseEnCharge() {
             <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Finances calculées en temps réel depuis la table <code className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">comptabilite</code>.</p>
           </div>
 
-          <div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleOpenHistoCaisse}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all border border-slate-200 dark:border-slate-600"
+            >
+              <FiDatabase size={14} /> Historique caisse
+            </button>
             {activeCaisse ? (
               <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/30 p-2 pr-4 rounded-full border border-emerald-100 dark:border-emerald-800 shadow-sm">
                 <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white"><FiUnlock className="text-lg" /></div>
@@ -1283,10 +1352,61 @@ export default function PriseEnCharge() {
       {/* ═══════════ MODAL CLÔTURE CAISSE ═══════════ */}
       {showClotureModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
-            <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2 flex items-center gap-2"><FiArchive /> Clôture de Caisse</h3>
-            <p className="text-slate-500 mb-6 text-sm">Fin de journée. Comptez physiquement votre caisse.</p>
-            <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl mb-6 space-y-2 border border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+            {/* Header clôture */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2"><FiArchive /> Clôture de Caisse</h3>
+              <p className="text-slate-500 text-sm">Fin de journée. Vérifiez les transactions puis comptez physiquement.</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+            {/* Récap transactions du jour */}
+            {clotureTransactions.length > 0 && (
+              <div>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <FiList size={11} /> Transactions de la session ({clotureTransactions.filter(t => t.type_mouvement === 'encaissement').length} encaissements)
+                </p>
+                <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {clotureTransactions.filter(t => t.type_mouvement !== 'fond_caisse').map((tx) => {
+                    const m = Number(tx.montant_cents) / 100;
+                    const isNeg = m < 0;
+                    return (
+                      <div key={tx.id} className={`flex items-center justify-between px-3 py-2 text-xs ${isNeg ? "bg-red-50 dark:bg-red-900/10" : "bg-white dark:bg-slate-800"}`}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-slate-400 font-mono shrink-0">
+                            {new Date(tx.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black ${
+                            isNeg ? "bg-red-100 text-red-600"
+                            : tx.moyen_paiement === 'especes' ? "bg-emerald-100 text-emerald-700"
+                            : tx.moyen_paiement === 'cb' ? "bg-blue-100 text-blue-700"
+                            : "bg-purple-100 text-purple-700"
+                          }`}>
+                            {isNeg ? "Annul." : tx.moyen_paiement === 'especes' ? "Esp." : tx.moyen_paiement === 'cb' ? "CB" : "Stripe"}
+                          </span>
+                          {tx.ticket_num && (
+                            <span className="bg-indigo-50 text-indigo-600 px-1 py-0.5 rounded font-black shrink-0">#{tx.ticket_num}</span>
+                          )}
+                        </div>
+                        <span className={`font-black shrink-0 ml-2 ${isNeg ? "text-red-500" : "text-emerald-600"}`}>
+                          {m >= 0 ? "+" : ""}{m.toFixed(2)} €
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Total net */}
+                <div className="flex justify-between items-center mt-1 px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-xl">
+                  <span className="text-xs font-black text-slate-500 uppercase">Net encaissé</span>
+                  <span className="font-black text-sm text-teal-600">
+                    {(clotureTransactions.filter(t => t.type_mouvement !== 'fond_caisse').reduce((s, t) => s + Number(t.montant_cents), 0) / 100).toFixed(2)} €
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl space-y-2 border border-slate-200 dark:border-slate-700">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Attendu par le système (comptabilité)</p>
               <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Espèces (inclut fond initial)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.especes / 100).toFixed(2)} €</span></div>
               <div className="flex justify-between font-bold"><span className="text-slate-600 dark:text-slate-300">Carte Bancaire (TPE)</span><span className="text-slate-900 dark:text-white">{(theoriqueCaisse.cb / 100).toFixed(2)} €</span></div>
@@ -1308,11 +1428,210 @@ export default function PriseEnCharge() {
                   <textarea value={justification} onChange={(e) => setJustification(e.target.value)} required placeholder="Justifiez cet écart pour la comptabilité..." className="w-full p-3 border border-orange-200 rounded-lg text-sm outline-none focus:border-orange-500 bg-white" rows="2"></textarea>
                 </div>
               )}
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowClotureModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200">Annuler</button>
                 <button type="submit" className="flex-1 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-black">Valider Clôture</button>
               </div>
             </form>
+            </div>{/* fin flex-1 overflow */}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ MODAL HISTORIQUE CAISSE ═══════════ */}
+      {showHistoCaisse && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                {histoDetailSession && (
+                  <button onClick={() => { setHistoDetailSession(null); setHistoDetailTx([]); }} className="p-1.5 bg-white dark:bg-slate-700 rounded-lg shadow-sm hover:bg-slate-100 transition-all">
+                    <FiChevronLeft />
+                  </button>
+                )}
+                <div>
+                  <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
+                    <FiDatabase className="text-indigo-500" />
+                    {histoDetailSession ? `Session du ${new Date(histoDetailSession.created_at).toLocaleDateString("fr-FR")}` : "Historique de mes caisses"}
+                  </h3>
+                  <p className="text-slate-500 text-sm mt-0.5">
+                    {histoDetailSession
+                      ? `${histoDetailSession.vendeur_email} — ${histoDetailTx.length} transaction(s)`
+                      : `${histoCaisses.length} session(s) — ${userEmail}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {histoDetailSession && histoDetailTx.length > 0 && (
+                  <button
+                    onClick={() => exportSessionExcel(histoDetailSession, histoDetailTx)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-200 transition-all"
+                  >
+                    <FiDownload size={13} /> Exporter Excel
+                  </button>
+                )}
+                <button onClick={() => { setShowHistoCaisse(false); setHistoDetailSession(null); setHistoDetailTx([]); }} className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm hover:rotate-90 transition-all">
+                  <FiX />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenu */}
+            <div className="flex-1 overflow-y-auto">
+              {!histoDetailSession ? (
+                // ── Liste des sessions ──
+                loadingHistoCaisse ? (
+                  <div className="p-12 text-center text-slate-400 animate-pulse font-bold">Chargement…</div>
+                ) : histoCaisses.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 font-bold">Aucune session de caisse trouvée.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {histoCaisses.map((session) => {
+                      const ecartTotal = Math.abs(session.ecart_especes_cents || 0) + Math.abs(session.ecart_cb_cents || 0);
+                      const hasEcart = session.statut === "cloturee" && ecartTotal > 5;
+                      return (
+                        <div key={session.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3 min-w-0">
+                              {/* Statut */}
+                              {session.statut === "ouverte" ? (
+                                <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-[11px] font-black">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ouverte
+                                </span>
+                              ) : (
+                                <span className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black ${hasEcart ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-600"}`}>
+                                  <FiLock size={9} /> {hasEcart ? "Écart" : "OK"}
+                                </span>
+                              )}
+                              <div className="min-w-0">
+                                <p className="font-bold text-slate-800 dark:text-white text-sm">
+                                  {new Date(session.created_at).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long" })}
+                                </p>
+                                <p className="text-xs text-slate-400">
+                                  {new Date(session.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                                  {session.heure_cloture && ` → ${new Date(session.heure_cloture).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`}
+                                  {" · Fond : "}{(session.fond_caisse_initial_cents || 0) / 100} €
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Montants clôture */}
+                            {session.statut === "cloturee" && (
+                              <div className="flex items-center gap-4 shrink-0 text-right">
+                                <div>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">Espèces réelles</p>
+                                  <p className="font-black text-emerald-600 text-sm">{session.total_reel_especes_cents != null ? (session.total_reel_especes_cents / 100).toFixed(2) + " €" : "—"}</p>
+                                  {(session.ecart_especes_cents || 0) !== 0 && (
+                                    <p className={`text-[10px] font-bold ${session.ecart_especes_cents > 0 ? "text-blue-500" : "text-red-500"}`}>
+                                      {session.ecart_especes_cents > 0 ? "+" : ""}{(session.ecart_especes_cents / 100).toFixed(2)} €
+                                    </p>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">CB réel</p>
+                                  <p className="font-black text-blue-600 text-sm">{session.total_reel_cb_cents != null ? (session.total_reel_cb_cents / 100).toFixed(2) + " €" : "—"}</p>
+                                  {(session.ecart_cb_cents || 0) !== 0 && (
+                                    <p className={`text-[10px] font-bold ${session.ecart_cb_cents > 0 ? "text-blue-500" : "text-red-500"}`}>
+                                      {session.ecart_cb_cents > 0 ? "+" : ""}{(session.ecart_cb_cents / 100).toFixed(2)} €
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            <button
+                              onClick={() => handleOpenHistoDetail(session)}
+                              className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all"
+                            >
+                              <FiList size={12} /> Transactions
+                            </button>
+                          </div>
+                          {session.justification_ecart && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 ml-1 italic">
+                              Justif. écart : {session.justification_ecart}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                // ── Détail des transactions d'une session ──
+                loadingHistoDetail ? (
+                  <div className="p-12 text-center text-slate-400 animate-pulse font-bold">Chargement…</div>
+                ) : histoDetailTx.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 font-bold">Aucune transaction dans cette session.</div>
+                ) : (
+                  <>
+                    {/* Résumé rapide */}
+                    <div className="grid grid-cols-3 gap-3 p-4 border-b border-slate-100 dark:border-slate-700">
+                      {[
+                        { label: "Espèces", val: histoDetailTx.filter(t => t.moyen_paiement === 'especes').reduce((s, t) => s + Number(t.montant_cents), 0), color: "text-emerald-600" },
+                        { label: "CB", val: histoDetailTx.filter(t => t.moyen_paiement === 'cb').reduce((s, t) => s + Number(t.montant_cents), 0), color: "text-blue-600" },
+                        { label: "Stripe", val: histoDetailTx.filter(t => t.moyen_paiement?.startsWith('stripe')).reduce((s, t) => s + Number(t.montant_cents), 0), color: "text-purple-600" },
+                      ].map(({ label, val, color }) => (
+                        <div key={label} className="bg-slate-50 dark:bg-slate-900/30 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p>
+                          <p className={`font-black text-base ${color}`}>{(val / 100).toFixed(2)} €</p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Liste */}
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-900/30 sticky top-0">
+                        <tr>
+                          <th className="p-3 text-xs font-black text-slate-400 uppercase">Heure</th>
+                          <th className="p-3 text-xs font-black text-slate-400 uppercase">Type</th>
+                          <th className="p-3 text-xs font-black text-slate-400 uppercase">Moyen</th>
+                          <th className="p-3 text-xs font-black text-slate-400 uppercase">Ticket</th>
+                          <th className="p-3 text-xs font-black text-slate-400 uppercase text-right">Montant</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                        {histoDetailTx.map((tx) => {
+                          const m = Number(tx.montant_cents) / 100;
+                          return (
+                            <tr key={tx.id} className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/20 ${m < 0 ? "bg-red-50/50 dark:bg-red-900/5" : ""}`}>
+                              <td className="p-3 text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(tx.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                              </td>
+                              <td className="p-3 text-xs font-bold text-slate-700 dark:text-slate-300 capitalize">{tx.type_mouvement}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                  tx.moyen_paiement === 'especes' ? "bg-emerald-100 text-emerald-700"
+                                  : tx.moyen_paiement === 'cb' ? "bg-blue-100 text-blue-700"
+                                  : "bg-purple-100 text-purple-700"
+                                }`}>{tx.moyen_paiement}</span>
+                              </td>
+                              <td className="p-3 text-xs font-mono">
+                                {tx.ticket_num ? (
+                                  <span className="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-black">#{tx.ticket_num}</span>
+                                ) : "—"}
+                              </td>
+                              <td className={`p-3 text-right text-sm font-black ${m < 0 ? "text-red-500" : "text-emerald-600"}`}>
+                                {m >= 0 ? "+" : ""}{m.toFixed(2)} €
+                                {tx.motif && <p className="text-[10px] text-red-400 font-normal">{tx.motif}</p>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-slate-50 dark:bg-slate-900/30 border-t-2 border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <td colSpan={4} className="p-3 text-xs font-black text-slate-500 uppercase">Net total</td>
+                          <td className={`p-3 text-right font-black text-base ${histoDetailTx.reduce((s, t) => s + Number(t.montant_cents), 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                            {(histoDetailTx.reduce((s, t) => s + Number(t.montant_cents), 0) / 100).toFixed(2)} €
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                )
+              )}
+            </div>
           </div>
         </div>
       )}
