@@ -107,10 +107,13 @@ export default function Bouclage() {
       
       if (!data) {
         showNotification("Dossier introuvable.", "error");
-        setSearchInput(""); 
+        setSearchInput("");
+      } else if (data.statut === 'bouclee') {
+        showNotification(`IMPOSSIBLE — AGNEAU DÉJÀ BOUCLÉ (Ticket #${data.ticket_num})`, "error");
+        setSearchInput("");
       } else {
         setCommande(data);
-        setNumeroBoucle(""); 
+        setNumeroBoucle("");
         setSearchInput(data.ticket_num?.toString() || "");
       }
     } catch (err) {

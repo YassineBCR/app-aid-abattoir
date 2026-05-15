@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
-import { 
-  FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard, 
+import {
+  FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard,
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
   FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter, FiEdit, FiSave, FiChevronDown, FiSmartphone,
-  FiArrowUp, FiArrowDown, FiGlobe, FiSliders, FiEdit3
+  FiArrowUp, FiArrowDown, FiGlobe, FiSliders, FiEdit3, FiRotateCcw
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -95,8 +95,9 @@ export default function Tableau({ changeTab, userRole }) {
   const [filterCreneauId, setFilterCreneauId] = useState("");
   const [filterStatut, setFilterStatut]       = useState("");
 
-  // ── Filtres source de paiement + tri ─────────────────────────────────────
+  // ── Filtres source de paiement + catégorie + tri ─────────────────────────
   const [filterSource, setFilterSource]       = useState("");
+  const [filterCategorie, setFilterCategorie] = useState("");
   const [sortField, setSortField]             = useState("created_at");
   const [sortDir, setSortDir]                 = useState("desc");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -243,7 +244,7 @@ export default function Tableau({ changeTab, userRole }) {
     }
   }
 
-  // ── Filtre statut + source côté client ────────────────────────────────────
+  // ── Filtre statut + source + catégorie côté client ────────────────────────
   const filteredCommandes = useMemo(() => {
     let result = commandes;
     if (filterStatut) {
@@ -255,8 +256,11 @@ export default function Tableau({ changeTab, userRole }) {
         return sources.includes(filterSource);
       });
     }
+    if (filterCategorie) {
+      result = result.filter(cmd => cmd.categorie === filterCategorie);
+    }
     return result;
-  }, [commandes, filterStatut, filterSource, commandePaymentSources]);
+  }, [commandes, filterStatut, filterSource, filterCategorie, commandePaymentSources]);
 
   const countsByStatut = useMemo(() => {
     const counts = { attente: 0, reserve: 0, paye: 0, bouclee: 0, annule: 0 };
@@ -277,6 +281,14 @@ export default function Tableau({ changeTab, userRole }) {
     });
     return counts;
   }, [commandes, commandePaymentSources]);
+
+  const countsByCategorie = useMemo(() => {
+    const counts = { A: 0, B: 0, C: 0 };
+    commandes.forEach(cmd => {
+      if (cmd.statut !== 'annule' && cmd.categorie in counts) counts[cmd.categorie]++;
+    });
+    return counts;
+  }, [commandes]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getJourLabel = (dateStr) => {
@@ -520,6 +532,31 @@ export default function Tableau({ changeTab, userRole }) {
     finally { setIsDeleting(false); }
   };
 
+  // ── Annulation du bouclage (admin uniquement) ─────────────────────────────
+  const [isUnbouclaging, setIsUnbouclaging] = useState(false);
+
+  const handleAnnulerBouclage = async () => {
+    if (!window.confirm(`Remettre le ticket #${selectedOrder.ticket_num} en "Payé" (non bouclé) ?`)) return;
+    setIsUnbouclaging(true);
+    try {
+      const { data, error } = await supabase
+        .from('commandes')
+        .update({ statut: 'paye_integralement', numero_boucle: null })
+        .eq('id', selectedOrder.id)
+        .select('*, creneaux_horaires(date, heure_debut)')
+        .single();
+      if (error) throw error;
+      showNotification(`Ticket #${selectedOrder.ticket_num} remis en "Payé" — bouclage annulé.`, "success");
+      logAction('MODIFICATION', 'BOUCLAGE', { action: 'Annulation bouclage admin', ticket: selectedOrder.ticket_num });
+      setSelectedOrder(data);
+      setCommandes(prev => prev.map(c => c.id === data.id ? data : c));
+    } catch (err) {
+      showNotification("Erreur lors de l'annulation du bouclage : " + err.message, "error");
+    } finally {
+      setIsUnbouclaging(false);
+    }
+  };
+
   // ── Export Excel ───────────────────────────────────────────────────────────
   const exportToExcel = async () => {
     showNotification("Préparation de l'export Excel...", "info");
@@ -674,9 +711,9 @@ export default function Tableau({ changeTab, userRole }) {
     return base + "hover:bg-slate-50 dark:hover:bg-slate-700/30";
   };
 
-  const hasActiveFilters = filterDate || filterCreneauId || filterStatut || debouncedSearch || filterSource;
+  const hasActiveFilters = filterDate || filterCreneauId || filterStatut || debouncedSearch || filterSource || filterCategorie;
   const resetFilters = () => {
-    setFilterDate(""); setFilterCreneauId(""); setFilterStatut(""); setSearchTerm(""); setFilterSource(""); setLimit(50);
+    setFilterDate(""); setFilterCreneauId(""); setFilterStatut(""); setSearchTerm(""); setFilterSource(""); setFilterCategorie(""); setLimit(50);
   };
 
   const SortButton = ({ field, label }) => {
@@ -864,6 +901,22 @@ export default function Tableau({ changeTab, userRole }) {
               <span>{label}</span>
             </button>
           ))}
+          {/* ── Filtre catégorie ── */}
+          <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 dark:border-slate-700 pl-3">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Cat.</span>
+            {['A', 'B', 'C'].map(cat => (
+              <button key={cat} onClick={() => setFilterCategorie(filterCategorie === cat ? "" : cat)}
+                className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black border transition-all
+                  ${filterCategorie === cat
+                    ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300'
+                    : 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 opacity-70 hover:opacity-100'}`}
+              >
+                <span>{countsByCategorie[cat]}</span>
+                <span>{cat}</span>
+              </button>
+            ))}
+          </div>
+
           <span className="text-xs text-slate-400 font-medium self-center ml-auto">
             {filteredCommandes.length} résultat{filteredCommandes.length !== 1 ? "s" : ""}
             {filterSource && (
@@ -900,6 +953,7 @@ export default function Tableau({ changeTab, userRole }) {
                 <th className="p-5 hidden sm:table-cell">Contact</th>
                 <th className="p-5 hidden md:table-cell">Retrait Prévu</th>
                 <th className="p-5 hidden lg:table-cell">Source Paiement</th>
+                <th className="p-5 text-center">Cat.</th>
                 <th className="p-5">Boucle</th>
                 <th className="p-5 text-right">Reste / Payé</th>
                 <th className="p-5 text-center">Statut</th>
@@ -915,10 +969,10 @@ export default function Tableau({ changeTab, userRole }) {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
               {loading && commandes.length === 0 ? (
-                <tr><td colSpan="9" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
+                <tr><td colSpan="10" className="p-12 text-center text-slate-400 font-bold animate-pulse">Chargement en cours...</td></tr>
               ) : filteredCommandes.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="p-12 text-center">
+                  <td colSpan="10" className="p-12 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <FiFilter className="text-4xl text-slate-300" />
                       <p className="text-slate-400 font-medium">Aucune réservation pour ces critères.</p>
@@ -961,6 +1015,18 @@ export default function Tableau({ changeTab, userRole }) {
                       </td>
                       <td className="p-5 hidden lg:table-cell">
                         {renderSourcesBadges(cmd.id)}
+                      </td>
+                      <td className="p-5 text-center">
+                        {cmd.categorie ? (
+                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-black border-2 shadow-sm
+                            ${cmd.categorie === 'A' ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700' :
+                              cmd.categorie === 'B' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700' :
+                              'bg-orange-50 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700'}`}>
+                            {cmd.categorie}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
                       </td>
                       <td className="p-5">
                         {cmd.numero_boucle || cmd.statut === 'bouclee' ? (
@@ -1051,6 +1117,17 @@ export default function Tableau({ changeTab, userRole }) {
                       <span className="hidden sm:inline">Enregistrer</span>
                     </button>
                   </>
+                )}
+                {(userRole === 'admin_global' || userRole === 'admin_site') && !isEditing && selectedOrder.statut === 'bouclee' && (
+                  <button
+                    onClick={handleAnnulerBouclage}
+                    disabled={isUnbouclaging}
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-orange-500/30 transition-all flex items-center gap-2"
+                    title="Remettre en Payé (non bouclé)"
+                  >
+                    {isUnbouclaging ? <FiLoader className="animate-spin text-lg" /> : <FiRotateCcw className="text-lg" />}
+                    <span className="hidden sm:inline">Annuler bouclage</span>
+                  </button>
                 )}
                 {userRole === 'admin_global' && !isEditing && (
                   <button onClick={handleDeleteOrder} disabled={isDeleting} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-red-500/30 transition-all flex items-center gap-2">

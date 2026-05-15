@@ -218,10 +218,8 @@ export default function PriseEnCharge() {
     setCategorieChoisie(cmd.categorie || "");
     setComputedFinances(null);
     setHistorique([]);
-    // Calcul du prix de vente réel (tarif ou champ montant_total_cents)
-    const tarifCmd = tarifs.find(t => String(t.categorie) === String(cmd.categorie));
-    const prixCents = tarifCmd ? tarifCmd.prix_cents : (cmd.montant_total_cents || 0);
-    loadHistorique(cmd.id, prixCents);
+    // montant_total_cents est la référence contractuelle de la commande
+    loadHistorique(cmd.id, cmd.montant_total_cents || 0);
   };
 
   const handleBackToList = () => { 
@@ -259,9 +257,7 @@ export default function PriseEnCharge() {
     const { data } = await supabase.from("commandes").select("*, creneaux_horaires(*)").eq("id", commandeId).single();
     if (data) {
       setCommande(data);
-      const tarifCmd = tarifs.find(t => String(t.categorie) === String(data.categorie));
-      const prixCents = tarifCmd ? tarifCmd.prix_cents : (data.montant_total_cents || 0);
-      await loadHistorique(commandeId, prixCents);
+      await loadHistorique(commandeId, data.montant_total_cents || 0);
     }
   };
 
@@ -427,8 +423,7 @@ export default function PriseEnCharge() {
       // On utilise le net encaissé depuis la comptabilite comme base de vérité
       const ancienNetCents    = computedFinances ? computedFinances.netEncaisseCents : (commande.montant_paye_cents ?? commande.acompte_cents ?? 0);
       const nouveauTotalPaye  = ancienNetCents + montantAjouteCents;
-      const tarifActuel       = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents        = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const totalCents        = commande.montant_total_cents || 0;
 
       let nouveauStatut = commande.statut;
       if (nouveauTotalPaye >= totalCents)                                    nouveauStatut = 'paye_integralement';
@@ -510,8 +505,7 @@ export default function PriseEnCharge() {
 
       const ancienNetCents   = computedFinances ? computedFinances.netEncaisseCents : (commande.montant_paye_cents ?? commande.acompte_cents ?? 0);
       const nouveauTotalPaye = ancienNetCents + montantCents;
-      const tarifActuel      = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents       = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const totalCents       = commande.montant_total_cents || 0;
       const nouveauStatut    = nouveauTotalPaye >= totalCents ? 'paye_integralement' : 'acompte_paye';
 
       await supabase.from('commandes').update({
@@ -599,8 +593,7 @@ export default function PriseEnCharge() {
       // Mise à jour du statut basée sur le net après annulation
       const ancienNetCents  = computedFinances ? computedFinances.netEncaisseCents : 0;
       const nouveauNetCents = Math.max(0, ancienNetCents - Math.abs(transactionToCancel.montant_cents));
-      const tarifActuel     = tarifs.find(t => String(t.categorie) === String(commande.categorie));
-      const totalCents      = tarifActuel ? tarifActuel.prix_cents : (commande.montant_total_cents || 0);
+      const totalCents      = commande.montant_total_cents || 0;
 
       let nouveauStatut = commande.statut;
       if (nouveauNetCents < totalCents && commande.statut === 'paye_integralement') {
@@ -639,8 +632,7 @@ export default function PriseEnCharge() {
   const handlePrint = () => { window.print(); };
 
   // ── Calculs financiers — basés sur computedFinances (table comptabilite) ─
-  const tarifActuel   = commande ? tarifs.find(t => String(t.categorie) === String(commande.categorie)) : null;
-  const prixVenteCents = commande ? (tarifActuel?.prix_cents || commande.montant_total_cents || 0) : 0;
+  const prixVenteCents = commande ? (commande.montant_total_cents || 0) : 0;
   const total          = prixVenteCents / 100;
   const dejaPaye       = computedFinances ? computedFinances.netEncaisse : 0;
   const dejaPayeCents  = computedFinances ? computedFinances.netEncaisseCents : 0;
@@ -928,7 +920,7 @@ export default function PriseEnCharge() {
 
                             <div className="relative">
                               <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"><span className="text-slate-400 text-xl font-bold">€</span></div>
-                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
+                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} onWheel={(e) => e.target.blur()} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
                               <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
                             </div>
 
@@ -1277,7 +1269,7 @@ export default function PriseEnCharge() {
               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Fond de caisse (Espèces)</label>
               <div className="relative mb-6">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><span className="text-slate-400 font-bold">€</span></div>
-                <input type="number" step="0.01" value={fondDeCaisse} onChange={(e) => setFondDeCaisse(e.target.value)} required className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="Ex: 50.00" />
+                <input type="number" step="0.01" value={fondDeCaisse} onChange={(e) => setFondDeCaisse(e.target.value)} onWheel={(e) => e.target.blur()} required className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="Ex: 50.00" />
               </div>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowOuvertureModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200">Annuler</button>
@@ -1303,11 +1295,11 @@ export default function PriseEnCharge() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Espèces réelles</label>
-                  <div className="relative"><input type="number" step="0.01" value={reelEspeces} onChange={(e) => setReelEspeces(e.target.value)} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
+                  <div className="relative"><input type="number" step="0.01" value={reelEspeces} onChange={(e) => setReelEspeces(e.target.value)} onWheel={(e) => e.target.blur()} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Total CB réel</label>
-                  <div className="relative"><input type="number" step="0.01" value={reelCb} onChange={(e) => setReelCb(e.target.value)} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
+                  <div className="relative"><input type="number" step="0.01" value={reelCb} onChange={(e) => setReelCb(e.target.value)} onWheel={(e) => e.target.blur()} required className="w-full pl-4 pr-8 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold outline-none focus:border-indigo-500 dark:text-white" placeholder="0.00" /><span className="absolute right-3 top-3 text-slate-400 font-bold">€</span></div>
                 </div>
               </div>
               {((parseFloat(reelEspeces) * 100 || 0) !== theoriqueCaisse.especes || (parseFloat(reelCb) * 100 || 0) !== theoriqueCaisse.cb) && (

@@ -33,6 +33,7 @@ export async function enregistrerMouvement({
 
   const { data: { user } } = await supabase.auth.getUser();
   const operateur_email = user?.email ?? 'systeme@auto';
+  const operateur_id    = user?.id    ?? null;
 
   const { data, error } = await supabase
     .from('comptabilite')
@@ -43,6 +44,7 @@ export async function enregistrerMouvement({
       commande_id,
       ticket_num,
       caisse_id,
+      operateur_id,
       operateur_email,
       reference_externe,
       motif,

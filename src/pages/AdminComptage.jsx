@@ -5,7 +5,7 @@ import {
   FiLock, FiRefreshCw, FiAlertTriangle, FiCheckCircle,
   FiUser, FiDollarSign, FiCreditCard, FiGlobe, FiEye, FiX,
   FiActivity, FiList, FiTarget, FiClock, FiArrowUpRight, FiArrowDownRight,
-  FiDownload, FiSmartphone
+  FiDownload, FiSmartphone, FiZap
 } from "react-icons/fi";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -69,10 +69,15 @@ export default function AdminComptage() {
 
   // Modal comptage
   const [comptageModal, setComptageModal] = useState(null);
+  const [comptageTransactions, setComptageTransactions] = useState([]);
   const [reelEspeces, setReelEspeces] = useState("");
   const [reelCb, setReelCb] = useState("");
   const [commentaire, setCommentaire] = useState("");
   const [savingComptage, setSavingComptage] = useState(false);
+
+  // Modal caisses actives
+  const [showCaissesActives, setShowCaissesActives] = useState(false);
+  const [caissesActivesData, setCaissesActivesData] = useState([]);
 
   // ── Chargement initial ─────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -123,14 +128,39 @@ export default function AdminComptage() {
   // ── Ouvrir modal de comptage ───────────────────────────────────────────────
   const handleOuvrirComptage = async (session) => {
     try {
-      const theorique = await computeTheorique(session);
+      const [theorique, { data: txData }] = await Promise.all([
+        computeTheorique(session),
+        supabase
+          .from("comptabilite")
+          .select("*")
+          .eq("caisse_id", session.id)
+          .order("created_at", { ascending: true }),
+      ]);
       setComptageModal({ session, theorique });
+      setComptageTransactions(txData || []);
       setReelEspeces("");
       setReelCb("");
       setCommentaire("");
     } catch {
       showNotification("Erreur calcul du théorique.", "error");
     }
+  };
+
+  // ── Ouvrir modal caisses actives ──────────────────────────────────────────
+  const handleVoirCaissesActives = async () => {
+    const open = sessions.filter(s => s.statut === "ouverte");
+    if (open.length === 0) {
+      showNotification("Aucune caisse ouverte en ce moment.", "info");
+      return;
+    }
+    const results = await Promise.all(
+      open.map(async (s) => {
+        const theorique = await computeTheorique(s);
+        return { session: s, theorique };
+      })
+    );
+    setCaissesActivesData(results);
+    setShowCaissesActives(true);
   };
 
   // ── Enregistrer un comptage ────────────────────────────────────────────────
@@ -263,12 +293,26 @@ export default function AdminComptage() {
             Supervision complète — sessions, comptages en temps réel, écarts
           </p>
         </div>
-        <button
-          onClick={fetchAll}
-          className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
-        >
-          <FiRefreshCw /> Rafraîchir
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleVoirCaissesActives}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-sm shadow-emerald-500/20 transition-all"
+          >
+            <FiZap size={14} />
+            Caisses actives
+            {openSessions.length > 0 && (
+              <span className="bg-white/30 text-white text-xs font-black px-1.5 py-0.5 rounded-full">
+                {openSessions.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+          >
+            <FiRefreshCw /> Rafraîchir
+          </button>
+        </div>
       </div>
 
       {/* ── STATS ── */}
@@ -672,13 +716,100 @@ export default function AdminComptage() {
         </div>
       )}
 
+      {/* ══════════════ MODAL CAISSES ACTIVES ══════════════ */}
+      {showCaissesActives && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-emerald-50 dark:bg-emerald-900/10 flex justify-between items-center">
+              <div>
+                <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
+                  <FiZap className="text-emerald-500" /> Caisses actives en ce moment
+                </h3>
+                <p className="text-slate-500 text-sm mt-0.5">{caissesActivesData.length} caisse(s) ouverte(s)</p>
+              </div>
+              <button onClick={() => setShowCaissesActives(false)} className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm hover:rotate-90 transition-all">
+                <FiX />
+              </button>
+            </div>
+
+            {/* Contenu */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {caissesActivesData.map(({ session, theorique }) => (
+                <div key={session.id} className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  {/* Info vendeur */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-black text-sm">
+                        {(session.vendeur_email || "?")[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-black text-slate-800 dark:text-white text-sm">{session.vendeur_email.split("@")[0]}</p>
+                        <p className="text-xs text-slate-400">{session.vendeur_email}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-black">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ouverte
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Depuis {getDuree(session.created_at, null)} — {fmtDateHeure(session.created_at)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Montants en temps réel */}
+                  <div className="grid grid-cols-3 gap-3 p-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-700">
+                      <FiDollarSign className="text-emerald-500 mx-auto mb-1" size={16} />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Espèces</p>
+                      <p className="font-black text-lg text-emerald-600">{fmt(theorique.especes)} €</p>
+                      <p className="text-[9px] text-slate-400">fond inclus</p>
+                    </div>
+                    <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-700">
+                      <FiCreditCard className="text-blue-500 mx-auto mb-1" size={16} />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">CB</p>
+                      <p className="font-black text-lg text-blue-600">{fmt(theorique.cb)} €</p>
+                      <p className="text-[9px] text-slate-400">terminal</p>
+                    </div>
+                    <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-700">
+                      <FiGlobe className="text-indigo-500 mx-auto mb-1" size={16} />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Stripe</p>
+                      <p className="font-black text-lg text-indigo-600">{fmt(theorique.stripe)} €</p>
+                      <p className="text-[9px] text-slate-400">auto</p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="px-4 pb-4 flex gap-2">
+                    <button
+                      onClick={() => { setShowCaissesActives(false); handleVoirDetail(session); }}
+                      className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all"
+                    >
+                      <FiEye size={12} /> Voir les transactions
+                    </button>
+                    <button
+                      onClick={() => { setShowCaissesActives(false); handleOuvrirComptage(session); }}
+                      className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-violet-500/20"
+                    >
+                      <FiTarget size={12} /> Lancer le comptage
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════ MODAL COMPTAGE ══════════════ */}
       {comptageModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-lg max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
 
             {/* Header */}
-            <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-violet-50 dark:bg-violet-900/10 flex justify-between items-start">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 bg-violet-50 dark:bg-violet-900/10 flex justify-between items-start shrink-0">
               <div>
                 <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
                   <FiTarget className="text-violet-500" /> Comptage de caisse
@@ -693,7 +824,7 @@ export default function AdminComptage() {
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {/* Montants théoriques */}
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">
@@ -718,6 +849,52 @@ export default function AdminComptage() {
                 </p>
               </div>
 
+              {/* Récap transactions du vendeur */}
+              {comptageTransactions.length > 0 && (
+                <div>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">
+                    Transactions de la session ({comptageTransactions.length})
+                  </p>
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {comptageTransactions.map((tx) => {
+                      const m = Number(tx.montant_cents) / 100;
+                      const isNeg = m < 0;
+                      return (
+                        <div key={tx.id} className={`flex items-center justify-between px-3 py-2 text-xs ${isNeg ? "bg-red-50 dark:bg-red-900/10" : "bg-white dark:bg-slate-800"}`}>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-slate-400 font-mono shrink-0">
+                              {new Date(tx.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <MoyenBadge moyen={tx.moyen_paiement} />
+                            {tx.ticket_num && (
+                              <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded font-black shrink-0">
+                                #{tx.ticket_num}
+                              </span>
+                            )}
+                            {isNeg && tx.motif && (
+                              <span className="text-red-500 truncate font-medium" title={tx.motif}>↩ {tx.motif}</span>
+                            )}
+                          </div>
+                          <span className={`font-black shrink-0 ml-2 ${isNeg ? "text-red-500" : "text-emerald-600"}`}>
+                            {m >= 0 ? "+" : ""}{m.toFixed(2)} €
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Total net */}
+                  <div className="flex justify-between items-center mt-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-xl">
+                    <span className="text-xs font-black text-slate-500 uppercase">Net encaissé</span>
+                    <span className={`font-black text-sm ${
+                      comptageTransactions.reduce((s, t) => s + Number(t.montant_cents), 0) >= 0
+                        ? "text-emerald-600" : "text-red-500"
+                    }`}>
+                      {(comptageTransactions.reduce((s, t) => s + Number(t.montant_cents), 0) / 100).toFixed(2)} €
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Saisie réel */}
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">Montant réel compté</p>
@@ -732,6 +909,7 @@ export default function AdminComptage() {
                       min="0"
                       value={reelEspeces}
                       onChange={(e) => setReelEspeces(e.target.value)}
+                      onWheel={(e) => e.target.blur()}
                       placeholder={fmt(comptageModal.theorique.especes)}
                       className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white outline-none focus:border-violet-500 transition-colors"
                     />
@@ -746,6 +924,7 @@ export default function AdminComptage() {
                       min="0"
                       value={reelCb}
                       onChange={(e) => setReelCb(e.target.value)}
+                      onWheel={(e) => e.target.blur()}
                       placeholder={fmt(comptageModal.theorique.cb)}
                       className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white outline-none focus:border-violet-500 transition-colors"
                     />
@@ -800,22 +979,23 @@ export default function AdminComptage() {
                 />
               </div>
 
-              {/* Boutons */}
-              <div className="flex gap-3 pt-1">
-                <button
-                  onClick={() => setComptageModal(null)}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all hover:bg-slate-200 dark:hover:bg-slate-600"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleSaveComptage}
-                  disabled={savingComptage || (reelEspeces === "" && reelCb === "")}
-                  className="flex-1 py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black transition-all shadow-lg shadow-violet-500/20"
-                >
-                  {savingComptage ? "Enregistrement…" : "Enregistrer le comptage"}
-                </button>
-              </div>
+            </div>
+
+            {/* Boutons — fixés en bas */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0 flex gap-3">
+              <button
+                onClick={() => setComptageModal(null)}
+                className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold transition-all hover:bg-slate-200 dark:hover:bg-slate-600"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveComptage}
+                disabled={savingComptage || (reelEspeces === "" && reelCb === "")}
+                className="flex-1 py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black transition-all shadow-lg shadow-violet-500/20"
+              >
+                {savingComptage ? "Enregistrement…" : "Enregistrer le comptage"}
+              </button>
             </div>
           </div>
         </div>
