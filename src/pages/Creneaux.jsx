@@ -418,10 +418,12 @@ function StockManager() {
 
   const [showModal, setShowModal] = useState(false);
   const [selectedSlotId, setSelectedSlotId] = useState(null);
-  
+  const [isRetraitMode, setIsRetraitMode] = useState(false);
+
   const [gridRange, setGridRange] = useState({ start: 1, end: 500 });
   const [allTicketsStatus, setAllTicketsStatus] = useState({});
   const [selectedForAdd, setSelectedForAdd] = useState([]);
+  const [selectedForRetrait, setSelectedForRetrait] = useState([]);
   const [loadingGrid, setLoadingGrid] = useState(false);
 
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -473,7 +475,13 @@ function StockManager() {
   }
 
   async function openGridModal(slotId) {
-    setSelectedSlotId(slotId); setShowModal(true); setSelectedForAdd([]); fetchAllTicketsStatus();
+    setSelectedSlotId(slotId); setIsRetraitMode(false); setShowModal(true);
+    setSelectedForAdd([]); setSelectedForRetrait([]); fetchAllTicketsStatus();
+  }
+
+  async function openGridRetraitModal(slotId) {
+    setSelectedSlotId(slotId); setIsRetraitMode(true); setShowModal(true);
+    setSelectedForAdd([]); setSelectedForRetrait([]); fetchAllTicketsStatus();
   }
 
   async function fetchAllTicketsStatus() {
@@ -500,18 +508,26 @@ function StockManager() {
   }
 
   const getTicketState = (num) => {
-      if (selectedForAdd.includes(num)) return 'selected';
+      if (isRetraitMode && selectedForRetrait.includes(num)) return 'selected_retrait';
+      if (!isRetraitMode && selectedForAdd.includes(num)) return 'selected';
       const info = allTicketsStatus[num];
       if (!info) return 'free';
-      if (['acompte_paye', 'validee', 'paye', 'terminee'].includes(info.statut)) return 'sold';
-      return 'stock';
+      if (['acompte_paye', 'validee', 'paye', 'terminee', 'paye_integralement', 'en_attente', 'bouclee'].includes(info.statut)) return 'sold';
+      if (info.statut === 'disponible') return 'stock';
+      return 'sold';
   };
 
   const handleTicketClick = (num) => {
       const state = getTicketState(num);
-      if (state === 'sold' || state === 'stock') return;
-      if (state === 'selected') { setSelectedForAdd(prev => prev.filter(n => n !== num)); } 
-      else { setSelectedForAdd(prev => [...prev, num]); }
+      if (isRetraitMode) {
+          // En mode retrait : seuls les tickets 'stock' (disponible) sont sélectionnables
+          if (state === 'selected_retrait') { setSelectedForRetrait(prev => prev.filter(n => n !== num)); }
+          else if (state === 'stock') { setSelectedForRetrait(prev => [...prev, num]); }
+      } else {
+          if (state === 'sold' || state === 'stock') return;
+          if (state === 'selected') { setSelectedForAdd(prev => prev.filter(n => n !== num)); }
+          else { setSelectedForAdd(prev => [...prev, num]); }
+      }
   };
 
   async function confirmGridAdd() {
@@ -522,6 +538,21 @@ function StockManager() {
         logAction('AJOUT', 'STOCK', { quantite: selectedForAdd.length, creneau: selectedSlotId, methode: 'grille_visuelle' });
         showNotification(`${selectedForAdd.length} tickets ajoutés au stock !`, "success");
         setShowModal(false); loadData();
+    } catch (err) { showNotification("Erreur: " + err.message, "error"); }
+  }
+
+  async function confirmGridRetrait() {
+    if (selectedForRetrait.length === 0) return;
+    if (!window.confirm(`Retirer ${selectedForRetrait.length} ticket(s) du stock ?\n\nCes tickets n° : ${selectedForRetrait.sort((a,b)=>a-b).join(', ')}\n\nCette action est irréversible.`)) return;
+    try {
+        for (const ticketNum of selectedForRetrait) {
+            const { error } = await supabase.rpc("retirer_ticket_stock", { p_ticket_num: ticketNum });
+            if (error) throw error;
+        }
+        logAction('RETRAIT', 'STOCK', { quantite: selectedForRetrait.length, tickets: selectedForRetrait, methode: 'grille_retrait' });
+        showNotification(`${selectedForRetrait.length} ticket(s) retirés du stock.`, "success");
+        setShowModal(false); setIsRetraitMode(false); setSelectedForRetrait([]);
+        loadData();
     } catch (err) { showNotification("Erreur: " + err.message, "error"); }
   }
 
@@ -635,6 +666,7 @@ function StockManager() {
                           </div>
                           <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
                           <button onClick={() => openGridModal(slot.id)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all text-sm"><FiGrid className="text-lg" /> Sélection Grille</button>
+                          <button onClick={() => openGridRetraitModal(slot.id)} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-red-500/20 transition-all text-sm"><FiXCircle className="text-lg" /> Retrait</button>
                           <button onClick={() => openDetailModal(slot.id)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm"><FiEye className="text-lg" /> Détails</button>
                         </div>
                       </div>
@@ -651,34 +683,76 @@ function StockManager() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
             <div className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700">
-                <div className="bg-blue-600 p-5 flex flex-col sm:flex-row justify-between items-center gap-4 text-white shrink-0">
-                    <div><h3 className="text-2xl font-black flex items-center gap-2"><FiGrid /> Gestion Visuelle du Stock</h3></div>
-                    <div className="flex items-center gap-3 bg-blue-800/50 p-2 rounded-xl">
+                {/* Header — couleur différente selon le mode */}
+                <div className={`${isRetraitMode ? 'bg-red-600' : 'bg-blue-600'} p-5 flex flex-col sm:flex-row justify-between items-center gap-4 text-white shrink-0`}>
+                    <div>
+                      <h3 className="text-2xl font-black flex items-center gap-2">
+                        {isRetraitMode ? <><FiXCircle /> Retrait de tickets du stock</> : <><FiGrid /> Ajout de tickets au stock</>}
+                      </h3>
+                      {isRetraitMode && <p className="text-red-200 text-xs mt-1 font-medium">Seuls les tickets <strong>libres (en stock)</strong> sont sélectionnables — les vendus/réservés sont bloqués.</p>}
+                    </div>
+                    <div className={`flex items-center gap-3 ${isRetraitMode ? 'bg-red-800/50' : 'bg-blue-800/50'} p-2 rounded-xl`}>
                         <span className="text-sm font-medium">Afficher de :</span>
                         <input type="number" value={gridRange.start} onChange={(e) => setGridRange(p => ({...p, start: parseInt(e.target.value) || 1}))} className="w-20 px-2 py-1 rounded text-slate-900 font-bold outline-none" />
                         <span className="text-sm font-medium">à</span>
                         <input type="number" value={gridRange.end} onChange={(e) => setGridRange(p => ({...p, end: parseInt(e.target.value) || 500}))} className="w-20 px-2 py-1 rounded text-slate-900 font-bold outline-none" />
                     </div>
-                    <button onClick={() => setShowModal(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors"><FiX className="text-2xl"/></button>
+                    <button onClick={() => { setShowModal(false); setIsRetraitMode(false); setSelectedForRetrait([]); }} className="hover:bg-white/20 p-2 rounded-full transition-colors"><FiX className="text-2xl"/></button>
                 </div>
+
+                {/* Légende */}
+                <div className="px-6 py-2 bg-slate-50 dark:bg-slate-900/30 border-b border-slate-200 dark:border-slate-700 flex flex-wrap gap-4 text-xs font-bold shrink-0">
+                  {isRetraitMode ? (
+                    <>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-green-400 border border-green-500 inline-block"></span> Libre (sélectionnable)</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-red-500 border border-red-600 inline-block"></span> Sélectionné pour retrait</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-slate-300 border border-slate-400 inline-block"></span> Vendu / Réservé (bloqué)</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-white border border-slate-200 inline-block"></span> N° inexistant</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-white border-2 border-slate-200 inline-block"></span> Libre (sélectionnable)</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-blue-500 inline-block"></span> Sélectionné</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-orange-400 inline-block"></span> Déjà en stock</span>
+                      <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded bg-red-500 inline-block"></span> Vendu / Réservé</span>
+                    </>
+                  )}
+                </div>
+
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900/50">
                     {loadingGrid ? <div className="flex h-full items-center justify-center"><div className="animate-spin text-4xl text-blue-500"><FiGrid/></div></div> : (
                         <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-3">
                             {gridNumbers.map(num => {
                                 const state = getTicketState(num);
                                 let btnClass = "py-3 px-1 rounded-lg text-sm font-bold font-mono transition-all border-2 shadow-sm ";
-                                if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
-                                else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
-                                else if (state === 'selected') btnClass += "bg-blue-500 text-white border-blue-600 transform scale-110 shadow-blue-500/30 ring-4 ring-blue-300 z-10";
-                                else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md cursor-pointer";
+                                if (isRetraitMode) {
+                                    if (state === 'sold') btnClass += "bg-slate-200 dark:bg-slate-700 text-slate-400 border-slate-300 opacity-50 cursor-not-allowed";
+                                    else if (state === 'free') btnClass += "bg-white dark:bg-slate-800 text-slate-300 border-slate-100 opacity-40 cursor-not-allowed";
+                                    else if (state === 'selected_retrait') btnClass += "bg-red-500 text-white border-red-600 transform scale-110 shadow-red-500/30 ring-4 ring-red-300 z-10 cursor-pointer";
+                                    else /* stock */ btnClass += "bg-green-100 text-green-800 border-green-300 hover:bg-green-500 hover:text-white hover:border-green-600 hover:shadow-md cursor-pointer";
+                                } else {
+                                    if (state === 'sold') btnClass += "bg-red-500 text-white border-red-600 opacity-50 cursor-not-allowed";
+                                    else if (state === 'stock') btnClass += "bg-orange-400 text-white border-orange-500 opacity-60 cursor-not-allowed";
+                                    else if (state === 'selected') btnClass += "bg-blue-500 text-white border-blue-600 transform scale-110 shadow-blue-500/30 ring-4 ring-blue-300 z-10";
+                                    else btnClass += "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-blue-400 hover:text-blue-600 hover:shadow-md cursor-pointer";
+                                }
                                 return <button key={num} onClick={() => handleTicketClick(num)} className={btnClass}>{num}</button>
                             })}
                         </div>
                     )}
                 </div>
                 <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-between items-center">
-                    <p className="text-slate-500 dark:text-slate-400 text-sm"><strong className="text-blue-600 dark:text-blue-400 text-2xl">{selectedForAdd.length}</strong> tickets prêts</p>
-                    <button onClick={confirmGridAdd} disabled={selectedForAdd.length === 0} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-lg">Confirmer l'ajout au stock</button>
+                    {isRetraitMode ? (
+                      <>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm"><strong className="text-red-600 text-2xl">{selectedForRetrait.length}</strong> ticket(s) à retirer</p>
+                        <button onClick={confirmGridRetrait} disabled={selectedForRetrait.length === 0} className="px-8 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-lg flex items-center gap-2"><FiXCircle /> Confirmer le retrait</button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm"><strong className="text-blue-600 dark:text-blue-400 text-2xl">{selectedForAdd.length}</strong> tickets prêts</p>
+                        <button onClick={confirmGridAdd} disabled={selectedForAdd.length === 0} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-all text-lg">Confirmer l'ajout au stock</button>
+                      </>
+                    )}
                 </div>
             </div>
         </div>
