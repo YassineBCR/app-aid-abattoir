@@ -98,7 +98,7 @@ export default function Tableau({ changeTab, userRole }) {
   // ── Filtres source de paiement + catégorie + tri ─────────────────────────
   const [filterSource, setFilterSource]       = useState("");
   const [filterCategorie, setFilterCategorie] = useState("");
-  const [sortField, setSortField]             = useState("created_at");
+  const [sortField, setSortField]             = useState("ticket_num");
   const [sortDir, setSortDir]                 = useState("desc");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
@@ -149,7 +149,6 @@ export default function Tableau({ changeTab, userRole }) {
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
-      setLimit(50);
     }, 400);
     return () => clearTimeout(handler);
   }, [searchTerm]);
@@ -798,6 +797,14 @@ export default function Tableau({ changeTab, userRole }) {
           </div>
 
           <button
+            onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')}
+            title={sortDir === 'asc' ? 'Ordre croissant (cliquer pour décroissant)' : 'Ordre décroissant (cliquer pour croissant)'}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-all"
+          >
+            {sortDir === 'asc' ? <><FiArrowUp className="text-sm" /> Croissant</> : <><FiArrowDown className="text-sm" /> Décroissant</>}
+          </button>
+
+          <button
             onClick={() => setShowAdvancedFilters(prev => !prev)}
             className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
               showAdvancedFilters || filterSource
@@ -917,14 +924,37 @@ export default function Tableau({ changeTab, userRole }) {
             ))}
           </div>
 
-          <span className="text-xs text-slate-400 font-medium self-center ml-auto">
-            {filteredCommandes.length} résultat{filteredCommandes.length !== 1 ? "s" : ""}
-            {filterSource && (
-              <span className="ml-2 text-teal-600 font-bold">
-                · filtré par {PAYMENT_SOURCES.find(p => p.value === filterSource)?.label}
-              </span>
-            )}
-          </span>
+          <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+            <span className="text-xs text-slate-400 font-medium self-center">
+              {filteredCommandes.length} résultat{filteredCommandes.length !== 1 ? "s" : ""}
+              {hasMore && <span className="text-orange-500 font-bold ml-1">(+ à charger)</span>}
+            </span>
+            <div className="h-4 w-px bg-slate-200 dark:bg-slate-600 self-center"></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider self-center">Afficher</span>
+            {[50, 200, 500, 2000].map(n => (
+              <button
+                key={n}
+                onClick={() => setLimit(n)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all ${
+                  limit === n && limit < 900
+                    ? 'bg-teal-600 text-white shadow-sm shadow-teal-500/30'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-900/20'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              onClick={() => setLimit(9999)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all ${
+                limit >= 900
+                  ? 'bg-teal-600 text-white shadow-sm shadow-teal-500/30'
+                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-900/20'
+              }`}
+            >
+              Tous
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1066,11 +1096,9 @@ export default function Tableau({ changeTab, userRole }) {
       </div>
 
       {hasMore && !loading && (
-        <div className="flex justify-center mt-8">
-          <button onClick={() => setLimit(prev => prev + 50)} className="flex items-center gap-3 px-8 py-4 bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-200 text-white dark:text-slate-900 font-black rounded-2xl shadow-xl transition-all hover:scale-105 active:scale-95">
-            ⬇️ Charger les résultats suivants
-          </button>
-        </div>
+        <p className="text-center text-xs text-slate-400 font-medium py-2">
+          Des résultats supplémentaires existent — augmentez le nombre d'affichage ou choisissez "Tous" dans la barre de filtres.
+        </p>
       )}
 
       {/* ═══════════ MODALE DÉTAIL COMMANDE ═══════════ */}
