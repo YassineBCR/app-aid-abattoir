@@ -162,13 +162,15 @@ export default function PriseEnCharge({ changeTab }) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserEmail(user.email);
+    // .maybeSingle() échoue si plusieurs caisses ouvertes (bug doublon) → on prend la plus récente
     const { data } = await supabase
       .from('caisses_vendeurs')
       .select('*')
       .eq('vendeur_email', user.email)
       .eq('statut', 'ouverte')
-      .maybeSingle();
-    if (data) setActiveCaisse(data);
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (data && data.length > 0) setActiveCaisse(data[0]);
     else setActiveCaisse(null);
   };
 
@@ -277,6 +279,21 @@ export default function PriseEnCharge({ changeTab }) {
     e.preventDefault();
     const fondCents = Math.round((parseFloat(fondDeCaisse) || 0) * 100);
     try {
+      // Vérification anti-doublon : si une caisse est déjà ouverte, la récupérer sans en créer une nouvelle
+      const { data: existing } = await supabase
+        .from('caisses_vendeurs')
+        .select('*')
+        .eq('vendeur_email', userEmail)
+        .eq('statut', 'ouverte')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (existing && existing.length > 0) {
+        setActiveCaisse(existing[0]);
+        setShowOuvertureModal(false);
+        showNotification("Une caisse est déjà ouverte — session récupérée.", "info");
+        return;
+      }
+
       const { data, error } = await supabase.from('caisses_vendeurs').insert({
         vendeur_email: userEmail,
         fond_caisse_initial_cents: fondCents,
