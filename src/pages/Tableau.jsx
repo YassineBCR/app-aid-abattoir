@@ -353,13 +353,15 @@ export default function Tableau({ changeTab, userRole }) {
       }).eq('id', switchDest.id);
       if (e1) throw e1;
 
-      // 2. Transférer les enregistrements comptabilité vers le ticket destination
+      // 2. Transférer les enregistrements comptabilité via RPC (contourne le RLS insert-only)
       if (switchSourceHistory.length > 0) {
-        const { error: e2 } = await supabase.from('comptabilite').update({
-          commande_id: switchDest.id,
-          ticket_num:  switchDest.ticket_num,
-        }).eq('commande_id', switchSource.id);
+        const { data: nbTransferts, error: e2 } = await supabase.rpc('transferer_historique_comptabilite', {
+          p_source_commande_id: switchSource.id,
+          p_dest_commande_id:   switchDest.id,
+          p_dest_ticket_num:    switchDest.ticket_num,
+        });
         if (e2) throw e2;
+        if (nbTransferts === 0) throw new Error("Aucune transaction transférée — vérifiez les données source.");
       }
 
       // 3. Remettre le ticket source en stock (disponible)
