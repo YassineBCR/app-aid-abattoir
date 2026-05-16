@@ -196,9 +196,9 @@ export default function AdminComptage() {
           (acc, t) => ({ especes: acc.especes + t.especes, cb: acc.cb + t.cb, stripe: acc.stripe + t.stripe, nbTx: acc.nbTx + t.nbTx }),
           { especes: 0, cb: 0, stripe: 0, nbTx: 0 }
         );
-        // Session principale = la plus récente
-        const primarySession = [...vendeurSessions].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-        return { session: primarySession, sessions: vendeurSessions, theorique: combined, nbCaisses: vendeurSessions.length };
+        const sorted = [...vendeurSessions].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const sessionTheoriques = sorted.map((s, i) => ({ session: s, theorique: theoriques[vendeurSessions.indexOf(s)] }));
+        return { session: sorted[0], sessions: vendeurSessions, theorique: combined, nbCaisses: vendeurSessions.length, sessionTheoriques };
       })
     );
 
@@ -782,9 +782,10 @@ export default function AdminComptage() {
 
             {/* Contenu */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {caissesActivesData.map(({ session, sessions, theorique, nbCaisses }) => (
+              {caissesActivesData.map(({ session, sessions, theorique, nbCaisses, sessionTheoriques }) => (
                 <div key={session.vendeur_email} className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                  {/* Info vendeur */}
+
+                  {/* En-tête vendeur */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-black text-sm">
@@ -795,7 +796,7 @@ export default function AdminComptage() {
                         <p className="text-xs text-slate-400">{session.vendeur_email}</p>
                         {nbCaisses > 1 && (
                           <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full text-[10px] font-black">
-                            ⚠ {nbCaisses} caisses fusionnées
+                            ⚠ {nbCaisses} caisses ouvertes
                           </span>
                         )}
                       </div>
@@ -810,7 +811,7 @@ export default function AdminComptage() {
                     </div>
                   </div>
 
-                  {/* Montants en temps réel */}
+                  {/* Totaux combinés */}
                   <div className="grid grid-cols-3 gap-3 p-4">
                     <div className="bg-white dark:bg-slate-800 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-700">
                       <FiDollarSign className="text-emerald-500 mx-auto mb-1" size={16} />
@@ -832,7 +833,39 @@ export default function AdminComptage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
+                  {/* Liste des caisses individuelles si plusieurs */}
+                  {nbCaisses > 1 && (
+                    <div className="mx-4 mb-3 rounded-xl border border-orange-200 dark:border-orange-800 overflow-hidden">
+                      <div className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 text-[10px] font-black text-orange-700 dark:text-orange-400 uppercase tracking-wider">
+                        Caisses individuelles — choisissez lesquelles fermer
+                      </div>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {sessionTheoriques.map(({ session: s, theorique: th }) => (
+                          <div key={s.id} className="flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                                Caisse ouverte le {fmtDateHeure(s.created_at)}
+                              </p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                Esp: <span className="text-emerald-600 font-bold">{fmt(th.especes)} €</span>
+                                {' · '}CB: <span className="text-blue-600 font-bold">{fmt(th.cb)} €</span>
+                                {' · '}Stripe: <span className="text-indigo-600 font-bold">{fmt(th.stripe)} €</span>
+                                {' · '}<span className="text-slate-400">{th.nbTx} tx</span>
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleClotureForcee([s])}
+                              className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-black transition-all"
+                            >
+                              <FiPower size={10} /> Clôturer
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions globales */}
                   <div className="px-4 pb-4 space-y-2">
                     <div className="flex gap-2">
                       <button
@@ -852,7 +885,7 @@ export default function AdminComptage() {
                       onClick={() => handleClotureForcee(sessions)}
                       className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-red-500/20"
                     >
-                      <FiPower size={12} /> CLÔTURE URGENCE {nbCaisses > 1 ? `(${nbCaisses} caisses)` : ''} — Sans comptage
+                      <FiPower size={12} /> CLÔTURE URGENCE {nbCaisses > 1 ? `TOUTES (${nbCaisses} caisses)` : ''} — Sans comptage
                     </button>
                   </div>
                 </div>
