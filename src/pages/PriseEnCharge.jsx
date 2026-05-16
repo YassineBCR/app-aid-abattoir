@@ -1000,8 +1000,24 @@ export default function PriseEnCharge({ changeTab }) {
 
                             <div className="relative">
                               <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"><span className="text-slate-400 text-xl font-bold">€</span></div>
-                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => setMontantEncaisse(e.target.value)} onWheel={(e) => e.target.blur()} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
-                              <button type="button" onClick={() => setMontantEncaisse(resteAPayer.toFixed(2))} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
+                              <input type="number" step="0.01" value={montantEncaisse} onChange={(e) => {
+                                const val = e.target.value;
+                                setMontantEncaisse(val);
+                                const cents = Math.round(parseFloat(val) * 100);
+                                if (!isNaN(cents) && cents > 0) {
+                                  const match = tarifs.find(t => t.prix_cents === cents);
+                                  if (match) setCategorieChoisie(match.categorie);
+                                }
+                              }} onWheel={(e) => e.target.blur()} className="block w-full pl-12 pr-28 py-5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-2xl font-bold outline-none focus:border-indigo-500 dark:text-white shadow-sm" placeholder="0.00" />
+                              <button type="button" onClick={() => {
+                                const val = resteAPayer.toFixed(2);
+                                setMontantEncaisse(val);
+                                const cents = Math.round(parseFloat(val) * 100);
+                                if (!isNaN(cents) && cents > 0) {
+                                  const match = tarifs.find(t => t.prix_cents === cents);
+                                  if (match) setCategorieChoisie(match.categorie);
+                                }
+                              }} className="absolute right-3 top-3 bottom-3 px-4 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-bold uppercase tracking-wider hover:bg-indigo-100 transition-colors">Le Solde</button>
                             </div>
 
                             <button type="submit" disabled={loadingPaiement || !montantEncaisse}

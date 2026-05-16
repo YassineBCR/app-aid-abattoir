@@ -767,9 +767,11 @@ export default function Tableau({ changeTab, userRole }) {
           {/* PETITE MODIF ICI POUR REFLÉTER LE CHANGEMENT DE RÈGLE */}
           <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Toutes les réservations, y compris celles en attente d'encaissement, sont affichées.</p>
         </div>
-        <button onClick={exportToExcel} className="shrink-0 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
-          <FiDownload /> Excel
-        </button>
+        {userRole !== 'vendeur' && (
+          <button onClick={exportToExcel} className="shrink-0 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
+            <FiDownload /> Excel
+          </button>
+        )}
       </div>
 
       {/* ── Barre de filtres principale ── */}

@@ -126,17 +126,23 @@ export default function AdminComptage() {
   };
 
   // ── Ouvrir modal de comptage ───────────────────────────────────────────────
-  const handleOuvrirComptage = async (session) => {
+  const handleOuvrirComptage = async (session, allSessions = null) => {
     try {
-      const [theorique, { data: txData }] = await Promise.all([
-        computeTheorique(session),
+      const sessionsToQuery = allSessions || [session];
+      const ids = sessionsToQuery.map(s => s.id);
+      const [theoriques, { data: txData }] = await Promise.all([
+        Promise.all(sessionsToQuery.map(s => computeTheorique(s))),
         supabase
           .from("comptabilite")
           .select("*")
-          .eq("caisse_id", session.id)
+          .in("caisse_id", ids)
           .order("created_at", { ascending: true }),
       ]);
-      setComptageModal({ session, theorique });
+      const combined = theoriques.reduce(
+        (acc, t) => ({ especes: acc.especes + t.especes, cb: acc.cb + t.cb, stripe: acc.stripe + t.stripe, nbTx: (acc.nbTx || 0) + (t.nbTx || 0) }),
+        { especes: 0, cb: 0, stripe: 0, nbTx: 0 }
+      );
+      setComptageModal({ session, theorique: combined });
       setComptageTransactions(txData || []);
       setReelEspeces("");
       setReelCb("");
@@ -153,12 +159,28 @@ export default function AdminComptage() {
       showNotification("Aucune caisse ouverte en ce moment.", "info");
       return;
     }
+
+    // Regrouper par vendeur_email
+    const byVendeur = {};
+    for (const s of open) {
+      const email = s.vendeur_email || 'inconnu';
+      if (!byVendeur[email]) byVendeur[email] = [];
+      byVendeur[email].push(s);
+    }
+
     const results = await Promise.all(
-      open.map(async (s) => {
-        const theorique = await computeTheorique(s);
-        return { session: s, theorique };
+      Object.entries(byVendeur).map(async ([, vendeurSessions]) => {
+        const theoriques = await Promise.all(vendeurSessions.map(s => computeTheorique(s)));
+        const combined = theoriques.reduce(
+          (acc, t) => ({ especes: acc.especes + t.especes, cb: acc.cb + t.cb, stripe: acc.stripe + t.stripe, nbTx: acc.nbTx + t.nbTx }),
+          { especes: 0, cb: 0, stripe: 0, nbTx: 0 }
+        );
+        // Session principale = la plus récente
+        const primarySession = [...vendeurSessions].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+        return { session: primarySession, sessions: vendeurSessions, theorique: combined, nbCaisses: vendeurSessions.length };
       })
     );
+
     setCaissesActivesData(results);
     setShowCaissesActives(true);
   };
@@ -210,14 +232,15 @@ export default function AdminComptage() {
   };
 
   // ── Voir le détail des transactions d'une session ─────────────────────────
-  const handleVoirDetail = async (session) => {
+  const handleVoirDetail = async (session, allSessions = null) => {
     setDetailSession(session);
     setLoadingDetail(true);
     try {
+      const ids = allSessions ? allSessions.map(s => s.id) : [session.id];
       const { data } = await supabase
         .from("comptabilite")
         .select("*")
-        .eq("caisse_id", session.id)
+        .in("caisse_id", ids)
         .order("created_at", { ascending: true });
       setDetailTx(data || []);
     } catch {
@@ -727,7 +750,9 @@ export default function AdminComptage() {
                 <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
                   <FiZap className="text-emerald-500" /> Caisses actives en ce moment
                 </h3>
-                <p className="text-slate-500 text-sm mt-0.5">{caissesActivesData.length} caisse(s) ouverte(s)</p>
+                <p className="text-slate-500 text-sm mt-0.5">
+                  {caissesActivesData.length} vendeur(s) actif(s) — {caissesActivesData.reduce((acc, d) => acc + d.nbCaisses, 0)} caisse(s) ouverte(s)
+                </p>
               </div>
               <button onClick={() => setShowCaissesActives(false)} className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm hover:rotate-90 transition-all">
                 <FiX />
@@ -736,8 +761,8 @@ export default function AdminComptage() {
 
             {/* Contenu */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {caissesActivesData.map(({ session, theorique }) => (
-                <div key={session.id} className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              {caissesActivesData.map(({ session, sessions, theorique, nbCaisses }) => (
+                <div key={session.vendeur_email} className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                   {/* Info vendeur */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3">
@@ -747,6 +772,11 @@ export default function AdminComptage() {
                       <div>
                         <p className="font-black text-slate-800 dark:text-white text-sm">{session.vendeur_email.split("@")[0]}</p>
                         <p className="text-xs text-slate-400">{session.vendeur_email}</p>
+                        {nbCaisses > 1 && (
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full text-[10px] font-black">
+                            ⚠ {nbCaisses} caisses fusionnées
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -784,13 +814,13 @@ export default function AdminComptage() {
                   {/* Actions */}
                   <div className="px-4 pb-4 flex gap-2">
                     <button
-                      onClick={() => { setShowCaissesActives(false); handleVoirDetail(session); }}
+                      onClick={() => { setShowCaissesActives(false); handleVoirDetail(session, sessions); }}
                       className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all"
                     >
                       <FiEye size={12} /> Voir les transactions
                     </button>
                     <button
-                      onClick={() => { setShowCaissesActives(false); handleOuvrirComptage(session); }}
+                      onClick={() => { setShowCaissesActives(false); handleOuvrirComptage(session, sessions); }}
                       className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-violet-500/20"
                     >
                       <FiTarget size={12} /> Lancer le comptage
