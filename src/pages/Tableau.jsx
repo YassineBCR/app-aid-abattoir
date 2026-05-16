@@ -4,7 +4,7 @@ import {
   FiList, FiSearch, FiDownload, FiCheckCircle, FiClock, FiCreditCard,
   FiAlertCircle, FiTag, FiUser, FiPhone, FiMail, FiCalendar, FiDollarSign, FiX, FiFileText, FiArrowRight, FiLink,
   FiMessageSquare, FiSend, FiLoader, FiTrash2, FiFilter, FiEdit, FiSave, FiChevronDown, FiSmartphone,
-  FiArrowUp, FiArrowDown, FiGlobe, FiSliders, FiEdit3, FiRotateCcw
+  FiArrowUp, FiArrowDown, FiGlobe, FiSliders, FiEdit3, FiRotateCcw, FiRepeat
 } from "react-icons/fi";
 import { useNotification } from "../contexts/NotificationContext";
 import { logAction } from "../lib/logger"; 
@@ -134,6 +134,15 @@ export default function Tableau({ changeTab, userRole }) {
   const [customSmsBody, setCustomSmsBody]       = useState("");
   const [sendingCustomSms, setSendingCustomSms] = useState(false);
 
+  // ── Switch de place ────────────────────────────────────────────────────────
+  const [switchMode, setSwitchMode]                   = useState(false);
+  const [switchStep, setSwitchStep]                   = useState(0); // 0=sélection source 1=info source 2=saisie dest 3=confirmation
+  const [switchSource, setSwitchSource]               = useState(null);
+  const [switchSourceHistory, setSwitchSourceHistory] = useState([]);
+  const [switchDestNum, setSwitchDestNum]             = useState("");
+  const [switchDest, setSwitchDest]                   = useState(null);
+  const [switchLoading, setSwitchLoading]             = useState(false);
+
   // ── Config ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     async function loadConfig() {
@@ -255,6 +264,138 @@ export default function Tableau({ changeTab, userRole }) {
       setLoading(false);
     }
   }
+
+  // ── Switch de place ────────────────────────────────────────────────────────
+  const handleStartSwitch = () => {
+    setSwitchMode(true);
+    setSwitchStep(0);
+    setSwitchSource(null);
+    setSwitchDest(null);
+    setSwitchDestNum("");
+    setSwitchSourceHistory([]);
+    setSelectedOrder(null);
+  };
+
+  const handleCancelSwitch = () => {
+    setSwitchMode(false);
+    setSwitchStep(0);
+    setSwitchSource(null);
+    setSwitchDest(null);
+    setSwitchDestNum("");
+    setSwitchSourceHistory([]);
+  };
+
+  const handleSelectSwitchSource = async (cmd) => {
+    if (cmd.statut === 'bouclee') {
+      showNotification("Impossible de switcher un ticket bouclé.", "error");
+      return;
+    }
+    setSwitchLoading(true);
+    try {
+      const { data } = await supabase.from('comptabilite').select('*').eq('commande_id', cmd.id).order('created_at', { ascending: true });
+      setSwitchSource(cmd);
+      setSwitchSourceHistory(data || []);
+      setSwitchStep(1);
+    } catch {
+      showNotification("Erreur chargement source.", "error");
+    } finally {
+      setSwitchLoading(false);
+    }
+  };
+
+  const handleLookupSwitchDest = async () => {
+    const num = parseInt(switchDestNum);
+    if (!num || isNaN(num)) return showNotification("Entrez un numéro de ticket valide.", "error");
+    if (num === switchSource?.ticket_num) return showNotification("C'est le même ticket que la source !", "error");
+    setSwitchLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('commandes')
+        .select('*, creneaux_horaires(date, heure_debut)')
+        .eq('ticket_num', num)
+        .maybeSingle();
+      if (error || !data) { showNotification(`Ticket #${num} introuvable.`, "error"); return; }
+      if (data.statut !== 'disponible') {
+        showNotification(`Ticket #${num} n'est pas libre — statut : ${data.statut}.`, "error");
+        return;
+      }
+      setSwitchDest(data);
+      setSwitchStep(3);
+    } catch {
+      showNotification("Erreur lors de la recherche.", "error");
+    } finally {
+      setSwitchLoading(false);
+    }
+  };
+
+  const handleConfirmSwitch = async () => {
+    if (!switchSource || !switchDest) return;
+    setSwitchLoading(true);
+    try {
+      const noteTransfert = `[Transféré du ticket #${switchSource.ticket_num}]${switchSource.note_interne ? ' ' + switchSource.note_interne : ''}`;
+
+      // 1. Copier toutes les infos client vers le ticket destination
+      const { error: e1 } = await supabase.from('commandes').update({
+        contact_first_name:  switchSource.contact_first_name,
+        contact_last_name:   switchSource.contact_last_name,
+        contact_phone:       switchSource.contact_phone,
+        contact_email:       switchSource.contact_email,
+        categorie:           switchSource.categorie,
+        montant_total_cents: switchSource.montant_total_cents,
+        montant_paye_cents:  switchSource.montant_paye_cents,
+        acompte_cents:       switchSource.acompte_cents,
+        statut:              switchSource.statut,
+        sacrifice_name:      switchSource.sacrifice_name,
+        numero_boucle:       switchSource.numero_boucle,
+        note_interne:        noteTransfert,
+        stripe_ref:          switchSource.stripe_ref,
+        creneau_id:          switchSource.creneau_id,
+      }).eq('id', switchDest.id);
+      if (e1) throw e1;
+
+      // 2. Transférer les enregistrements comptabilité vers le ticket destination
+      if (switchSourceHistory.length > 0) {
+        const { error: e2 } = await supabase.from('comptabilite').update({
+          commande_id: switchDest.id,
+          ticket_num:  switchDest.ticket_num,
+        }).eq('commande_id', switchSource.id);
+        if (e2) throw e2;
+      }
+
+      // 3. Remettre le ticket source en stock (disponible)
+      const { error: e3 } = await supabase.from('commandes').update({
+        contact_first_name:  null,
+        contact_last_name:   null,
+        contact_phone:       null,
+        contact_email:       null,
+        categorie:           null,
+        montant_total_cents: 0,
+        montant_paye_cents:  0,
+        acompte_cents:       null,
+        statut:              'disponible',
+        sacrifice_name:      null,
+        numero_boucle:       null,
+        note_interne:        null,
+        stripe_ref:          null,
+      }).eq('id', switchSource.id);
+      if (e3) throw e3;
+
+      logAction('MODIFICATION', 'SWITCH_TICKET', {
+        ticket_source:               switchSource.ticket_num,
+        ticket_dest:                 switchDest.ticket_num,
+        client:                      `${switchSource.contact_first_name} ${switchSource.contact_last_name}`,
+        nb_transactions_transferees: switchSourceHistory.length,
+      });
+
+      showNotification(`Switch effectué : ticket #${switchSource.ticket_num} → #${switchDest.ticket_num}`, "success");
+      handleCancelSwitch();
+      fetchData();
+    } catch (err) {
+      showNotification("Erreur lors du switch : " + err.message, "error");
+    } finally {
+      setSwitchLoading(false);
+    }
+  };
 
   // ── Filtre statut + source + catégorie côté client ────────────────────────
   const filteredCommandes = useMemo(() => {
@@ -716,6 +857,10 @@ export default function Tableau({ changeTab, userRole }) {
 
   const getRowClassName = (cmd, dejaPaye, reste) => {
     const base = "transition-all cursor-pointer group ";
+    if (switchMode && switchStep === 0) {
+      if (cmd.statut === 'bouclee') return base + "opacity-40 cursor-not-allowed bg-slate-50 dark:bg-slate-800";
+      return base + "ring-2 ring-inset ring-orange-400 hover:ring-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20";
+    }
     if (cmd.statut === 'annule')       return base + "bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40";
     if (cmd.statut === 'bouclee')      return base + "bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40";
     if (reste <= 0.05 && dejaPaye > 0) return base + "bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40";
@@ -767,12 +912,39 @@ export default function Tableau({ changeTab, userRole }) {
           {/* PETITE MODIF ICI POUR REFLÉTER LE CHANGEMENT DE RÈGLE */}
           <p className="text-slate-500 text-sm mt-2 ml-1 font-medium">Toutes les réservations, y compris celles en attente d'encaissement, sont affichées.</p>
         </div>
-        {userRole !== 'vendeur' && (
-          <button onClick={exportToExcel} className="shrink-0 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
-            <FiDownload /> Excel
-          </button>
-        )}
+        <div className="flex items-center gap-3 shrink-0">
+          {(userRole === 'admin_global' || userRole === 'admin_site') && (
+            <button onClick={handleStartSwitch} className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-5 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-orange-500/20">
+              <FiRepeat /> Switch de place
+            </button>
+          )}
+          {userRole !== 'vendeur' && (
+            <button onClick={exportToExcel} className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-2xl transition-colors font-bold shadow-lg shadow-slate-900/20">
+              <FiDownload /> Excel
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* ── Bannière mode switch ── */}
+      {switchMode && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border-2 border-orange-400 rounded-2xl p-4 flex items-center justify-between gap-4 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-orange-500 rounded-xl text-white shrink-0">
+              <FiRepeat size={18} />
+            </div>
+            <div>
+              <p className="font-black text-orange-700 dark:text-orange-400 text-sm">Mode Switch de place actif</p>
+              <p className="text-xs text-orange-600 dark:text-orange-500 mt-0.5">
+                {switchStep === 0 && "Cliquez sur le ticket source à déplacer (les tickets bouclés sont bloqués)"}
+              </p>
+            </div>
+          </div>
+          <button onClick={handleCancelSwitch} className="shrink-0 flex items-center gap-2 px-4 py-2 bg-orange-200 dark:bg-orange-800/40 text-orange-800 dark:text-orange-300 rounded-xl font-bold text-sm hover:bg-orange-300 transition-colors">
+            <FiX size={14} /> Annuler
+          </button>
+        </div>
+      )}
 
       {/* ── Barre de filtres principale ── */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-4">
@@ -1035,7 +1207,7 @@ export default function Tableau({ changeTab, userRole }) {
                   const total    = (Number(cmd.montant_total_cents) || 0) / 100;
                   const reste    = Math.max(0, total - dejaPaye);
                   return (
-                    <tr key={cmd.id} onClick={() => handleRowClick(cmd)} className={getRowClassName(cmd, dejaPaye, reste)}>
+                    <tr key={cmd.id} onClick={() => switchMode && switchStep === 0 ? handleSelectSwitchSource(cmd) : handleRowClick(cmd)} className={getRowClassName(cmd, dejaPaye, reste)}>
                       <td className="p-5 font-black text-teal-600 dark:text-teal-400 text-base">
                         <div className="flex items-center gap-2">
                           #{cmd.ticket_num}
@@ -1496,6 +1668,156 @@ export default function Tableau({ changeTab, userRole }) {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL SWITCH — ÉTAPE 1 : Confirmation source ══════════════ */}
+      {switchStep === 1 && switchSource && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-5 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 flex justify-between items-center">
+              <h3 className="font-black text-orange-700 dark:text-orange-400 flex items-center gap-2">
+                <FiRepeat /> Étape 1 / 3 — Ticket source
+              </h3>
+              <button onClick={handleCancelSwitch} className="p-2 bg-white dark:bg-slate-700 rounded-full hover:rotate-90 transition-all"><FiX /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">Vérifiez que c'est bien le ticket à déplacer :</p>
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-2xl p-4 space-y-2 border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-black text-orange-600">#{switchSource.ticket_num}</span>
+                  <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full text-xs font-black">{switchSource.statut}</span>
+                </div>
+                <p className="font-bold text-slate-800 dark:text-white">{switchSource.contact_first_name} {switchSource.contact_last_name}</p>
+                <p className="text-sm text-slate-500">{switchSource.contact_phone}</p>
+                {switchSource.categorie && <p className="text-sm text-slate-500">Catégorie <strong className="text-slate-700 dark:text-slate-200">{switchSource.categorie}</strong> — {((switchSource.montant_total_cents || 0) / 100).toFixed(0)} €</p>}
+                {switchSource.sacrifice_name && <p className="text-sm text-slate-500">Mouton : <strong>{switchSource.sacrifice_name}</strong></p>}
+                {switchSourceHistory.length > 0 && (
+                  <p className="text-xs text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700 mt-2">
+                    {switchSourceHistory.length} transaction(s) comptable(s) à transférer
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={handleCancelSwitch} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Annuler</button>
+                <button onClick={() => setSwitchStep(2)} className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+                  <FiArrowRight /> Choisir la destination
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL SWITCH — ÉTAPE 2 : Saisie ticket destination ══════════════ */}
+      {switchStep === 2 && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-5 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 flex justify-between items-center">
+              <h3 className="font-black text-orange-700 dark:text-orange-400 flex items-center gap-2">
+                <FiRepeat /> Étape 2 / 3 — Ticket destination
+              </h3>
+              <button onClick={handleCancelSwitch} className="p-2 bg-white dark:bg-slate-700 rounded-full hover:rotate-90 transition-all"><FiX /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Le ticket <strong className="text-orange-600">#{switchSource?.ticket_num}</strong> de <strong className="text-slate-800 dark:text-white">{switchSource?.contact_first_name} {switchSource?.contact_last_name}</strong> sera déplacé vers :
+              </p>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Numéro du ticket libre *</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={switchDestNum}
+                    onChange={e => setSwitchDestNum(e.target.value)}
+                    onWheel={e => e.target.blur()}
+                    onKeyDown={e => e.key === 'Enter' && handleLookupSwitchDest()}
+                    placeholder="Ex: 75"
+                    className="flex-1 p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:border-orange-500 dark:text-white font-bold text-lg"
+                  />
+                  <button onClick={handleLookupSwitchDest} disabled={switchLoading} className="px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-2 transition-colors">
+                    {switchLoading ? <FiLoader className="animate-spin" /> : <FiSearch />} Vérifier
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Le ticket doit être libre (statut "disponible")</p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setSwitchStep(1)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Retour</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL SWITCH — ÉTAPE 3 : Confirmation finale ══════════════ */}
+      {switchStep === 3 && switchSource && switchDest && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="p-5 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-200 dark:border-orange-800 flex justify-between items-center shrink-0">
+              <h3 className="font-black text-orange-700 dark:text-orange-400 flex items-center gap-2">
+                <FiRepeat /> Étape 3 / 3 — Confirmation du switch
+              </h3>
+              <button onClick={handleCancelSwitch} className="p-2 bg-white dark:bg-slate-700 rounded-full hover:rotate-90 transition-all"><FiX /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Comparaison côte à côte */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Ticket source */}
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border-2 border-red-300 dark:border-red-700">
+                  <p className="text-xs font-black text-red-600 dark:text-red-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500" /> Ticket source (→ stock)
+                  </p>
+                  <p className="text-2xl font-black text-red-600">#{switchSource.ticket_num}</p>
+                  <p className="font-bold text-slate-800 dark:text-white text-sm mt-1">{switchSource.contact_first_name} {switchSource.contact_last_name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{switchSource.contact_phone}</p>
+                  {switchSource.categorie && <p className="text-xs text-slate-500 mt-1">Cat. <strong>{switchSource.categorie}</strong> — {((switchSource.montant_total_cents || 0) / 100).toFixed(0)} €</p>}
+                  <p className="text-xs text-red-600 dark:text-red-400 font-bold mt-3 pt-2 border-t border-red-200 dark:border-red-800">Sera remis en stock (disponible)</p>
+                </div>
+
+                {/* Ticket destination */}
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border-2 border-emerald-300 dark:border-emerald-700">
+                  <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Ticket destination (← données)
+                  </p>
+                  <p className="text-2xl font-black text-emerald-600">#{switchDest.ticket_num}</p>
+                  <p className="text-xs text-slate-400 mt-1">Actuellement libre</p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-3 pt-2 border-t border-emerald-200 dark:border-emerald-800">
+                    Recevra les infos de {switchSource.contact_first_name} {switchSource.contact_last_name}
+                  </p>
+                </div>
+              </div>
+
+              {/* Transactions à transférer */}
+              {switchSourceHistory.length > 0 && (
+                <div className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">{switchSourceHistory.length} transaction(s) comptable(s) transférée(s)</p>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {switchSourceHistory.map(tx => (
+                      <div key={tx.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                        <span className="text-slate-500">{new Date(tx.created_at).toLocaleString('fr-FR')} — {tx.type_mouvement} ({tx.moyen_paiement})</span>
+                        <span className={`font-black ${Number(tx.montant_cents) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {Number(tx.montant_cents) >= 0 ? '+' : ''}{(Number(tx.montant_cents) / 100).toFixed(2)} €
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
+                Cette opération est irréversible. Une trace sera enregistrée dans les logs.
+              </p>
+            </div>
+
+            <div className="p-5 border-t border-slate-200 dark:border-slate-700 flex gap-3 shrink-0">
+              <button onClick={() => setSwitchStep(2)} disabled={switchLoading} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Retour</button>
+              <button onClick={handleConfirmSwitch} disabled={switchLoading} className="flex-2 px-8 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg shadow-orange-500/20">
+                {switchLoading ? <FiLoader className="animate-spin" /> : <FiRepeat />}
+                Confirmer le switch #{switchSource.ticket_num} → #{switchDest.ticket_num}
+              </button>
             </div>
           </div>
         </div>
