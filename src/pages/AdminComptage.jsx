@@ -5,7 +5,7 @@ import {
   FiLock, FiRefreshCw, FiAlertTriangle, FiCheckCircle,
   FiUser, FiDollarSign, FiCreditCard, FiGlobe, FiEye, FiX,
   FiActivity, FiList, FiTarget, FiClock, FiArrowUpRight, FiArrowDownRight,
-  FiDownload, FiSmartphone, FiZap
+  FiDownload, FiSmartphone, FiZap, FiPower
 } from "react-icons/fi";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -149,6 +149,27 @@ export default function AdminComptage() {
       setCommentaire("");
     } catch {
       showNotification("Erreur calcul du théorique.", "error");
+    }
+  };
+
+  // ── Clôture urgence (admin uniquement, sans comptage) ────────────────────
+  const handleClotureForcee = async (sessions) => {
+    const nb = sessions.length;
+    const email = sessions[0]?.vendeur_email || '?';
+    if (!window.confirm(`Clôturer de force ${nb > 1 ? `les ${nb} caisses` : 'la caisse'} de ${email} sans comptage ?\n\nCette action est irréversible.`)) return;
+    try {
+      const ids = sessions.map(s => s.id);
+      const { error } = await supabase
+        .from('caisses_vendeurs')
+        .update({ statut: 'fermee' })
+        .in('id', ids);
+      if (error) throw error;
+      showNotification(`${nb > 1 ? `${nb} caisses clôturées` : 'Caisse clôturée'} de force.`, "success");
+      // Rafraîchir la liste
+      setSessions(prev => prev.map(s => ids.includes(s.id) ? { ...s, statut: 'fermee' } : s));
+      setCaissesActivesData(prev => prev.filter(d => d.session.vendeur_email !== email));
+    } catch (err) {
+      showNotification("Erreur clôture forcée : " + err.message, "error");
     }
   };
 
@@ -812,18 +833,26 @@ export default function AdminComptage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="px-4 pb-4 flex gap-2">
+                  <div className="px-4 pb-4 space-y-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setShowCaissesActives(false); handleVoirDetail(session, sessions); }}
+                        className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all"
+                      >
+                        <FiEye size={12} /> Voir les transactions
+                      </button>
+                      <button
+                        onClick={() => { setShowCaissesActives(false); handleOuvrirComptage(session, sessions); }}
+                        className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-violet-500/20"
+                      >
+                        <FiTarget size={12} /> Lancer le comptage
+                      </button>
+                    </div>
                     <button
-                      onClick={() => { setShowCaissesActives(false); handleVoirDetail(session, sessions); }}
-                      className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all"
+                      onClick={() => handleClotureForcee(sessions)}
+                      className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-red-500/20"
                     >
-                      <FiEye size={12} /> Voir les transactions
-                    </button>
-                    <button
-                      onClick={() => { setShowCaissesActives(false); handleOuvrirComptage(session, sessions); }}
-                      className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-violet-500/20"
-                    >
-                      <FiTarget size={12} /> Lancer le comptage
+                      <FiPower size={12} /> CLÔTURE URGENCE {nbCaisses > 1 ? `(${nbCaisses} caisses)` : ''} — Sans comptage
                     </button>
                   </div>
                 </div>
