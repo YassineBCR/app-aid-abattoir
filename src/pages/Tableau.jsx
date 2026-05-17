@@ -167,6 +167,25 @@ export default function Tableau({ changeTab, userRole }) {
       .then(({ data }) => { if (data) handleRowClick(data); });
   }, []);
 
+  // ── Ouverture depuis le chat (clic sur #numéro) ───────────────────────────
+  useEffect(() => {
+    const ticketNum = sessionStorage.getItem('tableau_search_ticket');
+    if (!ticketNum) return;
+    sessionStorage.removeItem('tableau_search_ticket');
+    supabase
+      .from('commandes')
+      .select('*, creneaux_horaires(date, heure_debut)')
+      .eq('ticket_num', parseInt(ticketNum))
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          handleRowClick(data);
+        } else {
+          setSearchTerm(ticketNum);
+        }
+      });
+  }, []);
+
   // ── Debounce ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -335,6 +354,7 @@ export default function Tableau({ changeTab, userRole }) {
       const noteTransfert = `[Transféré du ticket #${switchSource.ticket_num}]${switchSource.note_interne ? ' ' + switchSource.note_interne : ''}`;
 
       // 1. Copier toutes les infos client vers le ticket destination
+      //    Le creneau_id N'est PAS transféré : le ticket destination garde son propre créneau
       const { error: e1 } = await supabase.from('commandes').update({
         contact_first_name:  switchSource.contact_first_name,
         contact_last_name:   switchSource.contact_last_name,
@@ -349,19 +369,17 @@ export default function Tableau({ changeTab, userRole }) {
         numero_boucle:       switchSource.numero_boucle,
         note_interne:        noteTransfert,
         stripe_ref:          switchSource.stripe_ref,
-        creneau_id:          switchSource.creneau_id,
       }).eq('id', switchDest.id);
       if (e1) throw e1;
 
       // 2. Transférer les enregistrements comptabilité via RPC (contourne le RLS insert-only)
       if (switchSourceHistory.length > 0) {
-        const { data: nbTransferts, error: e2 } = await supabase.rpc('transferer_historique_comptabilite', {
+        const { error: e2 } = await supabase.rpc('transferer_historique_comptabilite', {
           p_source_commande_id: switchSource.id,
           p_dest_commande_id:   switchDest.id,
           p_dest_ticket_num:    switchDest.ticket_num,
         });
         if (e2) throw e2;
-        if (nbTransferts === 0) throw new Error("Aucune transaction transférée — vérifiez les données source.");
       }
 
       // 3. Remettre le ticket source en stock (disponible)
@@ -1765,37 +1783,62 @@ export default function Tableau({ changeTab, userRole }) {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+              {/* Résumé de l'opération */}
+              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-2xl p-4 text-center">
+                <p className="text-sm font-black text-orange-800 dark:text-orange-300">
+                  {switchSource.contact_first_name} {switchSource.contact_last_name} sera déplacé(e) de
+                </p>
+                <p className="text-base font-black text-red-600 mt-1">
+                  Ticket #{switchSource.ticket_num} — {switchSource.creneaux_horaires ? `${getJourLabel(switchSource.creneaux_horaires.date)} à ${switchSource.creneaux_horaires.heure_debut.slice(0,5)}` : 'Créneau inconnu'}
+                </p>
+                <p className="text-orange-500 font-black my-1">↓</p>
+                <p className="text-base font-black text-emerald-600">
+                  Ticket #{switchDest.ticket_num} — {switchDest.creneaux_horaires ? `${getJourLabel(switchDest.creneaux_horaires.date)} à ${switchDest.creneaux_horaires.heure_debut.slice(0,5)}` : 'Créneau inconnu'}
+                </p>
+              </div>
+
               {/* Comparaison côte à côte */}
               <div className="grid grid-cols-2 gap-4">
                 {/* Ticket source */}
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border-2 border-red-300 dark:border-red-700">
-                  <p className="text-xs font-black text-red-600 dark:text-red-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-red-500" /> Ticket source (→ stock)
+                  <p className="text-xs font-black text-red-600 dark:text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500" /> Ticket source → stock
                   </p>
                   <p className="text-2xl font-black text-red-600">#{switchSource.ticket_num}</p>
-                  <p className="font-bold text-slate-800 dark:text-white text-sm mt-1">{switchSource.contact_first_name} {switchSource.contact_last_name}</p>
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-1 flex items-center gap-1">
+                    <FiCalendar size={10} />
+                    {switchSource.creneaux_horaires ? `${getJourLabel(switchSource.creneaux_horaires.date)} à ${switchSource.creneaux_horaires.heure_debut.slice(0,5)}` : '—'}
+                  </p>
+                  <p className="font-bold text-slate-800 dark:text-white text-sm mt-2">{switchSource.contact_first_name} {switchSource.contact_last_name}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{switchSource.contact_phone}</p>
                   {switchSource.categorie && <p className="text-xs text-slate-500 mt-1">Cat. <strong>{switchSource.categorie}</strong> — {((switchSource.montant_total_cents || 0) / 100).toFixed(0)} €</p>}
-                  <p className="text-xs text-red-600 dark:text-red-400 font-bold mt-3 pt-2 border-t border-red-200 dark:border-red-800">Sera remis en stock (disponible)</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 font-bold mt-3 pt-2 border-t border-red-200 dark:border-red-800">Remis en stock</p>
                 </div>
 
                 {/* Ticket destination */}
                 <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border-2 border-emerald-300 dark:border-emerald-700">
-                  <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Ticket destination (← données)
+                  <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Ticket destination
                   </p>
                   <p className="text-2xl font-black text-emerald-600">#{switchDest.ticket_num}</p>
-                  <p className="text-xs text-slate-400 mt-1">Actuellement libre</p>
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-1 flex items-center gap-1">
+                    <FiCalendar size={10} />
+                    {switchDest.creneaux_horaires ? `${getJourLabel(switchDest.creneaux_horaires.date)} à ${switchDest.creneaux_horaires.heure_debut.slice(0,5)}` : '—'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-2">Actuellement libre</p>
                   <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-3 pt-2 border-t border-emerald-200 dark:border-emerald-800">
-                    Recevra les infos de {switchSource.contact_first_name} {switchSource.contact_last_name}
+                    ← Reçoit les infos + l'historique de paiement
                   </p>
                 </div>
               </div>
 
               {/* Transactions à transférer */}
-              {switchSourceHistory.length > 0 && (
+              {switchSourceHistory.length > 0 ? (
                 <div className="bg-slate-50 dark:bg-slate-900/30 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
-                  <p className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">{switchSourceHistory.length} transaction(s) comptable(s) transférée(s)</p>
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">
+                    {switchSourceHistory.length} transaction(s) financière(s) à transférer
+                  </p>
                   <div className="space-y-1.5 max-h-40 overflow-y-auto">
                     {switchSourceHistory.map(tx => (
                       <div key={tx.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -1807,10 +1850,12 @@ export default function Tableau({ changeTab, userRole }) {
                     ))}
                   </div>
                 </div>
+              ) : (
+                <p className="text-xs text-slate-400 text-center">Aucune transaction financière sur ce ticket.</p>
               )}
 
               <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
-                Cette opération est irréversible. Une trace sera enregistrée dans les logs.
+                ⚠ Cette opération est irréversible. Une trace sera enregistrée dans les logs.
               </p>
             </div>
 
@@ -1818,7 +1863,7 @@ export default function Tableau({ changeTab, userRole }) {
               <button onClick={() => setSwitchStep(2)} disabled={switchLoading} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors text-sm">Retour</button>
               <button onClick={handleConfirmSwitch} disabled={switchLoading} className="flex-2 px-8 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-black rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg shadow-orange-500/20">
                 {switchLoading ? <FiLoader className="animate-spin" /> : <FiRepeat />}
-                Confirmer le switch #{switchSource.ticket_num} → #{switchDest.ticket_num}
+                Confirmer : #{switchSource.ticket_num} → #{switchDest.ticket_num}
               </button>
             </div>
           </div>

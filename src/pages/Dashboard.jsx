@@ -10,6 +10,7 @@ import {
 } from "react-icons/fi";
 
 // IMPORT DES COMPOSANTS
+import StaffChat from "../components/StaffChat";
 import Vendeur from "./Vendeur";
 import Creneaux from "./Creneaux"; 
 import Tableau from "./Tableau"; 
@@ -225,6 +226,10 @@ export default function Dashboard() {
         </main>
 
       </div>
+
+      {/* ── Chat Staff ── */}
+      <StaffChat changeTab={setActive} />
+
     </div>
   );
 }
