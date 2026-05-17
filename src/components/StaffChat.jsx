@@ -1,8 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { useNotification } from "../contexts/NotificationContext";
 import {
   FiMessageSquare, FiSend, FiX, FiChevronDown, FiHash, FiSmile
 } from "react-icons/fi";
+
+// ─── Son de notification via Web Audio API (pas de fichier externe) ────────
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch (_) {}
+}
 
 // ─── Couleurs d'avatar déterministes par email ─────────────────────────────
 const AVATAR_COLORS = [
@@ -61,6 +80,7 @@ function MessageText({ text, onTicketClick }) {
 const LOAD_LIMIT = 60;
 
 export default function StaffChat({ changeTab }) {
+  const { showNotification } = useNotification();
   const [isOpen, setIsOpen]         = useState(false);
   const [messages, setMessages]     = useState([]);
   const [input, setInput]           = useState("");
@@ -68,13 +88,16 @@ export default function StaffChat({ changeTab }) {
   const [unread, setUnread]         = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading]       = useState(false);
-  const bottomRef   = useRef(null);
-  const inputRef    = useRef(null);
-  const channelRef  = useRef(null);
-  const isOpenRef   = useRef(false);
+  const [sendError, setSendError]   = useState("");
+  const bottomRef      = useRef(null);
+  const inputRef       = useRef(null);
+  const channelRef     = useRef(null);
+  const isOpenRef      = useRef(false);
+  const currentUserRef = useRef(null);
 
-  // Garde isOpenRef synchronisé pour la subscription
+  // Garder les refs synchronisées
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   // ── Charger l'utilisateur courant ────────────────────────────────────────
   useEffect(() => {
@@ -100,22 +123,38 @@ export default function StaffChat({ changeTab }) {
   // ── Realtime subscription ────────────────────────────────────────────────
   useEffect(() => {
     const channel = supabase
-      .channel("staff_chat")
+      .channel("staff_chat_realtime")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "chat_messages" },
         (payload) => {
+          const msg = payload.new;
           setMessages(prev => {
-            if (prev.find(m => m.id === payload.new.id)) return prev;
-            return [...prev, payload.new];
+            if (prev.find(m => m.id === msg.id)) return prev;
+            return [...prev, msg];
           });
-          if (!isOpenRef.current) setUnread(n => n + 1);
+
+          // Notifs uniquement pour les messages des autres
+          const myEmail = currentUserRef.current?.email;
+          if (msg.user_email !== myEmail) {
+            playNotifSound();
+            if (!isOpenRef.current) {
+              setUnread(n => n + 1);
+              const senderName = msg.display_name || msg.user_email.split("@")[0];
+              const preview    = msg.message.length > 50 ? msg.message.slice(0, 50) + "…" : msg.message;
+              showNotification(`💬 ${senderName} : ${preview}`, "info");
+            }
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          console.warn("Chat realtime error — retrying...");
+        }
+      });
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [showNotification]);
 
   // ── Scroll to bottom ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -136,17 +175,28 @@ export default function StaffChat({ changeTab }) {
   const handleSend = async (e) => {
     e?.preventDefault();
     const text = input.trim();
-    if (!text || !currentUser || sending) return;
+    if (!text || sending) return;
+    if (!currentUser) {
+      setSendError("Utilisateur non chargé, rechargez la page.");
+      return;
+    }
     setSending(true);
-    setInput("");
-    await supabase.from("chat_messages").insert({
-      user_id:      currentUser.id,
-      user_email:   currentUser.email,
-      display_name: displayName(currentUser.email),
-      message:      text,
-    });
-    setSending(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
+    setSendError("");
+    try {
+      const { error } = await supabase.from("chat_messages").insert({
+        user_id:      currentUser.id,
+        user_email:   currentUser.email,
+        display_name: displayName(currentUser.email),
+        message:      text,
+      });
+      if (error) throw error;
+      setInput("");
+    } catch (err) {
+      setSendError(err.message || "Erreur d'envoi");
+    } finally {
+      setSending(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
   };
 
   // ── Clic sur ticket → ouvrir dans le registre ────────────────────────────
@@ -270,8 +320,12 @@ export default function StaffChat({ changeTab }) {
           {/* Saisie */}
           <form
             onSubmit={handleSend}
-            className="shrink-0 flex items-center gap-2 px-3 py-3 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700"
+            className="shrink-0 flex flex-col gap-1 px-3 py-3 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700"
           >
+            {sendError && (
+              <p className="text-xs text-red-500 font-bold px-1">{sendError}</p>
+            )}
+            <div className="flex items-center gap-2">
             <input
               ref={inputRef}
               type="text"
@@ -288,6 +342,7 @@ export default function StaffChat({ changeTab }) {
             >
               <FiSend size={15} />
             </button>
+            </div>
           </form>
         </div>
       </div>
