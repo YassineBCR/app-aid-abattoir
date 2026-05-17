@@ -159,15 +159,19 @@ export default function AdminComptage() {
     if (!window.confirm(`Clôturer de force ${nb > 1 ? `les ${nb} caisses` : 'la caisse'} de ${email} sans comptage ?\n\nCette action est irréversible.`)) return;
     try {
       const ids = sessions.map(s => s.id);
-      const { error } = await supabase
-        .from('caisses_vendeurs')
-        .update({ statut: 'fermee' })
-        .in('id', ids);
+      const { data: nbCloturees, error } = await supabase.rpc('cloturer_caisses_urgence', { p_caisse_ids: ids });
       if (error) throw error;
-      showNotification(`${nb > 1 ? `${nb} caisses clôturées` : 'Caisse clôturée'} de force.`, "success");
-      // Rafraîchir la liste
-      setSessions(prev => prev.map(s => ids.includes(s.id) ? { ...s, statut: 'fermee' } : s));
-      setCaissesActivesData(prev => prev.filter(d => d.session.vendeur_email !== email));
+      showNotification(`${nbCloturees > 0 ? nbCloturees : nb} caisse(s) clôturée(s) de force.`, "success");
+      setSessions(prev => prev.map(s => ids.includes(s.id) ? { ...s, statut: 'cloturee' } : s));
+      setCaissesActivesData(prev => {
+        const updated = prev.map(d => ({
+          ...d,
+          sessions: d.sessions.filter(s => !ids.includes(s.id)),
+          nbCaisses: d.sessions.filter(s => !ids.includes(s.id)).length,
+          sessionTheoriques: (d.sessionTheoriques || []).filter(st => !ids.includes(st.session.id)),
+        })).filter(d => d.sessions.length > 0);
+        return updated;
+      });
     } catch (err) {
       showNotification("Erreur clôture forcée : " + err.message, "error");
     }
