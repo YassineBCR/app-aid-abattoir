@@ -84,6 +84,12 @@ export default function Dashboard() {
     return PERMS[profile.role]?.sections || [];
   }, [profile]);
 
+  // Sections déjà visitées : montées une seule fois, jamais démontées
+  const [mountedSections, setMountedSections] = useState(() => new Set());
+  useEffect(() => {
+    if (active) setMountedSections(prev => new Set([...prev, active]));
+  }, [active]);
+
   const ActiveComponent = active ? SECTIONS[active]?.component : null;
 
   async function logout() { await supabase.auth.signOut(); }
@@ -93,8 +99,10 @@ export default function Dashboard() {
       setMobileMenuOpen(false);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500 font-bold animate-pulse text-xl">Chargement de votre espace...</div>;
-  if (!profile) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500 font-bold">Connexion requise</div>;
+  // Spinner uniquement au tout premier chargement (profile pas encore connu)
+  // Les refreshs de token Supabase ne doivent PAS remplacer le dashboard
+  if (loading && !profile) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500 font-bold animate-pulse text-xl">Chargement de votre espace...</div>;
+  if (!loading && !profile) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-500 font-bold">Connexion requise</div>;
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -210,18 +218,24 @@ export default function Dashboard() {
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8 relative scroll-smooth">
             <div className="max-w-7xl mx-auto">
-                {ActiveComponent ? (
-                    <div className="animate-fade-in-up">
-                        {/* On passe le userRole à ActiveComponent */}
-                        <ActiveComponent changeTab={setActive} userRole={profile?.role} />
-                    </div>
-                ) : (
+                {/* Écran d'accueil si rien de sélectionné */}
+                {!active && (
                     <div className="h-[60vh] flex flex-col items-center justify-center text-center">
                         <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-300 dark:text-slate-600 mb-6"><FiLayers className="text-5xl"/></div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Sélectionnez un outil</h2>
                         <p className="text-slate-500 mt-2">Utilisez le menu latéral pour naviguer dans votre espace.</p>
                     </div>
                 )}
+                {/* Monté à la première visite, jamais démonté — état préservé entre onglets */}
+                {allowedSections.map(key => {
+                    const Comp = SECTIONS[key]?.component;
+                    if (!Comp || !mountedSections.has(key)) return null;
+                    return (
+                        <div key={key} className={active === key ? "animate-fade-in-up" : "hidden"}>
+                            <Comp changeTab={setActive} userRole={profile?.role} />
+                        </div>
+                    );
+                })}
             </div>
         </main>
 
