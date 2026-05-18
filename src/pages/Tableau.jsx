@@ -38,7 +38,7 @@ const SORT_OPTIONS = [
 ];
 
 function getStatutMetier(cmd) {
-  if (cmd.statut === "annule")  return "annule";
+  if (cmd.statut === "annule" || cmd.statut === "annulee") return "annule";
   if (cmd.statut === "bouclee") return "bouclee";
   const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
   const total    = (Number(cmd.montant_total_cents) || 0) / 100;
@@ -202,15 +202,22 @@ export default function Tableau({ changeTab, userRole }) {
   async function fetchPaymentSources() {
     setLoadingPaymentSources(true);
     try {
-      const { data, error } = await supabase
-        .from('comptabilite')
-        .select('commande_id, moyen_paiement')
-        .eq('type_mouvement', 'encaissement')
-        .gt('montant_cents', 0);
-      if (error) throw error;
+      let allTx = [];
+      let from = 0, more = true;
+      while (more) {
+        const { data, error } = await supabase
+          .from('comptabilite')
+          .select('commande_id, moyen_paiement')
+          .eq('type_mouvement', 'encaissement')
+          .gt('montant_cents', 0)
+          .range(from, from + 999);
+        if (error) throw error;
+        if (data && data.length > 0) { allTx.push(...data); from += 1000; }
+        else more = false;
+      }
 
       const map = {};
-      (data || []).forEach(tx => {
+      allTx.forEach(tx => {
         if (!tx.commande_id) return;
         if (!map[tx.commande_id]) map[tx.commande_id] = new Set();
         map[tx.commande_id].add(tx.moyen_paiement);
@@ -269,13 +276,27 @@ export default function Tableau({ changeTab, userRole }) {
           : query.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%`);
       }
 
-      const { data, error, count } = await query
-        .order(sortField, { ascending: sortDir === 'asc' })
-        .limit(limit);
+      // Appliquer le tri UNE seule fois avant la boucle (order() mute l'objet et s'accumule si rappelé)
+      const sortedQuery = query.order(sortField, { ascending: sortDir === 'asc' });
 
-      if (error) throw error;
-      setCommandes(data || []);
-      setHasMore(count > (data || []).length);
+      if (limit >= 9999) {
+        // Pagination complète — bypass la limite serveur PostgREST
+        let allRows = [];
+        let page = 0, more = true;
+        while (more) {
+          const { data: batch, error: e } = await sortedQuery.range(page * 1000, page * 1000 + 999);
+          if (e) throw e;
+          if (batch && batch.length > 0) { allRows.push(...batch); page++; }
+          else more = false;
+        }
+        setCommandes(allRows);
+        setHasMore(false);
+      } else {
+        const { data, error, count } = await sortedQuery.limit(limit);
+        if (error) throw error;
+        setCommandes(data || []);
+        setHasMore(count > (data || []).length);
+      }
     } catch (err) {
       console.error(err);
       showNotification("Erreur de chargement du registre", "error");
@@ -755,8 +776,16 @@ export default function Tableau({ changeTab, userRole }) {
         : exportQuery.or(`contact_phone.ilike.%${debouncedSearch}%,contact_last_name.ilike.%${debouncedSearch}%,contact_first_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%,numero_boucle.ilike.%${debouncedSearch}%,stripe_ref.ilike.%${debouncedSearch}%,note_interne.ilike.%${debouncedSearch}%`);
     }
 
-    const { data: allData, error } = await exportQuery.order(sortField, { ascending: sortDir === 'asc' });
-    if (error) { showNotification("Erreur lors de l'export", "error"); return; }
+    // Pagination pour bypasser la limite serveur PostgREST (max ~1000 sans range)
+    const sortedExportQuery = exportQuery.order(sortField, { ascending: sortDir === 'asc' });
+    let allData = [];
+    let page = 0, more = true;
+    while (more) {
+      const { data: batch, error } = await sortedExportQuery.range(page * 1000, page * 1000 + 999);
+      if (error) { showNotification("Erreur lors de l'export", "error"); return; }
+      if (batch && batch.length > 0) { allData.push(...batch); page++; }
+      else more = false;
+    }
 
     let exportData = allData;
     if (filterStatut) exportData = exportData.filter(cmd => getStatutMetier(cmd) === filterStatut);

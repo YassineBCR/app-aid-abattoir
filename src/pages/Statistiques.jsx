@@ -7,7 +7,7 @@ import {
 
 // ─── Même logique que Tableau.jsx ──────────────────────────────────────────
 function getStatutMetier(cmd) {
-  if (cmd.statut === "annule")  return "annule";
+  if (cmd.statut === "annule" || cmd.statut === "annulee") return "annule";
   if (cmd.statut === "bouclee") return "bouclee";
   const dejaPaye = (Number(cmd.montant_paye_cents) || 0) / 100;
   const total    = (Number(cmd.montant_total_cents) || 0) / 100;
@@ -45,6 +45,7 @@ export default function Statistiques() {
           .select('*')
           .neq('statut', 'brouillon')
           .neq('statut', 'en_attente')
+          .neq('statut', 'disponible')
           .range(from, from + 999);
         if (error) throw error;
         if (batch && batch.length > 0) {
@@ -79,21 +80,22 @@ export default function Statistiques() {
       let totalNonBoucles = 0;
 
       toutesLesCommandes.forEach(cmd => {
-        if (cmd.statut !== 'annule') {
+        const statut = getStatutMetier(cmd);
+        sCounts[statut] = (sCounts[statut] || 0) + 1;
+
+        if (statut !== 'annule') {
           caTheoriqueCents += (Number(cmd.montant_total_cents) || 0);
         }
+
         // Clamp à 0 : montant_paye_cents peut être négatif en cas de bug d'annulation multiple
         const payeCents = Math.max(0, Number(cmd.montant_paye_cents ?? cmd.acompte_cents ?? 0));
         caEncaisseCents += payeCents;
 
-        const statut = getStatutMetier(cmd);
-        sCounts[statut] = (sCounts[statut] || 0) + 1;
-
-        if (cmd.categorie && cmd.statut !== 'annule') {
+        if (cmd.categorie && statut !== 'annule') {
           cCounts[cmd.categorie] = (cCounts[cmd.categorie] || 0) + 1;
         }
 
-        if (!cmd.numero_boucle && cmd.statut !== 'annule') {
+        if (!cmd.numero_boucle && statut !== 'annule') {
           totalNonBoucles++;
         }
       });
