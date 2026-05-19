@@ -3,39 +3,39 @@ import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
-// Écouter les messages Push venant du serveur
+// ── Réception d'une notification push ─────────────────────────────────────
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {};
-  
-  const title = data.title || 'Nouvelle notification';
+
+  const title = data.title || 'Pro Abattoir';
   const options = {
-    body: data.body || 'Vous avez un nouveau message',
-    icon: '/pwa-192x192.png', // Assurez-vous que cette icône existe dans public/
-    badge: '/pwa-192x192.png',
-    data: data.url || '/'
+    body:    data.body  || 'Vous avez un nouveau message',
+    icon:    '/pwa-192x192.png',
+    badge:   '/pwa-192x192.png',
+    vibrate: [200, 100, 200],
+    tag:     data.tag   || 'default',
+    renotify: true,
+    data: { url: data.url || '/' },
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Gérer le clic sur la notification (Ouvre l'app ou la page demandée)
+// ── Clic sur la notification ───────────────────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  
+  const targetUrl = event.notification.data?.url || '/';
+
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Si une fenêtre est déjà ouverte, on la focus
-      if (clientList.length > 0) {
-        let client = clientList[0];
-        for (let i = 0; i < clientList.length; i++) {
-          if (clientList[i].focused) {
-            client = clientList[i];
-          }
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      // Si une fenêtre est déjà ouverte → focus
+      for (const client of list) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus();
         }
-        return client.focus();
       }
-      // Sinon on ouvre l'URL
-      return clients.openWindow(event.notification.data);
+      // Sinon → ouvrir l'app
+      return clients.openWindow(targetUrl);
     })
   );
 });

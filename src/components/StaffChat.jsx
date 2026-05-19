@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useNotification } from "../contexts/NotificationContext";
+import { sendPushToUser } from "../lib/pushNotifications";
 import {
   FiMessageSquare, FiSend, FiX, FiChevronDown, FiHash, FiSmile,
   FiLock, FiArrowLeft, FiSearch, FiUsers
@@ -321,12 +322,34 @@ export default function StaffChat({ changeTab }) {
       const { error } = await supabase.from("chat_messages").insert(payload);
       if (error) throw error;
       setInput("");
-      // Mettre à jour la liste des DMs localement (dernière conv remontée en haut)
+
+      // ── Notification push ──────────────────────────────────────────────────
+      const senderName = displayName(currentUser.email);
       if (activeConv?.type === "dm") {
+        // Push uniquement au destinataire
+        sendPushToUser({
+          userId: activeConv.id,
+          title:  `💬 ${senderName} (message privé)`,
+          body:   text.length > 80 ? text.slice(0, 80) + '…' : text,
+          tag:    `dm-${currentUser.id}`,
+        });
         setConversations(prev => {
           const updated = { ...activeConv, lastMsg: text, lastTime: new Date().toISOString(), unread: 0 };
           return [updated, ...prev.filter(c => c.id !== activeConv.id)];
         });
+      } else {
+        // Canal public → push à tout le staff (sauf l'expéditeur)
+        const otherStaff = staffUsers
+          .filter(u => u.id !== currentUser.id)
+          .map(u => u.id);
+        if (otherStaff.length > 0) {
+          sendPushToUser({
+            userIds: otherStaff,
+            title:   `📢 ${senderName} — Canal Staff`,
+            body:    text.length > 80 ? text.slice(0, 80) + '…' : text,
+            tag:     'public-chat',
+          });
+        }
       }
     } catch (err) {
       setSendError(err.message || "Erreur d'envoi");

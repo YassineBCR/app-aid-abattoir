@@ -6,30 +6,28 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-      workbox: {
-        // C'est cette ligne qui résout le problème de taille d'ExcelJS
-        maximumFileSizeToCacheInBytes: 10485760, // Limite montée à 10 Mo
+      injectManifest: {
+        maximumFileSizeToCacheInBytes: 10485760,
       },
+      includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'Abattoir Aïd',
+        name: 'Pro Abattoir',
         short_name: 'Abattoir',
-        description: 'Application de réservation pour l\'abattoir',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        description: 'Application de gestion abattoir Aïd',
+        theme_color: '#059669',
+        background_color: '#f8fafc',
         display: 'standalone',
+        orientation: 'portrait',
+        start_url: '/',
+        scope: '/',
         icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          { src: 'apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
         ]
       }
     })

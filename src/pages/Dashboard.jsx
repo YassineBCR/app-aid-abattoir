@@ -9,6 +9,8 @@ import {
   FiLayers, FiHome, FiSettings, FiList, FiMenu, FiChevronRight, FiMessageSquare
 } from "react-icons/fi";
 
+import { registerPushSubscription } from "../lib/pushNotifications";
+
 // IMPORT DES COMPOSANTS
 import StaffChat from "../components/StaffChat";
 import Vendeur from "./Vendeur";
@@ -71,6 +73,11 @@ export default function Dashboard() {
 
     const allowed = PERMS[p.role]?.sections || [];
     setActive((prev) => (prev && allowed.includes(prev) ? prev : allowed[0] || null));
+
+    // Enregistrement des notifications push (silencieux — ne bloque pas le chargement)
+    if (p.role !== "client") {
+      registerPushSubscription().catch(() => {});
+    }
   }
 
   useEffect(() => {
